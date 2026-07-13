@@ -50,6 +50,11 @@ std::mutex g_head_mutex;
 bool g_head_active = false;
 HeadPose g_head;
 
+std::mutex g_view_mutex;
+bool g_views_available = false;
+std::vector<ViewInfo> g_views;
+std::string g_views_space;
+
 std::mutex g_state_mutex;
 bool g_instance_present = false;
 bool g_session_present = false;
@@ -287,6 +292,45 @@ json HandleRequest(const std::string& line) {
     return json{{"ok", true}, {"queued", "active"}};
   }
 
+  if (cmd == "view") {
+    // { cmd:"view" } -> the latest per-eye view pose + FOV captured at xrLocateViews (after any head
+    // override). The observe/act bridge: with these an agent maps screen pixels <-> world points, so
+    // a button seen in a screenshot maps to a world coordinate to point/look at. {available:false}
+    // until the app has located views at least once.
+    std::vector<ViewInfo> views;
+    std::string space;
+    if (!ControlChannelGetViews(views, space)) {
+      return json{{"ok", true}, {"available", false}};
+    }
+    json arr = json::array();
+    for (const ViewInfo& v : views) {
+      arr.push_back({
+          {"pose",
+           {{"x", v.px}, {"y", v.py}, {"z", v.pz},
+            {"qx", v.qx}, {"qy", v.qy}, {"qz", v.qz}, {"qw", v.qw}}},
+          {"fov",
+           {{"angleLeft", v.angleLeft}, {"angleRight", v.angleRight},
+            {"angleUp", v.angleUp}, {"angleDown", v.angleDown}}},
+      });
+    }
+    return json{
+        {"ok", true},
+        {"available", true},
+        {"viewCount", views.size()},
+        {"space", space},
+        {"views", arr},
+        {"note",
+         "Per-eye view pose (position+orientation) and projection FOV, in the app's view-locate "
+         "space. World->camera: view matrix = inverse of the eye pose (rotation R from the "
+         "quaternion, translation t from the position; view = [R^T | -R^T t]). Projection: from the "
+         "asymmetric FOV half-angles in radians via tan(angleLeft/Right/Up/Down) per the OpenXR "
+         "convention (angleLeft/angleDown are typically negative). camera->clip through that "
+         "projection gives NDC (x,y in [-1,1]); NDC->pixel: px=(ndcX*0.5+0.5)*width, "
+         "py=(1-(ndcY*0.5+0.5))*height using the captured eye image's width/height (from "
+         "vr_screenshot metadata). Invert the chain to turn a pixel into a world-space ray."},
+    };
+  }
+
   return json{{"ok", false}, {"error", "unknown cmd: " + cmd}};
   } catch (const std::exception& e) {
     return json{{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
@@ -455,6 +499,20 @@ bool ControlChannelGetHead(HeadPose& out) {
   std::lock_guard<std::mutex> lock(g_head_mutex);
   if (g_head_active) out = g_head;
   return g_head_active;
+}
+
+void ControlChannelSetViews(const std::vector<ViewInfo>& views, const std::string& spaceDesc) {
+  std::lock_guard<std::mutex> lock(g_view_mutex);
+  g_views = views;
+  g_views_space = spaceDesc;
+  g_views_available = true;
+}
+bool ControlChannelGetViews(std::vector<ViewInfo>& out, std::string& spaceDescOut) {
+  std::lock_guard<std::mutex> lock(g_view_mutex);
+  if (!g_views_available) return false;
+  out = g_views;
+  spaceDescOut = g_views_space;
+  return true;
 }
 
 void ControlChannelSetInstance(bool present) {

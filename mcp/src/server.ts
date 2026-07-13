@@ -658,6 +658,27 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "vr_view",
+  {
+    title: "Get the viewpoint pose + FOV (observe/act bridge)",
+    description:
+      "Return the per-eye view pose (position + orientation) and projection FOV captured at the app's " +
+      "last xrLocateViews (after any vr_set_hmd head override). This is the bridge between the point " +
+      "(px,py) seen in a vr_screenshot and a world coordinate you can act on with vr_set_hmd / " +
+      "vr_set_controller / vr_look_at / vr_point_at: with the eye pose and FOV you project a world " +
+      "point to a screen pixel and back, so observation and action close in the SAME coordinate " +
+      "system. The view matrix is the inverse of the eye pose; the projection is built from the FOV " +
+      "half-angles (radians; angleLeft/angleDown are typically negative); NDC maps to pixels by the " +
+      "captured eye image's width/height (from vr_screenshot metadata). Fields: viewCount, space (the " +
+      "reference space the poses are in, e.g. LOCAL), views:[{pose:{x,y,z,qx,qy,qz,qw}, " +
+      "fov:{angleLeft,angleRight,angleUp,angleDown}}], note (the exact mapping recipe). Returns " +
+      "{available:false} until the app has located views at least once.",
+    inputSchema: {},
+  },
+  async () => textResult(await send({ cmd: "view" })),
+);
+
 // TODO(WU5): vr_actions (action-set/action dump) + aim-pose override, xrCreateAction hand tracking.
 
 const transport = new StdioServerTransport();

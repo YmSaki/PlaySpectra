@@ -64,6 +64,25 @@ void ControlChannelSetHead(const HeadPose& pose);
 void ControlChannelClearHead();
 bool ControlChannelGetHead(HeadPose& out);  // true if a head override is currently active
 
+// One located view (per eye) captured at xrLocateViews time: the pose the app renders from and the
+// projection FOV. Published for the `view` command so an agent can map between world points and
+// screen pixels -- the observe(screenshot)/act(pose) bridge. The view matrix is the inverse of
+// `pose`; the projection is built from the FOV half-angles. Expressed in the app's view-locate
+// reference space (see spaceDesc from GetViews). Angles are OpenXR XrFovf half-angles in radians
+// (angleLeft/angleDown are typically negative).
+struct ViewInfo {
+  float px = 0.0f, py = 0.0f, pz = 0.0f;             // eye position (metres, in the locate space)
+  float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;  // eye orientation quaternion
+  float angleLeft = 0.0f, angleRight = 0.0f;         // FOV half-angles (radians, signed)
+  float angleUp = 0.0f, angleDown = 0.0f;
+};
+
+// Latest views captured at xrLocateViews (AFTER any head override), published for the `view` command.
+// Set from the app thread inside the locate hook; read on the socket thread. GetViews returns false
+// until the app has located views at least once (spaceDesc names the locate reference space).
+void ControlChannelSetViews(const std::vector<ViewInfo>& views, const std::string& spaceDesc);
+bool ControlChannelGetViews(std::vector<ViewInfo>& out, std::string& spaceDescOut);
+
 // State published by the layer for the `status` command (thread-safe setters).
 void ControlChannelSetInstance(bool present);
 void ControlChannelSetSession(bool present);

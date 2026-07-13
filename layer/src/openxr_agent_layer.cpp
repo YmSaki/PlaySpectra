@@ -216,6 +216,27 @@ void ApplyPendingInputs(XrSession session) {
 // ---------------------------------------------------------------------------------------------
 std::mutex g_view_spaces_mutex;
 std::set<XrSpace> g_view_spaces;  // reference spaces of type VIEW (from xrCreateReferenceSpace)
+// All reference spaces -> their type, so the `view` command can name the app's view-locate space
+// (LOCAL / STAGE / ...). Guarded by g_view_spaces_mutex; populated/erased alongside g_view_spaces.
+std::map<XrSpace, XrReferenceSpaceType> g_ref_space_types;
+
+// Human-readable name of a reference space (for the `view` command's `space` field). Returns a
+// descriptive fallback for handles we never saw created as a reference space, or types we don't name.
+std::string DescribeRefSpace(XrSpace space) {
+  XrReferenceSpaceType t;
+  {
+    std::lock_guard<std::mutex> lock(g_view_spaces_mutex);
+    auto it = g_ref_space_types.find(space);
+    if (it == g_ref_space_types.end()) return "unknown (not a tracked reference space)";
+    t = it->second;
+  }
+  switch (t) {
+    case XR_REFERENCE_SPACE_TYPE_VIEW: return "VIEW";
+    case XR_REFERENCE_SPACE_TYPE_LOCAL: return "LOCAL";
+    case XR_REFERENCE_SPACE_TYPE_STAGE: return "STAGE";
+    default: return "reference space type " + std::to_string(static_cast<int>(t));
+  }
+}
 
 XrQuaternionf QMul(const XrQuaternionf& a, const XrQuaternionf& b) {
   return XrQuaternionf{a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
@@ -407,6 +428,7 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
       {
         std::lock_guard<std::mutex> lock(g_view_spaces_mutex);
         g_view_spaces.clear();  // VIEW spaces belong to this session
+        g_ref_space_types.clear();
       }
       {
         std::lock_guard<std::mutex> lock(g_action_mutex);
@@ -579,6 +601,35 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
               XR_VIEW_STATE_POSITION_TRACKED_BIT | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT;
         }
       }
+      // Publish the FINAL located views (after any head override) so the `view` control command can
+      // hand the agent the viewpoint pose + FOV -- the observe/act bridge for world<->pixel mapping.
+      // Only when the runtime returned valid pose data; otherwise the poses are meaningless.
+      if (viewState) {
+        const XrViewStateFlags valid =
+            XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+        if ((viewState->viewStateFlags & valid) == valid) {
+          std::vector<vr_agent::ViewInfo> infos;
+          infos.reserve(*viewCountOutput);
+          for (uint32_t i = 0; i < *viewCountOutput; ++i) {
+            vr_agent::ViewInfo vi;
+            vi.px = views[i].pose.position.x;
+            vi.py = views[i].pose.position.y;
+            vi.pz = views[i].pose.position.z;
+            vi.qx = views[i].pose.orientation.x;
+            vi.qy = views[i].pose.orientation.y;
+            vi.qz = views[i].pose.orientation.z;
+            vi.qw = views[i].pose.orientation.w;
+            vi.angleLeft = views[i].fov.angleLeft;
+            vi.angleRight = views[i].fov.angleRight;
+            vi.angleUp = views[i].fov.angleUp;
+            vi.angleDown = views[i].fov.angleDown;
+            infos.push_back(vi);
+          }
+          const std::string space =
+              viewLocateInfo ? DescribeRefSpace(viewLocateInfo->space) : std::string("unknown");
+          vr_agent::ControlChannelSetViews(infos, space);
+        }
+      }
     }
     return r;
   } catch (...) {
@@ -595,10 +646,11 @@ XrResult XRAPI_CALL Hook_xrCreateReferenceSpace(XrSession session,
         ResolveNext<PFN_xrCreateReferenceSpace>("xrCreateReferenceSpace");
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, createInfo, space);
-    if (XR_SUCCEEDED(r) && space && createInfo &&
-        createInfo->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_VIEW) {
+    if (XR_SUCCEEDED(r) && space && createInfo) {
       std::lock_guard<std::mutex> lock(g_view_spaces_mutex);
-      g_view_spaces.insert(*space);
+      g_ref_space_types[*space] = createInfo->referenceSpaceType;  // for the `view` space name
+      if (createInfo->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_VIEW)
+        g_view_spaces.insert(*space);
     }
     return r;
   } catch (...) {
@@ -615,6 +667,7 @@ XrResult XRAPI_CALL Hook_xrDestroySpace(XrSpace space) {
     {
       std::lock_guard<std::mutex> lock(g_view_spaces_mutex);
       g_view_spaces.erase(space);
+      g_ref_space_types.erase(space);
     }
     {
       std::lock_guard<std::mutex> lock(g_action_mutex);

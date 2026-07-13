@@ -117,11 +117,12 @@ json HandleRequest(const std::string& line) {
   }
 
   if (cmd == "screenshot") {
-    // { cmd:"screenshot", eye:"left"|"right"|"dominant", timeoutMs:5000 }
+    // { cmd:"screenshot", eye:"left"|"right"|"dominant", timeoutMs:5000, withDepth:false }
     const std::string eye = req.value("eye", std::string("dominant"));
     const int timeoutMs = req.value("timeoutMs", 5000);
+    const bool withDepth = req.value("withDepth", false);
     try {
-      return json::parse(CaptureRequestScreenshot(eye, timeoutMs));
+      return json::parse(CaptureRequestScreenshot(eye, timeoutMs, withDepth));
     } catch (...) {
       return json{{"ok", false}, {"error", "capture returned malformed result"}};
     }

@@ -39,6 +39,7 @@ add_library(vr_agent_layer SHARED
   src/layer_log.cpp
   src/control_channel.cpp
   src/capture.cpp
+  src/capture_vulkan.cpp
   src/capture_d3d11.cpp
   src/capture_d3d12.cpp
   ${lodepng_SOURCE_DIR}/lodepng.cpp

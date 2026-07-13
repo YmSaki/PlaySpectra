@@ -30,6 +30,10 @@ namespace vr_agent {
 // re-deriving the path so numbering stays consistent across all APIs.
 std::string NextColorCapturePath();
 
+// Next depth-capture output path, e.g. "<VR_AGENT_CAPTURE_DIR>/vr_depth_<n>.png". Same shared
+// output dir + atomic counter as NextColorCapturePath (defined in capture.cpp).
+std::string NextDepthCapturePath();
+
 // ---- D3D11 ----------------------------------------------------------------------------------------
 // device is the app-owned ID3D11Device* from XrGraphicsBindingD3D11KHR (NOT ref-held; the app owns it).
 // Set at xrCreateSession, cleared at xrDestroySession. imageHandle is an ID3D11Texture2D* as uint64_t.
@@ -48,5 +52,21 @@ void D3D12Free();
 nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint32_t sampleCount,
                                   int32_t x, int32_t y, int32_t w, int32_t h, uint32_t arrayIndex,
                                   const std::string& eye, int viewIndex);
+
+// ---- Vulkan ---------------------------------------------------------------------------------------
+// binding is from XrGraphicsBindingVulkanKHR: app-owned handles (NOT ref-held; the app owns them).
+// Set at xrCreateSession, cleared at xrDestroySession. imageHandle is a VkImage as uint64_t.
+void VulkanSetBinding(void* vkInstance, void* vkPhysicalDevice, void* vkDevice,
+                      uint32_t queueFamilyIndex, uint32_t queueIndex);
+void VulkanFree();  // session destroy; waits an in-flight capture fence (GAP-07(c)) before freeing.
+nlohmann::json VulkanReadbackToPng(uint64_t imageHandle, int64_t vkFormat, uint32_t sampleCount,
+                                   int32_t x, int32_t y, int32_t w, int32_t h, uint32_t arrayIndex,
+                                   const std::string& eye, int viewIndex);
+// Depth is Vulkan-only (nice-to-have, CLAUDE.md). The EndFrameSnapshot::View depth fields
+// (minDepth/maxDepth/nearZ/farZ) are expanded into the flat args by the caller.
+nlohmann::json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t vkFormat, uint32_t sampleCount,
+                                        int32_t x, int32_t y, int32_t w, int32_t h,
+                                        uint32_t arrayIndex, float minDepth, float maxDepth,
+                                        float nearZ, float farZ);
 
 }  // namespace vr_agent

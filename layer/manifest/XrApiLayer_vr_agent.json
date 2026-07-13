@@ -1,0 +1,10 @@
+{
+  "file_format_version": "1.0.0",
+  "api_layer": {
+    "name": "XR_APILAYER_vr_agent",
+    "library_path": "./vr_agent_layer.dll",
+    "api_version": "1.0",
+    "implementation_version": "1",
+    "description": "VR-MCP input injection and frame capture API layer for headless VR app testing"
+  }
+}

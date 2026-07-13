@@ -38,6 +38,8 @@ add_library(vr_agent_layer SHARED
   src/openxr_agent_layer.cpp
   src/control_channel.cpp
   src/capture.cpp
+  src/capture_d3d11.cpp
+  src/capture_d3d12.cpp
   ${lodepng_SOURCE_DIR}/lodepng.cpp
 )
 
@@ -50,6 +52,7 @@ target_link_libraries(vr_agent_layer PRIVATE
   OpenXR::headers
   nlohmann_json::nlohmann_json
   d3d11
+  d3d12
   dxgi
   dxguid
   ws2_32

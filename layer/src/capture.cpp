@@ -22,6 +22,7 @@
 #include <openxr/openxr_platform.h>
 
 #include "capture.h"
+#include "capture_backends.h"
 #include "lodepng.h"
 
 #include <atomic>
@@ -752,6 +753,13 @@ const char* GfxApiName(GfxApi api) {
   }
 }
 
+// Shared color-capture output path (same numbering/dir the Vulkan path uses at line ~460). Exposed to
+// the D3D11/D3D12 backend TUs via capture_backends.h so they don't re-derive it. CaptureOutputDir()
+// and g_capture_counter live in this TU's anonymous namespace but are visible here.
+std::string NextColorCapturePath() {
+  return CaptureOutputDir() + "/vr_capture_" + std::to_string(g_capture_counter.fetch_add(1)) + ".png";
+}
+
 void CaptureOnCreateSession(const XrSessionCreateInfo* createInfo, XrSession /*session*/) {
   if (!createInfo) return;
   std::lock_guard<std::mutex> lock(g_mutex);
@@ -765,8 +773,15 @@ void CaptureOnCreateSession(const XrSessionCreateInfo* createInfo, XrSession /*s
       g_vk_device = b->device;
       g_vk_queue_family = b->queueFamilyIndex;
       g_vk_queue_index = b->queueIndex;
+    } else if (base->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
+      // Hand the app-owned device to the D3D11 backend (capture_d3d11.cpp). Not ref-held here.
+      const auto* b = reinterpret_cast<const XrGraphicsBindingD3D11KHR*>(base);
+      D3D11SetDevice(b->device);
+    } else if (base->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR) {
+      // Hand the app-owned device + DIRECT queue to the D3D12 backend (capture_d3d12.cpp).
+      const auto* b = reinterpret_cast<const XrGraphicsBindingD3D12KHR*>(base);
+      D3D12SetDevice(b->device, b->queue);
     }
-    // D3D11/D3D12 handles captured when those backends land.
   }
   Log(std::string("session graphics API = ") + GfxApiName(g_api));
 }
@@ -774,6 +789,8 @@ void CaptureOnCreateSession(const XrSessionCreateInfo* createInfo, XrSession /*s
 void CaptureOnDestroySession(XrSession /*session*/) {
   std::lock_guard<std::mutex> lock(g_mutex);
   FreeVulkanResources();
+  D3D11Free();
+  D3D12Free();
   g_swapchains.clear();
   g_api = GfxApi::Unknown;
   g_vk_instance = VK_NULL_HANDLE;
@@ -921,8 +938,11 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
       } else {
         const auto& view = snap.views[idx];
 
-        // Resolve the target image + format under g_mutex, then release it before GPU work.
+        // Resolve the target image + format under g_mutex, then release it before GPU work. rawHandle
+        // is the API-agnostic opaque handle (VkImage / ID3D11Texture2D* / ID3D12Resource*) the backends
+        // receive as uint64_t; vkImage is the Vulkan-typed view of the same value for the inline path.
         VkImage vkImage = VK_NULL_HANDLE;
+        uint64_t rawHandle = 0;
         int64_t format = 0;
         uint32_t sampleCount = 1;
         bool haveImage = false;
@@ -934,11 +954,16 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
             sampleCount = it->second.sampleCount;
             const uint32_t ri = it->second.lastReleasedIndex;
             if (ri < it->second.images.size()) {
-              vkImage = reinterpret_cast<VkImage>(it->second.images[ri]);
+              rawHandle = it->second.images[ri];
+              vkImage = reinterpret_cast<VkImage>(rawHandle);
               haveImage = true;
             }
           }
         }
+
+        // Depth answer for the non-Vulkan backends (depth readback is Vulkan-only, a nice-to-have).
+        const json kDepthVulkanOnly = {{"available", false},
+                                       {"note", "depth capture implemented for the Vulkan backend only"}};
 
         if (g_api == GfxApi::Vulkan) {
           if (!haveImage) {
@@ -947,6 +972,22 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
             result = VulkanReadbackToPng(vkImage, format, sampleCount, view, eye, idx);
           }
           if (withDepth) result["depth"] = ResolveDepth(view);
+        } else if (g_api == GfxApi::D3D11) {
+          if (!haveImage) {
+            result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
+          } else {
+            result = D3D11ReadbackToPng(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                        view.arrayIndex, eye, idx);
+          }
+          if (withDepth) result["depth"] = kDepthVulkanOnly;
+        } else if (g_api == GfxApi::D3D12) {
+          if (!haveImage) {
+            result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
+          } else {
+            result = D3D12ReadbackToPng(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                        view.arrayIndex, eye, idx);
+          }
+          if (withDepth) result["depth"] = kDepthVulkanOnly;
         } else {
           result = {{"ok", false},
                     {"error", std::string("capture backend for ") + GfxApiName(g_api) +
@@ -954,9 +995,7 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
                     {"api", GfxApiName(g_api)},
                     {"eye", eye},
                     {"viewIndex", idx}};
-          if (withDepth)
-            result["depth"] = {{"available", false},
-                               {"note", "depth capture implemented for the Vulkan backend only"}};
+          if (withDepth) result["depth"] = kDepthVulkanOnly;
         }
       }
     }

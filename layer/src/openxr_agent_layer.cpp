@@ -334,6 +334,15 @@ std::mutex g_action_mutex;
 struct ActionSpaceInfo { XrAction action; std::string handTop; };  // handTop e.g. "/user/hand/left"
 std::map<XrSpace, ActionSpaceInfo> g_action_spaces;
 std::set<XrAction> g_grip_pose_actions;
+// GAP-04: actions bound to a .../input/aim/pose path. aim and grip are the SAME rigid controller with
+// a fixed offset, so we derive the aim pose as aim = grip * offset rather than tracking it separately.
+std::set<XrAction> g_aim_pose_actions;
+// Cached grip->aim static offset per hand (aim-in-grip frame). Only populated once the runtime returns
+// a VALID offset for that hand; g_grip_to_aim_valid gates that so an initial untracked locate does NOT
+// poison the cache with identity (which would collapse aim onto grip for the whole session). All three
+// are guarded by g_action_mutex.
+std::map<std::string, XrPosef> g_grip_to_aim;
+std::set<std::string> g_grip_to_aim_valid;
 
 // ---------------------------------------------------------------------------------------------
 // Action discovery registry (WU5, `actions` command / vr_actions tool). Lets an agent enumerate the
@@ -382,47 +391,196 @@ std::string PathToStr(XrPath p) {
   return s;
 }
 
-// If `space` is a tracked grip-pose action space for a hand with an injected sticky pose, write that
-// pose (LOCAL -> baseSpace) into `outPose`/`outFlags` and return true. Takes pose+flags (not the
+// GAP-06 helper: extract the top-level hand path ("/user/hand/left") from a full binding path
+// ("/user/hand/left/input/grip/pose"). Returns "" if the path is not under /user/hand/*.
+std::string HandTopFromBindingPath(const std::string& path) {
+  if (path.compare(0, 11, "/user/hand/") != 0) return "";
+  size_t slash = path.find('/', 11);  // end of the hand segment
+  return slash == std::string::npos ? path : path.substr(0, slash);
+}
+
+// GAP-06 helper: infer which hand(s) a pose action targets from its recorded binding paths. Used only
+// for action spaces created with a null subactionPath (handTop == ""), where the hand must be resolved
+// lazily at locate time (bindings are only guaranteed present by then). Returns 0, 1, or 2 distinct
+// "/user/hand/*" tops. PRECONDITION: caller already holds g_action_mutex. Pure registry read: no
+// control-channel calls, no locking inside (would deadlock the non-recursive mutex).
+std::vector<std::string> InferHandTops(XrAction action) {
+  std::vector<std::string> out;
+  auto it = g_actions.find(action);
+  if (it == g_actions.end()) return out;
+  for (const BindingReg& b : it->second.bindings) {
+    std::string top = HandTopFromBindingPath(b.path);
+    if (top.empty()) continue;
+    bool dup = false;
+    for (const std::string& t : out) if (t == top) { dup = true; break; }
+    if (!dup) out.push_back(top);
+  }
+  return out;
+}
+
+// GAP-04: whether a tracked action space serves `handTop`. PRECONDITION: caller holds g_action_mutex.
+bool ActionSpaceServesHand(const ActionSpaceInfo& asi, const std::string& handTop) {
+  if (!asi.handTop.empty()) return asi.handTop == handTop;
+  for (const std::string& t : InferHandTops(asi.action)) if (t == handTop) return true;
+  return false;  // null-subactionPath space with no matching /user/hand/* binding
+}
+
+// GAP-04: resolve the static grip->aim rigid offset (aim-in-grip frame) for `handTop`. The offset is
+// O = locate(space=aimSpace, base=gripSpace): aim's pose expressed in grip's frame, so aim = grip * O.
+// Because grip and aim are the same physical controller, this offset is constant and can be cached.
+// Lock discipline (existing 2-phase rule): scan g_action_spaces under g_action_mutex to find the hand's
+// grip/aim spaces, then RELEASE the lock before calling next xrLocateSpace (never call the runtime while
+// holding g_action_mutex). Re-entry: uses the RAW resolved next pointer, never Hook_xrLocateSpace, so it
+// cannot recurse into our own override. Sets *validOut=true and caches only on a VALID offset; on an
+// untracked/failed locate it returns identity WITHOUT caching, so a later frame retries (no poisoning).
+XrPosef ResolveGripToAimOffset(const std::string& handTop, XrTime time, bool* validOut) {
+  XrPosef identity{};
+  identity.orientation.w = 1.0f;
+  XrSpace gripSpace = XR_NULL_HANDLE;
+  XrSpace aimSpace = XR_NULL_HANDLE;
+  {
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    auto cached = g_grip_to_aim_valid.find(handTop);
+    if (cached != g_grip_to_aim_valid.end()) {
+      if (validOut) *validOut = true;
+      return g_grip_to_aim[handTop];
+    }
+    for (const auto& kv : g_action_spaces) {
+      const ActionSpaceInfo& asi = kv.second;
+      if (!ActionSpaceServesHand(asi, handTop)) continue;
+      if (g_grip_pose_actions.count(asi.action)) gripSpace = kv.first;
+      else if (g_aim_pose_actions.count(asi.action)) aimSpace = kv.first;
+    }
+  }  // g_action_mutex released before touching the runtime
+  if (gripSpace == XR_NULL_HANDLE || aimSpace == XR_NULL_HANDLE) {
+    if (validOut) *validOut = false;
+    return identity;  // both spaces not yet created; don't cache -> retry next locate
+  }
+  // RAW next (not our hook) to avoid self-re-entry / double override.
+  static PFN_xrLocateSpace rawLocate = ResolveNext<PFN_xrLocateSpace>("xrLocateSpace");
+  if (!rawLocate) {
+    if (validOut) *validOut = false;
+    return identity;
+  }
+  XrSpaceLocation loc{XR_TYPE_SPACE_LOCATION};
+  XrResult r = rawLocate(aimSpace, gripSpace, time, &loc);
+  const XrSpaceLocationFlags need =
+      XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+  if (XR_FAILED(r) || (loc.locationFlags & need) != need) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      Log("aim override: runtime grip->aim offset untracked; falling back to identity (aim=grip) "
+          "until it reports a valid offset (headless degrade-graceful; not cached, retried each locate)");
+    }
+    if (validOut) *validOut = false;
+    return identity;  // degrade gracefully; do NOT cache identity (avoids permanent aim=grip collapse)
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    g_grip_to_aim[handTop] = loc.pose;
+    g_grip_to_aim_valid.insert(handTop);
+  }
+  if (validOut) *validOut = true;
+  return loc.pose;
+}
+
+// If `space` is a tracked grip- OR aim-pose action space for a hand with an injected sticky pose, write
+// that pose (LOCAL -> baseSpace) into `outPose`/`outFlags` and return true. Takes pose+flags (not the
 // struct) so it serves both xrLocateSpace (XrSpaceLocation) and xrLocateSpaces (XrSpaceLocationData).
 // `session` may be g_session for the singular xrLocateSpace (which has no session parameter).
-bool ApplyGripOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTime time,
+// GAP-04: aim spaces get the rigid grip*offset composition. GAP-06: a null-subactionPath space resolves
+// its hand lazily from the action's bindings (candidates), with the injected pose as the tiebreak.
+bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTime time,
                        XrPosef& outPose, XrSpaceLocationFlags& outFlags) {
-  ActionSpaceInfo info;
+  XrAction action = XR_NULL_HANDLE;
+  bool isAim = false;
+  bool handTopKnown = false;
+  std::vector<std::string> candidates;  // possible hands for this space (1 for subactionPath'd spaces)
   {
     std::lock_guard<std::mutex> lock(g_action_mutex);
     auto it = g_action_spaces.find(space);
     if (it == g_action_spaces.end()) return false;
-    info = it->second;
-    if (g_grip_pose_actions.count(info.action) == 0) return false;
-  }
-  if (info.handTop.empty()) {  // null subactionPath -> can't map to a hand
+    const ActionSpaceInfo& info = it->second;
+    action = info.action;
+    const bool isGrip = g_grip_pose_actions.count(action) > 0;
+    isAim = g_aim_pose_actions.count(action) > 0;
+    if (!isGrip && !isAim) return false;
+    if (!info.handTop.empty()) {
+      handTopKnown = true;
+      candidates.push_back(info.handTop);  // subactionPath'd space: exact per-hand match (existing path)
+    } else {
+      // GAP-06: null subactionPath. Infer hand(s) from the bound paths. Doing this under the lock (the
+      // registry read) is what prevents racing a concurrent xrSuggestInteractionProfileBindings mutation.
+      candidates = InferHandTops(action);
+    }
+  }  // lock released: no ControlChannel* call is ever made while holding g_action_mutex.
+
+  if (candidates.empty()) {  // null subactionPath and no /user/hand/* bindings recorded yet
     static bool warned = false;
     if (!warned) {
       warned = true;
-      Log("grip override: action space has null subactionPath; can't map to a hand "
-          "(per-action subaction tracking is a WU5 follow-up)");
+      Log("pose override: action space has null subactionPath and no /user/hand/* bindings recorded "
+          "yet; can't map to a hand (graceful no-op)");
     }
     return false;
   }
-  XrPosef poseLocal{};
+
+  // Widen the existing single sticky-pose read to accept the first injected pose whose hand is a
+  // candidate. Single candidate -> exact per-hand match (unchanged). Ambiguous both-hands candidate ->
+  // the injected pose is the natural tiebreak (whichever hand you injected wins).
+  std::vector<vr_agent::StickyPose> poses = vr_agent::ControlChannelGetStickyPoses();
+  XrPosef gripLocal{};
   bool have = false;
-  for (const vr_agent::StickyPose& sp : vr_agent::ControlChannelGetStickyPoses()) {
-    if (sp.top_level == info.handTop) {
-      poseLocal.orientation = XrQuaternionf{sp.qx, sp.qy, sp.qz, sp.qw};
-      poseLocal.position = XrVector3f{sp.px, sp.py, sp.pz};
-      have = true;
-      break;
-    }
+  std::string matchedHand;
+  for (const vr_agent::StickyPose& sp : poses) {
+    bool isCandidate = false;
+    for (const std::string& c : candidates) if (c == sp.top_level) { isCandidate = true; break; }
+    if (!isCandidate) continue;
+    gripLocal.orientation = XrQuaternionf{sp.qx, sp.qy, sp.qz, sp.qw};
+    gripLocal.position = XrVector3f{sp.px, sp.py, sp.pz};
+    matchedHand = sp.top_level;
+    have = true;
+    break;
   }
   if (!have) return false;
+
+  if (candidates.size() > 1) {  // ambiguous both-hands: log once if both hands were injected
+    int injected = 0;
+    for (const std::string& c : candidates)
+      for (const vr_agent::StickyPose& sp : poses) if (sp.top_level == c) { ++injected; break; }
+    if (injected > 1) {
+      static bool warned = false;
+      if (!warned) {
+        warned = true;
+        Log("pose override: null-subactionPath action bound to both hands with both injected; "
+            "using the first match");
+      }
+    }
+  } else if (!handTopKnown) {
+    // Optimization: memoize an UNAMBIGUOUS single-hand resolution so later locates skip inference.
+    // Never cache the ambiguous both-hands pick -- its tiebreak depends on live injected poses.
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    auto it = g_action_spaces.find(space);
+    if (it != g_action_spaces.end() && it->second.handTop.empty()) it->second.handTop = candidates[0];
+  }
+
+  XrPosef poseLocal = gripLocal;
+  if (isAim) {
+    // Rigid compose in LOCAL: aim = grip * offset (offset = aim-in-grip). Identity fallback -> aim=grip.
+    bool offValid = false;
+    XrPosef off = ResolveGripToAimOffset(matchedHand, time, &offValid);
+    poseLocal.orientation = QMul(gripLocal.orientation, off.orientation);
+    poseLocal.position = VAdd(gripLocal.position, QRot(gripLocal.orientation, off.position));
+  }
+
   bool ok = false;
   outPose = TransformLocalPoseToSpace(session, poseLocal, baseSpace, time, &ok);
   if (!ok) {  // parity with the head path: transform to base space unresolved
     static bool warned = false;
     if (!warned) {
       warned = true;
-      Log("grip override: LOCAL->locate-space transform unresolved; emitting the LOCAL pose as-is "
+      Log("pose override: LOCAL->locate-space transform unresolved; emitting the LOCAL pose as-is "
           "(correct for LOCAL-space apps, off for STAGE)");
     }
   }
@@ -470,6 +628,9 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         std::lock_guard<std::mutex> lock(g_action_mutex);
         g_action_spaces.clear();  // action spaces belong to this session
         g_grip_pose_actions.clear();
+        g_aim_pose_actions.clear();  // GAP-04: mirror grip cleanup
+        g_grip_to_aim.clear();
+        g_grip_to_aim_valid.clear();
         g_attached_action_sets.clear();  // attachment is per-session (re-attached on a new session)
       }
       g_session = XR_NULL_HANDLE;
@@ -726,11 +887,36 @@ XrResult XRAPI_CALL Hook_xrDestroySpace(XrSpace space) {
 // *single* VIEW-space origin (= the head pose itself), so a direct copy is correct here -- unlike
 // xrLocateViews, whose per-eye poses need RebaseViewsToHead to preserve each eye's IPD offset. `h`
 // must already be expressed in the location's base space (callers pass a TransformHeadToSpace result).
-void ApplyHeadToLocation(const vr_agent::HeadPose& h, XrPosef& pose, XrSpaceLocationFlags& flags) {
+// GAP-05: returns true (the pose WAS overridden) so callers know this entry is a static injected pose
+// and may zero its velocity. It unconditionally overrides, so the return is always true, but the bool
+// keeps the "velocity zeroed only on overridden entries" invariant explicit and parallel to
+// ApplyPoseOverride's bool.
+bool ApplyHeadToLocation(const vr_agent::HeadPose& h, XrPosef& pose, XrSpaceLocationFlags& flags) {
   pose.orientation = XrQuaternionf{h.qx, h.qy, h.qz, h.qw};
   pose.position = XrVector3f{h.px, h.py, h.pz};
   flags |= XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
            XR_SPACE_LOCATION_POSITION_TRACKED_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+  return true;
+}
+
+// GAP-05: zero a located space's velocity. We inject a STATIC pose snapshot with no motion model, so we
+// assert velocity = 0 and set the VALID bits to suppress the runtime's/app's extrapolation between our
+// discrete injections. This is deliberate: even when the agent moves the controller/head every frame,
+// the true instantaneous velocity is unknown to us and we intentionally stop extrapolation rather than
+// report a stale runtime velocity. There is no TRACKED-equivalent bit for velocity, so none is set.
+void ZeroVelocity(XrSpaceVelocityFlags& flags, XrVector3f& linear, XrVector3f& angular) {
+  linear = XrVector3f{0.0f, 0.0f, 0.0f};
+  angular = XrVector3f{0.0f, 0.0f, 0.0f};
+  flags |= XR_SPACE_VELOCITY_LINEAR_VALID_BIT | XR_SPACE_VELOCITY_ANGULAR_VALID_BIT;
+}
+
+// GAP-05: walk a MUTABLE next-chain for a struct of `type`, returning a writable pointer (we zero into
+// it). Non-const on purpose: XrSpaceLocation::next / XrSpaceLocations::next are both non-const void*.
+void* FindInNextChain(void* next, XrStructureType type) {
+  for (XrBaseOutStructure* p = reinterpret_cast<XrBaseOutStructure*>(next); p != nullptr; p = p->next) {
+    if (p->type == type) return p;
+  }
+  return nullptr;
 }
 
 // xrLocateSpace: override VIEW located in a world (non-VIEW) space to the injected head pose.
@@ -741,16 +927,26 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(space, baseSpace, time, location);
     if (XR_SUCCEEDED(r) && location) {
+      bool overrode = false;
       if (IsViewSpace(space)) {
         vr_agent::HeadPose h;
         if (!IsViewSpace(baseSpace) && vr_agent::ControlChannelGetHead(h)) {
           const vr_agent::HeadPose hInBase = TransformHeadToSpace(g_session, h, baseSpace, time);
-          ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
+          overrode = ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
         }
       } else {
-        // Controller grip pose override (authoritative pose path; makes orientation work regardless
-        // of the runtime's CA behaviour). No-op unless this is a tracked grip space with a pose set.
-        ApplyGripOverride(g_session, space, baseSpace, time, location->pose, location->locationFlags);
+        // Controller grip/aim pose override (authoritative pose path; makes orientation work regardless
+        // of the runtime's CA behaviour). No-op unless this is a tracked pose space with a pose set.
+        overrode =
+            ApplyPoseOverride(g_session, space, baseSpace, time, location->pose, location->locationFlags);
+      }
+      // GAP-05: only zero velocity on entries we actually overrode (static injected pose -> no motion).
+      if (overrode) {
+        void* v = FindInNextChain(location->next, XR_TYPE_SPACE_VELOCITY);
+        if (v) {
+          XrSpaceVelocity* vel = reinterpret_cast<XrSpaceVelocity*>(v);
+          ZeroVelocity(vel->velocityFlags, vel->linearVelocity, vel->angularVelocity);
+        }
       }
     }
     return r;
@@ -772,17 +968,26 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
       const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::ControlChannelGetHead(h);
       const vr_agent::HeadPose hInBase =
           headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;
+      // GAP-05: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry
+      // velocities[i] is zeroed only for entries we actually override, with null + range guards.
+      XrSpaceVelocities* vels = reinterpret_cast<XrSpaceVelocities*>(
+          FindInNextChain(locations->next, XR_TYPE_SPACE_VELOCITIES));
       const uint32_t n = locations->locationCount < locateInfo->spaceCount ? locations->locationCount
                                                                            : locateInfo->spaceCount;
       for (uint32_t i = 0; i < n; ++i) {
         XrSpace s = locateInfo->spaces[i];
+        bool overrode = false;
         if (IsViewSpace(s)) {
           if (headActive)
-            ApplyHeadToLocation(hInBase, locations->locations[i].pose,
-                                locations->locations[i].locationFlags);
+            overrode = ApplyHeadToLocation(hInBase, locations->locations[i].pose,
+                                           locations->locations[i].locationFlags);
         } else {
-          ApplyGripOverride(session, s, locateInfo->baseSpace, locateInfo->time,
-                            locations->locations[i].pose, locations->locations[i].locationFlags);
+          overrode = ApplyPoseOverride(session, s, locateInfo->baseSpace, locateInfo->time,
+                                       locations->locations[i].pose, locations->locations[i].locationFlags);
+        }
+        if (overrode && vels && vels->velocities && i < vels->velocityCount) {
+          ZeroVelocity(vels->velocities[i].velocityFlags, vels->velocities[i].linearVelocity,
+                       vels->velocities[i].angularVelocity);
         }
       }
     }
@@ -827,6 +1032,9 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
         const std::string bindingPath = PathToStr(b.binding);
         if (bindingPath.find("/input/grip/pose") != std::string::npos)
           g_grip_pose_actions.insert(b.action);
+        // GAP-04: /input/aim/pose is defined by every OpenXR interaction profile (universal, core).
+        if (bindingPath.find("/input/aim/pose") != std::string::npos)
+          g_aim_pose_actions.insert(b.action);
         auto it = g_actions.find(b.action);  // only actions the app created via the hooked path
         if (it != g_actions.end()) it->second.bindings.push_back(BindingReg{profile, bindingPath});
       }
@@ -892,6 +1100,7 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
       for (auto it = g_actions.begin(); it != g_actions.end();) {
         if (it->second.actionSet == actionSet) {
           g_grip_pose_actions.erase(it->first);
+          g_aim_pose_actions.erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
           it = g_actions.erase(it);
         } else {
           ++it;

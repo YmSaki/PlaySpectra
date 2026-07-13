@@ -114,6 +114,12 @@ struct LayerDispatch {
   PFN_xrDestroyActionSet destroyActionSet = nullptr;
   PFN_xrAttachSessionActionSets attachSessionActionSets = nullptr;
   PFN_xrLocateSpaces locateSpaces = nullptr;  // OpenXR 1.1 / XR_KHR_locate_spaces (may be null)
+  // GAP-08: intercepted only for the non-CA input fallback (see the fallback section below).
+  PFN_xrGetActionStateBoolean getActionStateBoolean = nullptr;
+  PFN_xrGetActionStateFloat getActionStateFloat = nullptr;
+  PFN_xrGetActionStateVector2f getActionStateVector2f = nullptr;
+  PFN_xrGetCurrentInteractionProfile getCurrentInteractionProfile = nullptr;
+  PFN_xrPollEvent pollEvent = nullptr;
   PFN_xrGetInstanceProperties getInstanceProperties = nullptr;
   PFN_xrPathToString pathToString = nullptr;
   PFN_xrStringToPath stringToPath = nullptr;
@@ -172,6 +178,12 @@ void RebuildLayerDispatch() {
   d.attachSessionActionSets =
       ResolveNext<PFN_xrAttachSessionActionSets>("xrAttachSessionActionSets");
   d.locateSpaces = ResolveNext<PFN_xrLocateSpaces>("xrLocateSpaces");  // optional
+  d.getActionStateBoolean = ResolveNext<PFN_xrGetActionStateBoolean>("xrGetActionStateBoolean");
+  d.getActionStateFloat = ResolveNext<PFN_xrGetActionStateFloat>("xrGetActionStateFloat");
+  d.getActionStateVector2f = ResolveNext<PFN_xrGetActionStateVector2f>("xrGetActionStateVector2f");
+  d.getCurrentInteractionProfile =
+      ResolveNext<PFN_xrGetCurrentInteractionProfile>("xrGetCurrentInteractionProfile");
+  d.pollEvent = ResolveNext<PFN_xrPollEvent>("xrPollEvent");
   d.getInstanceProperties = ResolveNext<PFN_xrGetInstanceProperties>("xrGetInstanceProperties");
   d.pathToString = ResolveNext<PFN_xrPathToString>("xrPathToString");
   d.stringToPath = ResolveNext<PFN_xrStringToPath>("xrStringToPath");
@@ -670,6 +682,137 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
 }
 
 // ---------------------------------------------------------------------------------------------
+// GAP-08: non-CA input fallback. On a runtime WITHOUT XR_EXT_conformance_automation we can't push
+// button/analog state into the runtime, so the layer emulates the OpenXR action system itself:
+//   - drained MCP injections are latched into a sticky (action, subactionPath) store on xrSyncActions;
+//   - xrGetActionState{Boolean,Float,Vector2f} are intercepted to return those latched values with
+//     isActive=TRUE (for actions whose set was active this sync) + changedSinceLastSync/lastChangeTime;
+//   - xrGetCurrentInteractionProfile reports an emulated profile and one synthetic
+//     XrEventDataInteractionProfileChanged is delivered via xrPollEvent, so the app treats the virtual
+//     controller as connected and actually queries the actions.
+// This is the "all keys, not just Enter" completeness for engine-independent input; controller POSE
+// already works without CA via ApplyPoseOverride, so only buttons/analog live here. All state is under
+// the existing g_action_mutex (the reverse lookup reads g_actions, so a separate lock would invert the
+// order). NOTE: our test runtime (Meta sim) HAS conformance_automation, so this path is build+review
+// verified but not runtime-exercised -- it needs a non-CA runtime + app to drive end to end.
+struct FallbackActionState {
+  bool b = false;
+  float f = 0.0f;
+  XrVector2f v{0.0f, 0.0f};
+  // Snapshot at the previous sync, to compute changedSinceLastSync.
+  bool syncedB = false;
+  float syncedF = 0.0f;
+  XrVector2f syncedV{0.0f, 0.0f};
+  bool everSynced = false;
+  XrBool32 changedSinceLastSync = XR_FALSE;
+  XrTime lastChangeTime = 0;
+};
+// key = (action, subactionPath). subactionPath is the injected top-level hand path (e.g.
+// /user/hand/right); a NULL-path query aggregates all a given action's entries. Guarded by g_action_mutex.
+std::map<std::pair<XrAction, XrPath>, FallbackActionState> g_fallback_states;
+std::set<XrActionSet> g_synced_active_sets;  // action sets active as of the most recent xrSyncActions
+XrPath g_emulated_profile = XR_NULL_PATH;     // first interaction profile the app suggested bindings for
+bool g_pending_ip_event = false;              // one synthetic InteractionProfileChanged to deliver
+XrTime g_fallback_sync_counter = 0;           // monotonic best-effort lastChangeTime source (approx)
+
+float AbsF(float x) { return x < 0.0f ? -x : x; }
+
+// Actions bound to `sourceBindingPath` (e.g. /user/hand/right/input/trigger/value) in the recorded
+// suggestion registry. PRECONDITION: caller holds g_action_mutex. Binding paths are profile-agnostic
+// in practice (same path across profiles), so we match on path alone.
+std::vector<XrAction> ActionsBoundTo(const std::string& sourceBindingPath) {
+  std::vector<XrAction> out;
+  for (const auto& kv : g_actions) {
+    for (const BindingReg& bnd : kv.second.bindings) {
+      if (bnd.path == sourceBindingPath) {
+        out.push_back(kv.first);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// xrSyncActions latch for the non-CA path: drain queued button/analog injections into the sticky store,
+// refresh the active-action-set set, and recompute changedSinceLastSync/lastChangeTime. Controller
+// poses are NOT handled here -- ApplyPoseOverride is the authoritative pose source in both CA and non-CA.
+void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
+  std::vector<vr_agent::PendingInput> batch = vr_agent::ControlChannelDrainInputs();
+  std::lock_guard<std::mutex> lock(g_action_mutex);
+
+  for (const vr_agent::PendingInput& p : batch) {
+    if (p.type == vr_agent::InputType::Active) continue;  // isActive is derived from synced sets, not a value
+    const XrPath sub = ToPath(p.top_level);
+    for (XrAction action : ActionsBoundTo(p.source)) {
+      FallbackActionState& st = g_fallback_states[{action, sub}];
+      switch (p.type) {
+        case vr_agent::InputType::Float:  st.f = p.f; st.b = p.f > 0.5f; break;
+        case vr_agent::InputType::Bool:   st.b = p.b; st.f = p.b ? 1.0f : 0.0f; break;
+        case vr_agent::InputType::Vector2f: st.v = XrVector2f{p.x, p.y}; break;
+        default: break;
+      }
+    }
+  }
+
+  g_synced_active_sets.clear();
+  if (syncInfo && syncInfo->activeActionSets) {
+    for (uint32_t i = 0; i < syncInfo->countActiveActionSets; ++i)
+      g_synced_active_sets.insert(syncInfo->activeActionSets[i].actionSet);
+  }
+
+  const XrTime now = ++g_fallback_sync_counter;  // approximate: OpenXR gives no time to xrSyncActions
+  for (auto& kv : g_fallback_states) {
+    FallbackActionState& st = kv.second;
+    XrActionSet set = XR_NULL_HANDLE;
+    auto ai = g_actions.find(kv.first.first);
+    if (ai != g_actions.end()) set = ai->second.actionSet;
+    if (!g_synced_active_sets.count(set)) {  // inactive set -> not latched, reported inactive
+      st.changedSinceLastSync = XR_FALSE;
+      continue;
+    }
+    const bool changed = !st.everSynced || st.syncedB != st.b || st.syncedF != st.f ||
+                         st.syncedV.x != st.v.x || st.syncedV.y != st.v.y;
+    st.changedSinceLastSync = changed ? XR_TRUE : XR_FALSE;
+    if (changed) st.lastChangeTime = now;
+    st.syncedB = st.b; st.syncedF = st.f; st.syncedV = st.v; st.everSynced = true;
+  }
+}
+
+// Aggregate the fallback store for a (action, subactionPath) query. NULL subactionPath aggregates all
+// of the action's entries (bool OR, float/vec2 absolute-max), per the OpenXR combination rules.
+// PRECONDITION: caller holds g_action_mutex.
+struct FallbackAgg {
+  bool found = false;
+  bool active = false;
+  bool b = false;
+  float f = 0.0f;
+  XrVector2f v{0.0f, 0.0f};
+  XrBool32 changed = XR_FALSE;
+  XrTime lastChangeTime = 0;
+};
+FallbackAgg AggregateFallback(XrAction action, XrPath subactionPath) {
+  FallbackAgg a;
+  XrActionSet set = XR_NULL_HANDLE;
+  auto ai = g_actions.find(action);
+  if (ai != g_actions.end()) set = ai->second.actionSet;
+  const bool setActive = g_synced_active_sets.count(set) > 0;
+  for (const auto& kv : g_fallback_states) {
+    if (kv.first.first != action) continue;
+    if (subactionPath != XR_NULL_PATH && kv.first.second != subactionPath) continue;
+    const FallbackActionState& st = kv.second;
+    a.found = true;
+    if (setActive) a.active = true;
+    a.b = a.b || st.b;
+    if (AbsF(st.f) > AbsF(a.f)) a.f = st.f;
+    if (AbsF(st.v.x) > AbsF(a.v.x)) a.v.x = st.v.x;
+    if (AbsF(st.v.y) > AbsF(a.v.y)) a.v.y = st.v.y;
+    if (st.changedSinceLastSync) a.changed = XR_TRUE;
+    if (st.lastChangeTime > a.lastChangeTime) a.lastChangeTime = st.lastChangeTime;
+  }
+  return a;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Hooked functions.
 // ---------------------------------------------------------------------------------------------
 XrResult XRAPI_CALL Hook_xrCreateSession(XrInstance instance, const XrSessionCreateInfo* createInfo,
@@ -711,6 +854,8 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         g_grip_to_aim.clear();
         g_grip_to_aim_valid.clear();
         g_attached_action_sets.clear();  // attachment is per-session (re-attached on a new session)
+        g_synced_active_sets.clear();    // GAP-08: sync state is per-session
+        g_pending_ip_event = false;
       }
       g_session = XR_NULL_HANDLE;
       vr_agent::ControlChannelSetSession(false);
@@ -800,10 +945,121 @@ XrResult XRAPI_CALL Hook_xrEndFrame(XrSession session, const XrFrameEndInfo* fra
 
 XrResult XRAPI_CALL Hook_xrSyncActions(XrSession session, const XrActionsSyncInfo* syncInfo) {
   try {
-    ApplyPendingInputs(session);
+    // CA runtimes push state into the runtime; non-CA runtimes get the in-layer action-system emulation.
+    if (g_ca_enabled) ApplyPendingInputs(session);
+    else ApplyFallbackSync(syncInfo);
     PFN_xrSyncActions next = g_dispatch.syncActions;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     return next(session, syncInfo);
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// GAP-08: non-CA fallback readers. Each forwards to the runtime first; only when CA is OFF and we hold a
+// latched injection for this action do we overwrite the answer (so uninjected actions pass through).
+XrResult XRAPI_CALL Hook_xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo* getInfo,
+                                                 XrActionStateBoolean* state) {
+  try {
+    PFN_xrGetActionStateBoolean next = g_dispatch.getActionStateBoolean;
+    XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    if (g_ca_enabled || XR_FAILED(r) || !getInfo || !state) return r;
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
+    if (!a.found) return r;  // no injected value: leave the runtime's answer untouched
+    state->isActive = a.active ? XR_TRUE : XR_FALSE;
+    state->currentState = (a.active && a.b) ? XR_TRUE : XR_FALSE;
+    state->changedSinceLastSync = a.active ? a.changed : XR_FALSE;
+    state->lastChangeTime = a.lastChangeTime;
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+XrResult XRAPI_CALL Hook_xrGetActionStateFloat(XrSession session, const XrActionStateGetInfo* getInfo,
+                                               XrActionStateFloat* state) {
+  try {
+    PFN_xrGetActionStateFloat next = g_dispatch.getActionStateFloat;
+    XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    if (g_ca_enabled || XR_FAILED(r) || !getInfo || !state) return r;
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
+    if (!a.found) return r;
+    state->isActive = a.active ? XR_TRUE : XR_FALSE;
+    state->currentState = a.active ? a.f : 0.0f;
+    state->changedSinceLastSync = a.active ? a.changed : XR_FALSE;
+    state->lastChangeTime = a.lastChangeTime;
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+XrResult XRAPI_CALL Hook_xrGetActionStateVector2f(XrSession session, const XrActionStateGetInfo* getInfo,
+                                                  XrActionStateVector2f* state) {
+  try {
+    PFN_xrGetActionStateVector2f next = g_dispatch.getActionStateVector2f;
+    XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    if (g_ca_enabled || XR_FAILED(r) || !getInfo || !state) return r;
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
+    if (!a.found) return r;
+    state->isActive = a.active ? XR_TRUE : XR_FALSE;
+    state->currentState = a.active ? a.v : XrVector2f{0.0f, 0.0f};
+    state->changedSinceLastSync = a.active ? a.changed : XR_FALSE;
+    state->lastChangeTime = a.lastChangeTime;
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// GAP-08: report the emulated interaction profile when a non-CA/headless runtime says no controller is
+// connected, so the app enables and queries the actions we're feeding.
+XrResult XRAPI_CALL Hook_xrGetCurrentInteractionProfile(XrSession session, XrPath topLevelUserPath,
+                                                        XrInteractionProfileState* profileState) {
+  try {
+    PFN_xrGetCurrentInteractionProfile next = g_dispatch.getCurrentInteractionProfile;
+    XrResult r =
+        next ? next(session, topLevelUserPath, profileState) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    if (g_ca_enabled || !profileState) return r;
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    if (g_emulated_profile != XR_NULL_PATH &&
+        (XR_FAILED(r) || profileState->interactionProfile == XR_NULL_PATH)) {
+      profileState->interactionProfile = g_emulated_profile;
+      r = XR_SUCCESS;
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// GAP-08: deliver one synthetic InteractionProfileChanged before falling through to the runtime's own
+// events, so a non-CA app learns the virtual controller connected. Only ever fires in fallback mode.
+XrResult XRAPI_CALL Hook_xrPollEvent(XrInstance instance, XrEventDataBuffer* eventData) {
+  try {
+    if (!g_ca_enabled && eventData) {
+      bool deliver = false;
+      {
+        std::lock_guard<std::mutex> lock(g_action_mutex);
+        if (g_pending_ip_event) {
+          g_pending_ip_event = false;
+          deliver = true;
+        }
+      }
+      if (deliver) {
+        auto* ev = reinterpret_cast<XrEventDataInteractionProfileChanged*>(eventData);
+        ev->type = XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED;
+        ev->next = nullptr;
+        ev->session = g_session;
+        Log("synthesized InteractionProfileChanged (non-CA fallback: virtual controller connected)");
+        return XR_SUCCESS;
+      }
+    }
+    PFN_xrPollEvent next = g_dispatch.pollEvent;
+    return next ? next(instance, eventData) : XR_EVENT_UNAVAILABLE;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
   }
@@ -840,6 +1096,10 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
       g_action_sets.clear();  // action sets/actions are instance-scoped
       g_actions.clear();
       g_attached_action_sets.clear();
+      g_fallback_states.clear();  // GAP-08: fallback state is keyed by (now-invalid) actions
+      g_synced_active_sets.clear();
+      g_emulated_profile = XR_NULL_PATH;
+      g_pending_ip_event = false;
     }
     vr_agent::ControlChannelStop();
     vr_agent::ControlChannelSetInstance(false);
@@ -1112,6 +1372,9 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
     if (suggestedBindings && suggestedBindings->suggestedBindings) {
       const std::string profile = PathToStr(suggestedBindings->interactionProfile);
       std::lock_guard<std::mutex> lock(g_action_mutex);
+      // GAP-08: remember the first suggested profile as the one we emulate on a non-CA runtime.
+      if (g_emulated_profile == XR_NULL_PATH)
+        g_emulated_profile = suggestedBindings->interactionProfile;
       for (uint32_t i = 0; i < suggestedBindings->countSuggestedBindings; ++i) {
         const XrActionSuggestedBinding& b = suggestedBindings->suggestedBindings[i];
         const std::string bindingPath = PathToStr(b.binding);
@@ -1186,6 +1449,11 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
         if (it->second.actionSet == actionSet) {
           g_grip_pose_actions.erase(it->first);
           g_aim_pose_actions.erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
+          // GAP-08: drop any fallback state keyed by this action (handle may be recycled).
+          for (auto fit = g_fallback_states.begin(); fit != g_fallback_states.end();) {
+            if (fit->first.first == it->first) fit = g_fallback_states.erase(fit);
+            else ++fit;
+          }
           it = g_actions.erase(it);
         } else {
           ++it;
@@ -1209,6 +1477,9 @@ XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
       std::lock_guard<std::mutex> lock(g_action_mutex);
       for (uint32_t i = 0; i < attachInfo->countActionSets; ++i)
         g_attached_action_sets.insert(attachInfo->actionSets[i]);
+      // GAP-08: the app has finalized its action sets. On a non-CA runtime, arm the one synthetic
+      // InteractionProfileChanged so the next xrPollEvent tells the app the virtual controller connected.
+      if (!g_ca_enabled) g_pending_ip_event = true;
     }
     return r;
   } catch (...) {
@@ -1300,6 +1571,15 @@ XrResult XRAPI_CALL VrAgentGetInstanceProcAddr(XrInstance instance, const char* 
         {"xrDestroyActionSet", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrDestroyActionSet)},
         {"xrAttachSessionActionSets",
          reinterpret_cast<PFN_xrVoidFunction>(Hook_xrAttachSessionActionSets)},
+        // GAP-08: non-CA input fallback (harmless passthrough when CA is enabled).
+        {"xrGetActionStateBoolean",
+         reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetActionStateBoolean)},
+        {"xrGetActionStateFloat", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetActionStateFloat)},
+        {"xrGetActionStateVector2f",
+         reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetActionStateVector2f)},
+        {"xrGetCurrentInteractionProfile",
+         reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetCurrentInteractionProfile)},
+        {"xrPollEvent", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrPollEvent)},
     };
     for (const HookEntry& h : kHooks) {
       if (std::strcmp(name, h.name) == 0) {

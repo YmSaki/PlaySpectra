@@ -738,13 +738,25 @@ std::vector<XrAction> ActionsBoundTo(const std::string& sourceBindingPath) {
 // poses are NOT handled here -- ApplyPoseOverride is the authoritative pose source in both CA and non-CA.
 void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
   std::vector<vr_agent::PendingInput> batch = vr_agent::ControlChannelDrainInputs();
+
+  // Resolve each injection's subactionPath BEFORE taking g_action_mutex: ToPath calls the runtime
+  // (xrStringToPath), and the established rule (GAP-06) is to never call the runtime while holding
+  // g_action_mutex. Active commands carry no state value, so they are dropped here. `p` points into
+  // `batch`, which outlives this vector.
+  struct Resolved { const vr_agent::PendingInput* p; XrPath sub; };
+  std::vector<Resolved> resolved;
+  resolved.reserve(batch.size());
+  for (const vr_agent::PendingInput& p : batch) {
+    if (p.type == vr_agent::InputType::Active) continue;
+    resolved.push_back({&p, ToPath(p.top_level)});
+  }
+
   std::lock_guard<std::mutex> lock(g_action_mutex);
 
-  for (const vr_agent::PendingInput& p : batch) {
-    if (p.type == vr_agent::InputType::Active) continue;  // isActive is derived from synced sets, not a value
-    const XrPath sub = ToPath(p.top_level);
-    for (XrAction action : ActionsBoundTo(p.source)) {
-      FallbackActionState& st = g_fallback_states[{action, sub}];
+  for (const Resolved& r : resolved) {
+    const vr_agent::PendingInput& p = *r.p;
+    for (XrAction action : ActionsBoundTo(p.source)) {  // g_actions read: fine under the lock
+      FallbackActionState& st = g_fallback_states[{action, r.sub}];
       switch (p.type) {
         case vr_agent::InputType::Float:  st.f = p.f; st.b = p.f > 0.5f; break;
         case vr_agent::InputType::Bool:   st.b = p.b; st.f = p.b ? 1.0f : 0.0f; break;
@@ -796,16 +808,18 @@ FallbackAgg AggregateFallback(XrAction action, XrPath subactionPath) {
   auto ai = g_actions.find(action);
   if (ai != g_actions.end()) set = ai->second.actionSet;
   const bool setActive = g_synced_active_sets.count(set) > 0;
+  float bestVecMag = -1.0f;  // for the Vector2f combination rule below
   for (const auto& kv : g_fallback_states) {
     if (kv.first.first != action) continue;
     if (subactionPath != XR_NULL_PATH && kv.first.second != subactionPath) continue;
     const FallbackActionState& st = kv.second;
     a.found = true;
     if (setActive) a.active = true;
-    a.b = a.b || st.b;
-    if (AbsF(st.f) > AbsF(a.f)) a.f = st.f;
-    if (AbsF(st.v.x) > AbsF(a.v.x)) a.v.x = st.v.x;
-    if (AbsF(st.v.y) > AbsF(a.v.y)) a.v.y = st.v.y;
+    a.b = a.b || st.b;                          // bool: logical OR
+    if (AbsF(st.f) > AbsF(a.f)) a.f = st.f;     // float: greatest absolute value
+    // vec2: the whole vector with the greatest magnitude wins (OpenXR combines by length, not per axis).
+    const float mag = st.v.x * st.v.x + st.v.y * st.v.y;
+    if (mag > bestVecMag) { a.v = st.v; bestVecMag = mag; }
     if (st.changedSinceLastSync) a.changed = XR_TRUE;
     if (st.lastChangeTime > a.lastChangeTime) a.lastChangeTime = st.lastChangeTime;
   }
@@ -1100,6 +1114,7 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
       g_synced_active_sets.clear();
       g_emulated_profile = XR_NULL_PATH;
       g_pending_ip_event = false;
+      g_fallback_sync_counter = 0;
     }
     vr_agent::ControlChannelStop();
     vr_agent::ControlChannelSetInstance(false);

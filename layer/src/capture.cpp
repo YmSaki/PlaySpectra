@@ -115,6 +115,11 @@ VkQueue g_vk_queue = VK_NULL_HANDLE;
 VkCommandPool g_vk_pool = VK_NULL_HANDLE;
 VkCommandBuffer g_vk_cmd = VK_NULL_HANDLE;
 VkFence g_vk_fence = VK_NULL_HANDLE;
+// GAP-07(c): true between a successful vkQueueSubmit and the fence being observed signalled. If a
+// readback times out waiting for its fence, this stays true so FreeVulkanResources waits the fence
+// before destroying the pool/buffer/fence the GPU may still be reading (readback and destroy are both
+// on the app thread and serialized, but a timed-out submit is the one case work can outlive the call).
+bool g_vk_capture_inflight = false;
 VkBuffer g_vk_staging = VK_NULL_HANDLE;
 VkDeviceMemory g_vk_staging_mem = VK_NULL_HANDLE;
 VkDeviceSize g_vk_staging_size = 0;
@@ -367,6 +372,13 @@ bool EnsureResolveImage(uint32_t w, uint32_t h, int64_t format) {
 
 void FreeVulkanResources() {
   if (!g_vk.ok || g_vk_device == VK_NULL_HANDLE) return;
+  // GAP-07(c): if a readback submitted work but its fence wait timed out, the GPU may still be reading
+  // the very resources we are about to destroy. Wait the fence (bounded) before freeing so we never
+  // pull the pool/buffer out from under an in-flight copy.
+  if (g_vk_capture_inflight && g_vk_fence != VK_NULL_HANDLE) {
+    g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, 5000000000ULL);  // 5s, best-effort
+    g_vk_capture_inflight = false;
+  }
   if (g_vk_resolve_image != VK_NULL_HANDLE) g_vk.destroyImage(g_vk_device, g_vk_resolve_image, nullptr);
   if (g_vk_resolve_mem != VK_NULL_HANDLE) g_vk.freeMemory(g_vk_device, g_vk_resolve_mem, nullptr);
   if (g_vk_staging != VK_NULL_HANDLE) g_vk.destroyBuffer(g_vk_device, g_vk_staging, nullptr);
@@ -719,10 +731,12 @@ json VulkanReadbackToPng(VkImage image, int64_t format, uint32_t sampleCount,
   if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
     return {{"ok", false}, {"error", "vkQueueSubmit failed"}};
   }
+  g_vk_capture_inflight = true;  // GPU may now be reading g_vk_cmd/staging; cleared once the fence signals
   const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
   if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
-    return {{"ok", false}, {"error", "timed out waiting for GPU copy fence"}};
+    return {{"ok", false}, {"error", "timed out waiting for GPU copy fence"}};  // leave inflight=true
   }
+  g_vk_capture_inflight = false;
 
   // Map the staging buffer and produce an 8-bit RGBA pixel buffer.
   //  * RGBA8: memcpy straight.  * BGRA8: memcpy + B<->R swizzle.
@@ -910,10 +924,12 @@ json VulkanReadbackDepthToPng(VkImage image, int64_t format, uint32_t sampleCoun
   if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
     return {{"available", false}, {"note", "vkQueueSubmit failed for depth copy"}};
   }
+  g_vk_capture_inflight = true;  // see color path: cleared once the fence signals
   const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
   if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
-    return {{"available", false}, {"note", "timed out waiting for GPU depth copy fence"}};
+    return {{"available", false}, {"note", "timed out waiting for GPU depth copy fence"}};  // inflight
   }
+  g_vk_capture_inflight = false;
 
   void* mapped = nullptr;
   if (g_vk.mapMemory(g_vk_device, g_vk_staging_mem, 0, bytes, 0, &mapped) != VK_SUCCESS || !mapped) {

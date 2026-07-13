@@ -72,8 +72,13 @@ namespace {
 void Log(const char* msg, const char* detail = nullptr) { vr_agent::LayerLog(msg, detail); }
 
 // ---------------------------------------------------------------------------------------------
-// Layer state. A single global instance/session is adequate for the headless single-app use case;
-// task #7-full replaces this with per-instance dispatch state.
+// Layer state. A single global instance/session is adequate for the headless single-app use case
+// (VR-Playwright's north star: one subject app under test, so at most one live XrInstance). We do
+// NOT keep a handle->instance registry -- that would be a full multi-instance dispatch mechanism we
+// don't need. What we DO fix (GAP-07): the next-layer entry points used to live in per-hook
+// function-local statics that initialise exactly once per process, so a second instance (e.g. Unity
+// Editor Play-mode repeat) kept the previous runtime's stale pointers. They now live in one
+// LayerDispatch that is rebuilt on every xrCreateApiLayerInstance and cleared on xrDestroyInstance.
 // ---------------------------------------------------------------------------------------------
 std::mutex g_mutex;
 PFN_xrGetInstanceProcAddr g_next_get_instance_proc_addr = nullptr;
@@ -81,18 +86,49 @@ XrInstance g_instance = XR_NULL_HANDLE;
 XrSession g_session = XR_NULL_HANDLE;
 bool g_ca_enabled = false;  // XR_EXT_conformance_automation successfully enabled on the instance
 
-// Conformance-automation entry points, resolved lazily from the runtime (below the layer).
-PFN_xrStringToPath g_xrStringToPath = nullptr;
-PFN_xrSetInputDeviceActiveEXT g_set_active = nullptr;
-PFN_xrSetInputDeviceStateBoolEXT g_set_bool = nullptr;
-PFN_xrSetInputDeviceStateFloatEXT g_set_float = nullptr;
-PFN_xrSetInputDeviceStateVector2fEXT g_set_vec2 = nullptr;
-PFN_xrSetInputDeviceLocationEXT g_set_location = nullptr;  // controller pose injection
+// All next-layer entry points, resolved once per instance from the current chain. Members are read
+// on the app thread between a successful create and destroy (the window in which the runtime calls
+// our hooks); they are (re)built and cleared under g_mutex. Reads in the hot hooks are unlocked --
+// safe under the single-instance model because no hook runs concurrently with create/destroy of the
+// same instance. CA/util entries are null unless the runtime provides them.
+struct LayerDispatch {
+  PFN_xrCreateSession createSession = nullptr;
+  PFN_xrDestroySession destroySession = nullptr;
+  PFN_xrCreateSwapchain createSwapchain = nullptr;
+  PFN_xrDestroySwapchain destroySwapchain = nullptr;
+  PFN_xrEnumerateSwapchainImages enumerateSwapchainImages = nullptr;
+  PFN_xrAcquireSwapchainImage acquireSwapchainImage = nullptr;
+  PFN_xrReleaseSwapchainImage releaseSwapchainImage = nullptr;
+  PFN_xrEndFrame endFrame = nullptr;
+  PFN_xrSyncActions syncActions = nullptr;
+  PFN_xrApplyHapticFeedback applyHapticFeedback = nullptr;
+  PFN_xrDestroyInstance destroyInstance = nullptr;
+  PFN_xrLocateViews locateViews = nullptr;
+  PFN_xrCreateReferenceSpace createReferenceSpace = nullptr;
+  PFN_xrLocateSpace locateSpace = nullptr;
+  PFN_xrDestroySpace destroySpace = nullptr;
+  PFN_xrCreateActionSpace createActionSpace = nullptr;
+  PFN_xrSuggestInteractionProfileBindings suggestInteractionProfileBindings = nullptr;
+  PFN_xrCreateActionSet createActionSet = nullptr;
+  PFN_xrCreateAction createAction = nullptr;
+  PFN_xrDestroyActionSet destroyActionSet = nullptr;
+  PFN_xrAttachSessionActionSets attachSessionActionSets = nullptr;
+  PFN_xrLocateSpaces locateSpaces = nullptr;  // OpenXR 1.1 / XR_KHR_locate_spaces (may be null)
+  PFN_xrGetInstanceProperties getInstanceProperties = nullptr;
+  PFN_xrPathToString pathToString = nullptr;
+  PFN_xrStringToPath stringToPath = nullptr;
+  // XR_EXT_conformance_automation input injection (null unless the extension is enabled).
+  PFN_xrSetInputDeviceActiveEXT setInputDeviceActive = nullptr;
+  PFN_xrSetInputDeviceStateBoolEXT setInputDeviceStateBool = nullptr;
+  PFN_xrSetInputDeviceStateFloatEXT setInputDeviceStateFloat = nullptr;
+  PFN_xrSetInputDeviceStateVector2fEXT setInputDeviceStateVector2f = nullptr;
+  PFN_xrSetInputDeviceLocationEXT setInputDeviceLocation = nullptr;  // controller pose injection
+};
+LayerDispatch g_dispatch;
 
-// LOCAL reference space the layer creates itself, to express injected controller poses in (the
-// same space hello_xr and typical apps use for their app space). Created lazily from the session.
-PFN_xrCreateReferenceSpace g_create_ref_space = nullptr;
-PFN_xrDestroySpace g_destroy_space = nullptr;
+// LOCAL reference space the layer creates itself, to express injected controller poses in (the same
+// space hello_xr and typical apps use for their app space). Session-scoped: created lazily from the
+// live session (only touched on the app thread) and cleared on xrDestroySession.
 XrSpace g_local_space = XR_NULL_HANDLE;
 
 template <typename T>
@@ -104,40 +140,80 @@ T ResolveNext(const char* name) {
   return reinterpret_cast<T>(fn);
 }
 
-XrPath ToPath(const std::string& s) {
-  XrPath p = XR_NULL_PATH;
-  if (g_xrStringToPath && g_instance != XR_NULL_HANDLE) {
-    g_xrStringToPath(g_instance, s.c_str(), &p);
+// (Re)resolve every next-layer entry point from the current chain and publish it. PRECONDITION:
+// g_instance and g_next_get_instance_proc_addr are already set (call right after next_create). The
+// next_gipa lookups run WITHOUT g_mutex (resolution must not re-enter our locked state); only the
+// publish takes the lock. CA entries are resolved only when CA is enabled -- otherwise the loader
+// wouldn't expose the EXT functions anyway (they'd resolve to null).
+void RebuildLayerDispatch() {
+  LayerDispatch d;
+  d.createSession = ResolveNext<PFN_xrCreateSession>("xrCreateSession");
+  d.destroySession = ResolveNext<PFN_xrDestroySession>("xrDestroySession");
+  d.createSwapchain = ResolveNext<PFN_xrCreateSwapchain>("xrCreateSwapchain");
+  d.destroySwapchain = ResolveNext<PFN_xrDestroySwapchain>("xrDestroySwapchain");
+  d.enumerateSwapchainImages =
+      ResolveNext<PFN_xrEnumerateSwapchainImages>("xrEnumerateSwapchainImages");
+  d.acquireSwapchainImage = ResolveNext<PFN_xrAcquireSwapchainImage>("xrAcquireSwapchainImage");
+  d.releaseSwapchainImage = ResolveNext<PFN_xrReleaseSwapchainImage>("xrReleaseSwapchainImage");
+  d.endFrame = ResolveNext<PFN_xrEndFrame>("xrEndFrame");
+  d.syncActions = ResolveNext<PFN_xrSyncActions>("xrSyncActions");
+  d.applyHapticFeedback = ResolveNext<PFN_xrApplyHapticFeedback>("xrApplyHapticFeedback");
+  d.destroyInstance = ResolveNext<PFN_xrDestroyInstance>("xrDestroyInstance");
+  d.locateViews = ResolveNext<PFN_xrLocateViews>("xrLocateViews");
+  d.createReferenceSpace = ResolveNext<PFN_xrCreateReferenceSpace>("xrCreateReferenceSpace");
+  d.locateSpace = ResolveNext<PFN_xrLocateSpace>("xrLocateSpace");
+  d.destroySpace = ResolveNext<PFN_xrDestroySpace>("xrDestroySpace");
+  d.createActionSpace = ResolveNext<PFN_xrCreateActionSpace>("xrCreateActionSpace");
+  d.suggestInteractionProfileBindings =
+      ResolveNext<PFN_xrSuggestInteractionProfileBindings>("xrSuggestInteractionProfileBindings");
+  d.createActionSet = ResolveNext<PFN_xrCreateActionSet>("xrCreateActionSet");
+  d.createAction = ResolveNext<PFN_xrCreateAction>("xrCreateAction");
+  d.destroyActionSet = ResolveNext<PFN_xrDestroyActionSet>("xrDestroyActionSet");
+  d.attachSessionActionSets =
+      ResolveNext<PFN_xrAttachSessionActionSets>("xrAttachSessionActionSets");
+  d.locateSpaces = ResolveNext<PFN_xrLocateSpaces>("xrLocateSpaces");  // optional
+  d.getInstanceProperties = ResolveNext<PFN_xrGetInstanceProperties>("xrGetInstanceProperties");
+  d.pathToString = ResolveNext<PFN_xrPathToString>("xrPathToString");
+  d.stringToPath = ResolveNext<PFN_xrStringToPath>("xrStringToPath");
+  if (g_ca_enabled) {
+    d.setInputDeviceActive = ResolveNext<PFN_xrSetInputDeviceActiveEXT>("xrSetInputDeviceActiveEXT");
+    d.setInputDeviceStateBool =
+        ResolveNext<PFN_xrSetInputDeviceStateBoolEXT>("xrSetInputDeviceStateBoolEXT");
+    d.setInputDeviceStateFloat =
+        ResolveNext<PFN_xrSetInputDeviceStateFloatEXT>("xrSetInputDeviceStateFloatEXT");
+    d.setInputDeviceStateVector2f =
+        ResolveNext<PFN_xrSetInputDeviceStateVector2fEXT>("xrSetInputDeviceStateVector2fEXT");
+    d.setInputDeviceLocation =
+        ResolveNext<PFN_xrSetInputDeviceLocationEXT>("xrSetInputDeviceLocationEXT");
   }
-  return p;
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_dispatch = d;
 }
 
-void EnsureConformanceAutomationResolved() {
-  if (!g_ca_enabled) return;
-  if (!g_xrStringToPath) g_xrStringToPath = ResolveNext<PFN_xrStringToPath>("xrStringToPath");
-  if (!g_set_active)
-    g_set_active = ResolveNext<PFN_xrSetInputDeviceActiveEXT>("xrSetInputDeviceActiveEXT");
-  if (!g_set_bool)
-    g_set_bool = ResolveNext<PFN_xrSetInputDeviceStateBoolEXT>("xrSetInputDeviceStateBoolEXT");
-  if (!g_set_float)
-    g_set_float = ResolveNext<PFN_xrSetInputDeviceStateFloatEXT>("xrSetInputDeviceStateFloatEXT");
-  if (!g_set_vec2)
-    g_set_vec2 = ResolveNext<PFN_xrSetInputDeviceStateVector2fEXT>("xrSetInputDeviceStateVector2fEXT");
-  if (!g_set_location)
-    g_set_location = ResolveNext<PFN_xrSetInputDeviceLocationEXT>("xrSetInputDeviceLocationEXT");
+// Drop every next-layer pointer. Called from xrDestroyInstance so stale entry points can't outlive
+// the runtime that owns them. Takes g_mutex; callers must not already hold it.
+void ClearLayerDispatch() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_dispatch = LayerDispatch{};
+}
+
+XrPath ToPath(const std::string& s) {
+  XrPath p = XR_NULL_PATH;
+  if (g_dispatch.stringToPath && g_instance != XR_NULL_HANDLE) {
+    g_dispatch.stringToPath(g_instance, s.c_str(), &p);
+  }
+  return p;
 }
 
 // Create the layer's own LOCAL reference space to express injected controller poses in. Lazy:
 // needs a live session. Returns XR_NULL_HANDLE if the runtime can't provide it.
 XrSpace EnsureLocalSpace(XrSession session) {
   if (g_local_space != XR_NULL_HANDLE) return g_local_space;
-  if (!g_create_ref_space)
-    g_create_ref_space = ResolveNext<PFN_xrCreateReferenceSpace>("xrCreateReferenceSpace");
-  if (!g_create_ref_space) return XR_NULL_HANDLE;
+  if (!g_dispatch.createReferenceSpace) return XR_NULL_HANDLE;
   XrReferenceSpaceCreateInfo ci{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
   ci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
   ci.poseInReferenceSpace.orientation.w = 1.0f;  // identity
-  XrResult r = g_create_ref_space(session, &ci, &g_local_space);
+  XrResult r = g_dispatch.createReferenceSpace(session, &ci, &g_local_space);
   if (XR_FAILED(r)) {
     g_local_space = XR_NULL_HANDLE;
     Log("EnsureLocalSpace: xrCreateReferenceSpace(LOCAL) failed");
@@ -157,33 +233,34 @@ void ApplyPendingInputs(XrSession session) {
     Log("input dropped: conformance_automation not enabled on this runtime");
     return;
   }
-  EnsureConformanceAutomationResolved();
 
   for (const vr_agent::PendingInput& p : batch) {
     const XrPath top = ToPath(p.top_level);
     switch (p.type) {
       case vr_agent::InputType::Float:
-        if (g_set_float) {
-          XrResult r = g_set_float(session, top, ToPath(p.source), p.f);
+        if (g_dispatch.setInputDeviceStateFloat) {
+          XrResult r = g_dispatch.setInputDeviceStateFloat(session, top, ToPath(p.source), p.f);
           Log("setInputDeviceStateFloat", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
       case vr_agent::InputType::Bool:
-        if (g_set_bool) {
-          XrResult r = g_set_bool(session, top, ToPath(p.source), p.b ? XR_TRUE : XR_FALSE);
+        if (g_dispatch.setInputDeviceStateBool) {
+          XrResult r =
+              g_dispatch.setInputDeviceStateBool(session, top, ToPath(p.source), p.b ? XR_TRUE : XR_FALSE);
           Log("setInputDeviceStateBool", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
       case vr_agent::InputType::Vector2f:
-        if (g_set_vec2) {
+        if (g_dispatch.setInputDeviceStateVector2f) {
           XrVector2f v{p.x, p.y};
-          XrResult r = g_set_vec2(session, top, ToPath(p.source), v);
+          XrResult r = g_dispatch.setInputDeviceStateVector2f(session, top, ToPath(p.source), v);
           Log("setInputDeviceStateVector2f", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
       case vr_agent::InputType::Active:
-        if (g_set_active) {
-          XrResult r = g_set_active(session, ToPath(p.profile), top, p.b ? XR_TRUE : XR_FALSE);
+        if (g_dispatch.setInputDeviceActive) {
+          XrResult r =
+              g_dispatch.setInputDeviceActive(session, ToPath(p.profile), top, p.b ? XR_TRUE : XR_FALSE);
           Log("setInputDeviceActive", (p.top_level + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
@@ -194,18 +271,19 @@ void ApplyPendingInputs(XrSession session) {
   // xrSetInputDeviceLocationEXT in the layer's LOCAL space -- this is the controller-pose half of
   // task #7 (head/VIEW override is separate). If the runtime lacks the EXT_conformance_automation
   // location entry point or a LOCAL space, we log once per attempt and no-op gracefully.
-  if (!poses.empty() && g_set_location) {
+  if (!poses.empty() && g_dispatch.setInputDeviceLocation) {
     XrSpace space = EnsureLocalSpace(session);
     if (space != XR_NULL_HANDLE) {
       for (const vr_agent::StickyPose& sp : poses) {
         XrPosef pose{};
         pose.orientation = XrQuaternionf{sp.qx, sp.qy, sp.qz, sp.qw};
         pose.position = XrVector3f{sp.px, sp.py, sp.pz};
-        XrResult r = g_set_location(session, ToPath(sp.top_level), ToPath(sp.source), space, pose);
+        XrResult r =
+            g_dispatch.setInputDeviceLocation(session, ToPath(sp.top_level), ToPath(sp.source), space, pose);
         Log("setInputDeviceLocation", (sp.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
       }
     }
-  } else if (!poses.empty() && !g_set_location) {
+  } else if (!poses.empty() && !g_dispatch.setInputDeviceLocation) {
     Log("pose dropped: xrSetInputDeviceLocationEXT unavailable on this runtime");
   }
 }
@@ -290,7 +368,7 @@ XrPosef TransformLocalPoseToSpace(XrSession session, const XrPosef& poseLocal, X
   if (okOut) *okOut = false;
   XrSpace local = EnsureLocalSpace(session);
   if (local == XR_NULL_HANDLE || targetSpace == XR_NULL_HANDLE) return poseLocal;
-  static PFN_xrLocateSpace locSpace = ResolveNext<PFN_xrLocateSpace>("xrLocateSpace");
+  PFN_xrLocateSpace locSpace = g_dispatch.locateSpace;
   if (!locSpace) return poseLocal;
   XrSpaceLocation loc{XR_TYPE_SPACE_LOCATION};
   XrResult r = locSpace(local, targetSpace, time, &loc);  // pose of LOCAL origin, in targetSpace
@@ -304,7 +382,14 @@ XrPosef TransformLocalPoseToSpace(XrSession session, const XrPosef& poseLocal, X
   return out;
 }
 
+// GAP-07: log-once guards promoted to file scope so xrDestroyInstance can reset them -- a fresh
+// instance (Play-mode repeat) should be able to re-warn instead of staying silent forever.
 bool g_warned_head_space = false;
+bool g_warned_aim_offset = false;
+bool g_warned_pose_null_subaction = false;
+bool g_warned_pose_both_hands = false;
+bool g_warned_pose_transform = false;
+
 vr_agent::HeadPose TransformHeadToSpace(XrSession session, const vr_agent::HeadPose& h,
                                         XrSpace targetSpace, XrTime time) {
   XrPosef in{{h.qx, h.qy, h.qz, h.qw}, {h.px, h.py, h.pz}};
@@ -328,8 +413,7 @@ vr_agent::HeadPose TransformHeadToSpace(XrSession session, const vr_agent::HeadP
 // xrLocateSpace on the hand's grip action space (full position + orientation). CA location stays as
 // a harmless position-only fallback. To find the grip action spaces we track: which actions are
 // bound to a .../input/grip/pose path (xrSuggestInteractionProfileBindings), and which XrSpaces are
-// action spaces for which hand (xrCreateActionSpace).
-PFN_xrPathToString g_xrPathToString = nullptr;
+// action spaces for which hand (xrCreateActionSpace). (xrPathToString now lives in g_dispatch.)
 std::mutex g_action_mutex;
 struct ActionSpaceInfo { XrAction action; std::string handTop; };  // handTop e.g. "/user/hand/left"
 std::map<XrSpace, ActionSpaceInfo> g_action_spaces;
@@ -380,13 +464,13 @@ const char* ActionTypeName(XrActionType t) {
 
 std::string PathToStr(XrPath p) {
   if (p == XR_NULL_PATH || g_instance == XR_NULL_HANDLE) return "";
-  if (!g_xrPathToString) g_xrPathToString = ResolveNext<PFN_xrPathToString>("xrPathToString");
-  if (!g_xrPathToString) return "";
+  PFN_xrPathToString pathToString = g_dispatch.pathToString;
+  if (!pathToString) return "";
   uint32_t len = 0;
-  if (XR_FAILED(g_xrPathToString(g_instance, p, 0, &len, nullptr)) || len == 0) return "";
+  if (XR_FAILED(pathToString(g_instance, p, 0, &len, nullptr)) || len == 0) return "";
   std::string s(len, '\0');
   uint32_t written = 0;
-  if (XR_FAILED(g_xrPathToString(g_instance, p, len, &written, &s[0]))) return "";
+  if (XR_FAILED(pathToString(g_instance, p, len, &written, &s[0]))) return "";
   if (!s.empty() && s.back() == '\0') s.pop_back();
   return s;
 }
@@ -457,7 +541,7 @@ XrPosef ResolveGripToAimOffset(const std::string& handTop, XrTime time, bool* va
     return identity;  // both spaces not yet created; don't cache -> retry next locate
   }
   // RAW next (not our hook) to avoid self-re-entry / double override.
-  static PFN_xrLocateSpace rawLocate = ResolveNext<PFN_xrLocateSpace>("xrLocateSpace");
+  PFN_xrLocateSpace rawLocate = g_dispatch.locateSpace;
   if (!rawLocate) {
     if (validOut) *validOut = false;
     return identity;
@@ -467,9 +551,8 @@ XrPosef ResolveGripToAimOffset(const std::string& handTop, XrTime time, bool* va
   const XrSpaceLocationFlags need =
       XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
   if (XR_FAILED(r) || (loc.locationFlags & need) != need) {
-    static bool warned = false;
-    if (!warned) {
-      warned = true;
+    if (!g_warned_aim_offset) {
+      g_warned_aim_offset = true;
       Log("aim override: runtime grip->aim offset untracked; falling back to identity (aim=grip) "
           "until it reports a valid offset (headless degrade-graceful; not cached, retried each locate)");
     }
@@ -517,9 +600,8 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   }  // lock released: no ControlChannel* call is ever made while holding g_action_mutex.
 
   if (candidates.empty()) {  // null subactionPath and no /user/hand/* bindings recorded yet
-    static bool warned = false;
-    if (!warned) {
-      warned = true;
+    if (!g_warned_pose_null_subaction) {
+      g_warned_pose_null_subaction = true;
       Log("pose override: action space has null subactionPath and no /user/hand/* bindings recorded "
           "yet; can't map to a hand (graceful no-op)");
     }
@@ -550,9 +632,8 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
     for (const std::string& c : candidates)
       for (const vr_agent::StickyPose& sp : poses) if (sp.top_level == c) { ++injected; break; }
     if (injected > 1) {
-      static bool warned = false;
-      if (!warned) {
-        warned = true;
+      if (!g_warned_pose_both_hands) {
+        g_warned_pose_both_hands = true;
         Log("pose override: null-subactionPath action bound to both hands with both injected; "
             "using the first match");
       }
@@ -577,9 +658,8 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   bool ok = false;
   outPose = TransformLocalPoseToSpace(session, poseLocal, baseSpace, time, &ok);
   if (!ok) {  // parity with the head path: transform to base space unresolved
-    static bool warned = false;
-    if (!warned) {
-      warned = true;
+    if (!g_warned_pose_transform) {
+      g_warned_pose_transform = true;
       Log("pose override: LOCAL->locate-space transform unresolved; emitting the LOCAL pose as-is "
           "(correct for LOCAL-space apps, off for STAGE)");
     }
@@ -595,7 +675,7 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
 XrResult XRAPI_CALL Hook_xrCreateSession(XrInstance instance, const XrSessionCreateInfo* createInfo,
                                           XrSession* session) {
   try {
-    static PFN_xrCreateSession next = ResolveNext<PFN_xrCreateSession>("xrCreateSession");
+    PFN_xrCreateSession next = g_dispatch.createSession;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(instance, createInfo, session);
     if (XR_SUCCEEDED(r) && session) {
@@ -612,11 +692,10 @@ XrResult XRAPI_CALL Hook_xrCreateSession(XrInstance instance, const XrSessionCre
 
 XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
   try {
-    static PFN_xrDestroySession next = ResolveNext<PFN_xrDestroySession>("xrDestroySession");
+    PFN_xrDestroySession next = g_dispatch.destroySession;
     if (session == g_session) {
       if (g_local_space != XR_NULL_HANDLE) {
-        if (!g_destroy_space) g_destroy_space = ResolveNext<PFN_xrDestroySpace>("xrDestroySpace");
-        if (g_destroy_space) g_destroy_space(g_local_space);
+        if (g_dispatch.destroySpace) g_dispatch.destroySpace(g_local_space);
         g_local_space = XR_NULL_HANDLE;
       }
       {
@@ -646,7 +725,7 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
 XrResult XRAPI_CALL Hook_xrCreateSwapchain(XrSession session, const XrSwapchainCreateInfo* createInfo,
                                             XrSwapchain* swapchain) {
   try {
-    static PFN_xrCreateSwapchain next = ResolveNext<PFN_xrCreateSwapchain>("xrCreateSwapchain");
+    PFN_xrCreateSwapchain next = g_dispatch.createSwapchain;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, createInfo, swapchain);
     if (XR_SUCCEEDED(r) && swapchain) vr_agent::CaptureOnCreateSwapchain(createInfo, *swapchain);
@@ -658,7 +737,7 @@ XrResult XRAPI_CALL Hook_xrCreateSwapchain(XrSession session, const XrSwapchainC
 
 XrResult XRAPI_CALL Hook_xrDestroySwapchain(XrSwapchain swapchain) {
   try {
-    static PFN_xrDestroySwapchain next = ResolveNext<PFN_xrDestroySwapchain>("xrDestroySwapchain");
+    PFN_xrDestroySwapchain next = g_dispatch.destroySwapchain;
     vr_agent::CaptureOnDestroySwapchain(swapchain);
     return next ? next(swapchain) : XR_ERROR_FUNCTION_UNSUPPORTED;
   } catch (...) {
@@ -670,8 +749,7 @@ XrResult XRAPI_CALL Hook_xrEnumerateSwapchainImages(XrSwapchain swapchain, uint3
                                                     uint32_t* imageCountOutput,
                                                     XrSwapchainImageBaseHeader* images) {
   try {
-    static PFN_xrEnumerateSwapchainImages next =
-        ResolveNext<PFN_xrEnumerateSwapchainImages>("xrEnumerateSwapchainImages");
+    PFN_xrEnumerateSwapchainImages next = g_dispatch.enumerateSwapchainImages;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(swapchain, imageCapacityInput, imageCountOutput, images);
     // Record only on the populating call (images non-null and something returned).
@@ -687,8 +765,7 @@ XrResult XRAPI_CALL Hook_xrAcquireSwapchainImage(XrSwapchain swapchain,
                                                  const XrSwapchainImageAcquireInfo* acquireInfo,
                                                  uint32_t* index) {
   try {
-    static PFN_xrAcquireSwapchainImage next =
-        ResolveNext<PFN_xrAcquireSwapchainImage>("xrAcquireSwapchainImage");
+    PFN_xrAcquireSwapchainImage next = g_dispatch.acquireSwapchainImage;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(swapchain, acquireInfo, index);
     if (XR_SUCCEEDED(r) && index) vr_agent::CaptureOnAcquireImage(swapchain, *index);
@@ -701,8 +778,7 @@ XrResult XRAPI_CALL Hook_xrAcquireSwapchainImage(XrSwapchain swapchain,
 XrResult XRAPI_CALL Hook_xrReleaseSwapchainImage(XrSwapchain swapchain,
                                                  const XrSwapchainImageReleaseInfo* releaseInfo) {
   try {
-    static PFN_xrReleaseSwapchainImage next =
-        ResolveNext<PFN_xrReleaseSwapchainImage>("xrReleaseSwapchainImage");
+    PFN_xrReleaseSwapchainImage next = g_dispatch.releaseSwapchainImage;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     vr_agent::CaptureOnReleaseImage(swapchain);
     return next(swapchain, releaseInfo);
@@ -714,7 +790,7 @@ XrResult XRAPI_CALL Hook_xrReleaseSwapchainImage(XrSwapchain swapchain,
 XrResult XRAPI_CALL Hook_xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) {
   try {
     vr_agent::CaptureOnEndFrame(frameEndInfo);
-    static PFN_xrEndFrame next = ResolveNext<PFN_xrEndFrame>("xrEndFrame");
+    PFN_xrEndFrame next = g_dispatch.endFrame;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     return next(session, frameEndInfo);
   } catch (...) {
@@ -725,7 +801,7 @@ XrResult XRAPI_CALL Hook_xrEndFrame(XrSession session, const XrFrameEndInfo* fra
 XrResult XRAPI_CALL Hook_xrSyncActions(XrSession session, const XrActionsSyncInfo* syncInfo) {
   try {
     ApplyPendingInputs(session);
-    static PFN_xrSyncActions next = ResolveNext<PFN_xrSyncActions>("xrSyncActions");
+    PFN_xrSyncActions next = g_dispatch.syncActions;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     return next(session, syncInfo);
   } catch (...) {
@@ -748,8 +824,7 @@ XrResult XRAPI_CALL Hook_xrApplyHapticFeedback(XrSession session, const XrHaptic
     }
     vr_agent::ControlChannelRecordHaptic(hand, amplitude);
     Log("xrApplyHapticFeedback (app buzzed the controller -- grab detected)");
-    static PFN_xrApplyHapticFeedback next =
-        ResolveNext<PFN_xrApplyHapticFeedback>("xrApplyHapticFeedback");
+    PFN_xrApplyHapticFeedback next = g_dispatch.applyHapticFeedback;
     return next ? next(session, hapticActionInfo, hapticFeedback) : XR_SUCCESS;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -758,7 +833,7 @@ XrResult XRAPI_CALL Hook_xrApplyHapticFeedback(XrSession session, const XrHaptic
 
 XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
   try {
-    static PFN_xrDestroyInstance next = ResolveNext<PFN_xrDestroyInstance>("xrDestroyInstance");
+    PFN_xrDestroyInstance next = g_dispatch.destroyInstance;  // capture before clearing the table
     Log("xrDestroyInstance -- stopping control channel");
     {
       std::lock_guard<std::mutex> lock(g_action_mutex);
@@ -770,7 +845,19 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
     vr_agent::ControlChannelSetInstance(false);
     vr_agent::ControlChannelSetSession(false);
     XrResult r = next ? next(instance) : XR_ERROR_FUNCTION_UNSUPPORTED;
-    if (instance == g_instance) g_instance = XR_NULL_HANDLE;
+    if (instance == g_instance) {
+      // GAP-07: drop all next-layer pointers (they belong to the runtime we just tore down) and reset
+      // instance-scoped flags, so a fresh xrCreateApiLayerInstance re-resolves against the new chain
+      // instead of holding this runtime's stale entry points / CA availability.
+      g_instance = XR_NULL_HANDLE;
+      g_ca_enabled = false;
+      g_warned_head_space = false;
+      g_warned_aim_offset = false;
+      g_warned_pose_null_subaction = false;
+      g_warned_pose_both_hands = false;
+      g_warned_pose_transform = false;
+      ClearLayerDispatch();  // takes g_mutex; not held here
+    }
     return r;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -782,7 +869,7 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
                                        XrViewState* viewState, uint32_t viewCapacityInput,
                                        uint32_t* viewCountOutput, XrView* views) {
   try {
-    static PFN_xrLocateViews next = ResolveNext<PFN_xrLocateViews>("xrLocateViews");
+    PFN_xrLocateViews next = g_dispatch.locateViews;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, viewLocateInfo, viewState, viewCapacityInput, viewCountOutput, views);
     if (XR_SUCCEEDED(r) && views && viewCountOutput && *viewCountOutput > 0) {
@@ -846,8 +933,7 @@ XrResult XRAPI_CALL Hook_xrCreateReferenceSpace(XrSession session,
                                                 const XrReferenceSpaceCreateInfo* createInfo,
                                                 XrSpace* space) {
   try {
-    static PFN_xrCreateReferenceSpace next =
-        ResolveNext<PFN_xrCreateReferenceSpace>("xrCreateReferenceSpace");
+    PFN_xrCreateReferenceSpace next = g_dispatch.createReferenceSpace;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, createInfo, space);
     if (XR_SUCCEEDED(r) && space && createInfo) {
@@ -867,7 +953,7 @@ XrResult XRAPI_CALL Hook_xrCreateReferenceSpace(XrSession session,
 // positive (and clobber an unrelated world-space location). Mirrors the swapchain destroy tracking.
 XrResult XRAPI_CALL Hook_xrDestroySpace(XrSpace space) {
   try {
-    static PFN_xrDestroySpace next = ResolveNext<PFN_xrDestroySpace>("xrDestroySpace");
+    PFN_xrDestroySpace next = g_dispatch.destroySpace;
     {
       std::lock_guard<std::mutex> lock(g_view_spaces_mutex);
       g_view_spaces.erase(space);
@@ -923,7 +1009,7 @@ void* FindInNextChain(void* next, XrStructureType type) {
 XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime time,
                                        XrSpaceLocation* location) {
   try {
-    static PFN_xrLocateSpace next = ResolveNext<PFN_xrLocateSpace>("xrLocateSpace");
+    PFN_xrLocateSpace next = g_dispatch.locateSpace;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(space, baseSpace, time, location);
     if (XR_SUCCEEDED(r) && location) {
@@ -960,7 +1046,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
 XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateInfo* locateInfo,
                                         XrSpaceLocations* locations) {
   try {
-    static PFN_xrLocateSpaces next = ResolveNext<PFN_xrLocateSpaces>("xrLocateSpaces");
+    PFN_xrLocateSpaces next = g_dispatch.locateSpaces;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, locateInfo, locations);
     if (XR_SUCCEEDED(r) && locateInfo && locateInfo->spaces && locations && locations->locations) {
@@ -1001,7 +1087,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
 XrResult XRAPI_CALL Hook_xrCreateActionSpace(XrSession session, const XrActionSpaceCreateInfo* ci,
                                              XrSpace* space) {
   try {
-    static PFN_xrCreateActionSpace next = ResolveNext<PFN_xrCreateActionSpace>("xrCreateActionSpace");
+    PFN_xrCreateActionSpace next = g_dispatch.createActionSpace;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, ci, space);
     if (XR_SUCCEEDED(r) && space && ci) {
@@ -1021,8 +1107,7 @@ XrResult XRAPI_CALL Hook_xrCreateActionSpace(XrSession session, const XrActionSp
 XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
     XrInstance instance, const XrInteractionProfileSuggestedBinding* suggestedBindings) {
   try {
-    static PFN_xrSuggestInteractionProfileBindings next =
-        ResolveNext<PFN_xrSuggestInteractionProfileBindings>("xrSuggestInteractionProfileBindings");
+    PFN_xrSuggestInteractionProfileBindings next = g_dispatch.suggestInteractionProfileBindings;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     if (suggestedBindings && suggestedBindings->suggestedBindings) {
       const std::string profile = PathToStr(suggestedBindings->interactionProfile);
@@ -1049,7 +1134,7 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
 XrResult XRAPI_CALL Hook_xrCreateActionSet(XrInstance instance, const XrActionSetCreateInfo* ci,
                                            XrActionSet* actionSet) {
   try {
-    static PFN_xrCreateActionSet next = ResolveNext<PFN_xrCreateActionSet>("xrCreateActionSet");
+    PFN_xrCreateActionSet next = g_dispatch.createActionSet;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(instance, ci, actionSet);
     if (XR_SUCCEEDED(r) && actionSet && ci) {
@@ -1067,7 +1152,7 @@ XrResult XRAPI_CALL Hook_xrCreateActionSet(XrInstance instance, const XrActionSe
 XrResult XRAPI_CALL Hook_xrCreateAction(XrActionSet actionSet, const XrActionCreateInfo* ci,
                                         XrAction* action) {
   try {
-    static PFN_xrCreateAction next = ResolveNext<PFN_xrCreateAction>("xrCreateAction");
+    PFN_xrCreateAction next = g_dispatch.createAction;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(actionSet, ci, action);
     if (XR_SUCCEEDED(r) && action && ci) {
@@ -1092,7 +1177,7 @@ XrResult XRAPI_CALL Hook_xrCreateAction(XrActionSet actionSet, const XrActionCre
 // xrDestroySpace -- we erase our tracking to avoid a stale/false entry. Erases then forwards.
 XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
   try {
-    static PFN_xrDestroyActionSet next = ResolveNext<PFN_xrDestroyActionSet>("xrDestroyActionSet");
+    PFN_xrDestroyActionSet next = g_dispatch.destroyActionSet;
     {
       std::lock_guard<std::mutex> lock(g_action_mutex);
       g_action_sets.erase(actionSet);
@@ -1117,8 +1202,7 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
 XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
     XrSession session, const XrSessionActionSetsAttachInfo* attachInfo) {
   try {
-    static PFN_xrAttachSessionActionSets next =
-        ResolveNext<PFN_xrAttachSessionActionSets>("xrAttachSessionActionSets");
+    PFN_xrAttachSessionActionSets next = g_dispatch.attachSessionActionSets;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, attachInfo);
     if (XR_SUCCEEDED(r) && attachInfo && attachInfo->actionSets) {
@@ -1228,7 +1312,7 @@ XrResult XRAPI_CALL VrAgentGetInstanceProcAddr(XrInstance instance, const char* 
     // so an app probing support via xrGetInstanceProcAddr isn't misled by a non-null pointer that
     // would then return UNSUPPORTED at call time.
     if (std::strcmp(name, "xrLocateSpaces") == 0) {
-      if (ResolveNext<PFN_xrLocateSpaces>("xrLocateSpaces") != nullptr) {
+      if (g_dispatch.locateSpaces != nullptr) {
         *function = reinterpret_cast<PFN_xrVoidFunction>(Hook_xrLocateSpaces);
         return XR_SUCCESS;
       }
@@ -1269,7 +1353,7 @@ bool RuntimeSupportsExtension(PFN_xrGetInstanceProcAddr gipa, const char* ext_na
 }
 
 void PublishRuntimeName() {
-  auto get_props = ResolveNext<PFN_xrGetInstanceProperties>("xrGetInstanceProperties");
+  PFN_xrGetInstanceProperties get_props = g_dispatch.getInstanceProperties;
   if (!get_props) return;
   XrInstanceProperties props{XR_TYPE_INSTANCE_PROPERTIES};
   if (get_props(g_instance, &props) == XR_SUCCESS) {
@@ -1335,6 +1419,9 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
     if (XR_SUCCEEDED(result) && instance) {
       g_instance = *instance;
       g_ca_enabled = ca_supported;
+      // GAP-07: resolve the whole next-layer table now, against THIS instance's chain. Rebuilt on
+      // every create so a second instance never inherits the previous runtime's stale pointers.
+      RebuildLayerDispatch();
       vr_agent::ControlChannelSetInstance(true);
       vr_agent::ControlChannelSetSession(false);
       vr_agent::ControlChannelSetConformanceAutomation(ca_supported);

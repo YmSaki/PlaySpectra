@@ -26,9 +26,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <string>
@@ -283,6 +285,13 @@ struct EndFrameSnapshot {
     uint32_t arrayIndex = 0;
     int32_t x = 0, y = 0;
     int32_t w = 0, h = 0;
+    // Depth submission (XrCompositionLayerDepthInfoKHR chained off the projection view), if any.
+    bool hasDepth = false;
+    XrSwapchain depthSwapchain = XR_NULL_HANDLE;
+    uint32_t depthArrayIndex = 0;
+    int32_t depthX = 0, depthY = 0, depthW = 0, depthH = 0;
+    float minDepth = 0.0f, maxDepth = 1.0f;  // depth buffer value range (viewport minDepth/maxDepth)
+    float nearZ = 0.0f, farZ = 0.0f;         // near/far planes; nearZ>farZ or farZ==+inf => reversed-Z
   };
   std::vector<View> views;
   uint64_t frameCount = 0;
@@ -294,6 +303,7 @@ std::mutex g_req_mutex;
 std::condition_variable g_req_cv;
 bool g_req_pending = false;
 std::string g_req_eye;
+bool g_req_with_depth = false;
 bool g_req_done = false;
 std::string g_req_result;
 
@@ -466,6 +476,271 @@ json VulkanReadbackToPng(VkImage image, int64_t format, uint32_t sampleCount,
           {"format", format}};
 }
 
+// --------------------------------------------------------------------------------------------
+// Depth capture. When the app chains an XrCompositionLayerDepthInfoKHR onto a projection view, its
+// depth swapchain image holds NDC depth in [0,1] (scaled into the viewport's [minDepth,maxDepth]).
+// We copy that image out (VK_IMAGE_ASPECT_DEPTH_BIT), linearize NDC depth to positive view-space
+// metres, and encode a 16-bit grayscale PNG normalized over the frame's finite depth range.
+// Reversed-Z (nearZ>farZ) and infinite-far reversed-Z (farZ==+inf) are handled. Depth is a
+// nice-to-have (CLAUDE.md): when the app submits none we say so honestly, never a fabricated image.
+// --------------------------------------------------------------------------------------------
+enum class DepthKind { None, U16, D24, F32 };
+
+// Classify a Vulkan depth format and report bytes-per-texel a DEPTH-aspect buffer copy produces.
+// Per the Vulkan spec a depth-aspect copy of D24_UNORM_S8_UINT / X8_D24_UNORM_PACK32 packs the
+// 24-bit depth into the low bits of a 32-bit word; D32_SFLOAT(_S8_UINT) copies one float; D16 copies
+// one uint16. Stencil bytes are never included in a depth-aspect copy.
+DepthKind ClassifyDepthFormat(int64_t f, uint32_t& texelBytes) {
+  switch (f) {
+    case VK_FORMAT_D16_UNORM:
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+      texelBytes = 2; return DepthKind::U16;
+    case VK_FORMAT_X8_D24_UNORM_PACK32:
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+      texelBytes = 4; return DepthKind::D24;
+    case VK_FORMAT_D32_SFLOAT:
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+      texelBytes = 4; return DepthKind::F32;
+    default:
+      texelBytes = 0; return DepthKind::None;
+  }
+}
+
+// NDC depth (z in [0,1]; Vulkan convention: 0=near plane, 1=far plane in the non-reversed case) ->
+// positive view-space distance in metres. Endpoints: z=0 -> nearZ, z=1 -> farZ, so reversed-Z
+// (nearZ>farZ) falls out of the same expression. Infinite far plane (farZ==+inf, the classic
+// reversed-Z infinite projection) uses zView = nearZ / z, with z==0 meaning infinitely far.
+float LinearizeViewDepth(float z, float nearZ, float farZ) {
+  if (std::isinf(farZ)) {
+    if (z <= 0.0f) return std::numeric_limits<float>::infinity();
+    return nearZ / z;
+  }
+  const float denom = farZ - z * (farZ - nearZ);
+  if (std::fabs(denom) < 1e-20f) return std::numeric_limits<float>::infinity();
+  return farZ * nearZ / denom;
+}
+
+// Runs on the app (xrEndFrame) thread, after the color readback. `image` is the depth swapchain's
+// last-released image, assumed left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL by the app (mirrors the
+// color path's COLOR_ATTACHMENT_OPTIMAL assumption). Returns {available:true, depthPath, depthMeta}
+// or {available:false, note:...} -- never a silently-wrong depth image.
+json VulkanReadbackDepthToPng(VkImage image, int64_t format, uint32_t sampleCount,
+                              const EndFrameSnapshot::View& view) {
+  if (sampleCount > 1) {
+    return {{"available", false},
+            {"note", "depth swapchain is multisampled (sampleCount>1); depth MSAA resolve not implemented"}};
+  }
+  uint32_t texelBytes = 0;
+  const DepthKind kind = ClassifyDepthFormat(format, texelBytes);
+  if (kind == DepthKind::None) {
+    return {{"available", false},
+            {"note", "unsupported Vulkan depth format " + std::to_string(format) +
+                         " (D16_UNORM / D24_UNORM_S8 / X8_D24 / D32_SFLOAT[_S8] supported)"}};
+  }
+  if (image == VK_NULL_HANDLE) {
+    return {{"available", false}, {"note", "no released depth swapchain image to read"}};
+  }
+  if (view.depthW <= 0 || view.depthH <= 0) {
+    return {{"available", false}, {"note", "invalid depth subimage rect"}};
+  }
+  if (!EnsureVulkanResources()) {
+    return {{"available", false}, {"note", "failed to create Vulkan capture resources for depth"}};
+  }
+  const uint32_t w = static_cast<uint32_t>(view.depthW);
+  const uint32_t h = static_cast<uint32_t>(view.depthH);
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * texelBytes;
+  if (!EnsureStaging(bytes)) {
+    return {{"available", false}, {"note", "failed to allocate depth staging buffer"}};
+  }
+
+  // Record: barrier DEPTH_STENCIL_ATTACHMENT_OPTIMAL -> TRANSFER_SRC, copy DEPTH aspect, barrier back.
+  g_vk.resetCommandBuffer(g_vk_cmd, 0);
+  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  g_vk.beginCommandBuffer(g_vk_cmd, &bi);
+
+  const VkPipelineStageFlags depthStages =
+      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+  VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  toSrc.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  toSrc.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toSrc.image = image;
+  toSrc.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, view.depthArrayIndex, 1};
+  g_vk.cmdPipelineBarrier(g_vk_cmd, depthStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                          nullptr, 1, &toSrc);
+
+  VkBufferImageCopy region{};
+  region.bufferOffset = 0;
+  region.bufferRowLength = 0;    // tightly packed to imageExtent.width
+  region.bufferImageHeight = 0;  // tightly packed to imageExtent.height
+  region.imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, view.depthArrayIndex, 1};
+  region.imageOffset = {view.depthX, view.depthY, 0};
+  region.imageExtent = {w, h, 1};
+  g_vk.cmdCopyImageToBuffer(g_vk_cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_staging, 1,
+                            &region);
+
+  VkImageMemoryBarrier toDepth = toSrc;
+  toDepth.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  toDepth.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  toDepth.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, depthStages, 0, 0, nullptr, 0,
+                          nullptr, 1, &toDepth);
+  g_vk.endCommandBuffer(g_vk_cmd);
+
+  g_vk.resetFences(g_vk_device, 1, &g_vk_fence);
+  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  si.commandBufferCount = 1;
+  si.pCommandBuffers = &g_vk_cmd;
+  if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
+    return {{"available", false}, {"note", "vkQueueSubmit failed for depth copy"}};
+  }
+  const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
+  if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
+    return {{"available", false}, {"note", "timed out waiting for GPU depth copy fence"}};
+  }
+
+  void* mapped = nullptr;
+  if (g_vk.mapMemory(g_vk_device, g_vk_staging_mem, 0, bytes, 0, &mapped) != VK_SUCCESS || !mapped) {
+    return {{"available", false}, {"note", "vkMapMemory failed for depth"}};
+  }
+  std::vector<unsigned char> raw(static_cast<size_t>(bytes));
+  std::memcpy(raw.data(), mapped, static_cast<size_t>(bytes));
+  g_vk.unmapMemory(g_vk_device, g_vk_staging_mem);
+
+  // Decode each texel -> [0,1] stored value, undo the viewport [minDepth,maxDepth] scale to recover
+  // NDC z, then linearize to view-space metres. Track the finite range for output normalization.
+  const size_t count = static_cast<size_t>(w) * h;
+  std::vector<float> viewDepth(count);
+  const float dspan = view.maxDepth - view.minDepth;
+  const float invSpan = (std::fabs(dspan) > 1e-8f) ? (1.0f / dspan) : 0.0f;
+  float minView = std::numeric_limits<float>::infinity();
+  float maxView = -std::numeric_limits<float>::infinity();
+  for (size_t i = 0; i < count; ++i) {
+    float stored = 0.0f;  // depth buffer value in [0,1]
+    switch (kind) {
+      case DepthKind::U16: {
+        uint16_t v = 0;
+        std::memcpy(&v, raw.data() + i * 2, 2);
+        stored = static_cast<float>(v) / 65535.0f;
+        break;
+      }
+      case DepthKind::D24: {
+        uint32_t v = 0;
+        std::memcpy(&v, raw.data() + i * 4, 4);
+        stored = static_cast<float>(v & 0x00FFFFFFu) / 16777215.0f;
+        break;
+      }
+      case DepthKind::F32: {
+        std::memcpy(&stored, raw.data() + i * 4, 4);
+        break;
+      }
+      default:
+        break;
+    }
+    // Undo viewport depth range -> NDC z in [0,1].
+    float z = (invSpan != 0.0f) ? (stored - view.minDepth) * invSpan : stored;
+    if (z < 0.0f) z = 0.0f;
+    if (z > 1.0f) z = 1.0f;
+    const float zv = LinearizeViewDepth(z, view.nearZ, view.farZ);
+    viewDepth[i] = zv;
+    if (std::isfinite(zv)) {
+      if (zv < minView) minView = zv;
+      if (zv > maxView) maxView = zv;
+    }
+  }
+
+  if (!(std::isfinite(minView) && std::isfinite(maxView))) {
+    // Every sample is at the (possibly infinite) far plane -> nothing meaningful to visualize.
+    return {{"available", false},
+            {"note", "depth submitted but all samples are at the far plane; nothing to visualize"}};
+  }
+  float range = maxView - minView;
+  if (!(range > 0.0f)) range = 1.0f;  // flat depth -> avoid divide-by-zero (all pixels map to 0)
+
+  // 16-bit grayscale, big-endian as lodepng requires. Nearest depth -> 0, farthest -> 65535;
+  // infinite-far samples clamp to 65535 (white).
+  std::vector<unsigned char> png(count * 2);
+  for (size_t i = 0; i < count; ++i) {
+    const float zv = viewDepth[i];
+    uint16_t g;
+    if (!std::isfinite(zv)) {
+      g = 65535;
+    } else {
+      float norm = (zv - minView) / range;
+      if (norm < 0.0f) norm = 0.0f;
+      if (norm > 1.0f) norm = 1.0f;
+      long q = std::lroundf(norm * 65535.0f);
+      if (q < 0) q = 0;
+      if (q > 65535) q = 65535;
+      g = static_cast<uint16_t>(q);
+    }
+    png[i * 2] = static_cast<unsigned char>((g >> 8) & 0xFF);  // MSB first (lodepng 16-bit is big-endian)
+    png[i * 2 + 1] = static_cast<unsigned char>(g & 0xFF);
+  }
+
+  const std::string path =
+      CaptureOutputDir() + "/vr_depth_" + std::to_string(g_capture_counter.fetch_add(1)) + ".png";
+  unsigned err = lodepng::encode(path, png, w, h, LCT_GREY, 16);
+  if (err) {
+    return {{"available", false},
+            {"note", std::string("lodepng depth encode failed: ") + lodepng_error_text(err)}};
+  }
+
+  const bool reversedZ = std::isinf(view.farZ) ? true : (view.nearZ > view.farZ);
+  Log("depth readback " + std::to_string(bytes) + " bytes -> " + path);
+  json meta = {
+      {"nearZ", view.nearZ},
+      {"reversedZ", reversedZ},
+      {"minView", minView},
+      {"maxView", maxView},
+      {"width", w},
+      {"height", h},
+      {"format", format},
+      {"encoding",
+       "linear-view-depth normalized to [minView,maxView] metres over 16-bit: "
+       "zView = minView + (pixel/65535)*(maxView-minView); nearest=0, far/infinite=65535"}};
+  // JSON has no infinity literal; emit an infinite far plane as the string "inf".
+  if (std::isinf(view.farZ)) meta["farZ"] = "inf";
+  else meta["farZ"] = view.farZ;
+  return {{"available", true}, {"depthPath", path}, {"depthMeta", meta}};
+}
+
+// Resolve the depth swapchain's last-released image for `view` and read it back. Returns the
+// {available:...} depth JSON. When the app chained no depth info, this is the honest "no depth
+// submitted" answer (CLAUDE.md: never fabricate depth). Vulkan only (the only implemented backend).
+json ResolveDepth(const EndFrameSnapshot::View& view) {
+  if (!view.hasDepth) {
+    return {{"available", false},
+            {"note", "app submitted no XrCompositionLayerDepthInfoKHR; enable depth submission"}};
+  }
+  VkImage depthImage = VK_NULL_HANDLE;
+  int64_t depthFormat = 0;
+  uint32_t depthSamples = 1;
+  bool haveDepthImage = false;
+  {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = g_swapchains.find(view.depthSwapchain);
+    if (it != g_swapchains.end()) {
+      depthFormat = it->second.format;
+      depthSamples = it->second.sampleCount;
+      const uint32_t ri = it->second.lastReleasedIndex;
+      if (ri < it->second.images.size()) {
+        depthImage = reinterpret_cast<VkImage>(it->second.images[ri]);
+        haveDepthImage = true;
+      }
+    }
+  }
+  if (!haveDepthImage) {
+    return {{"available", false}, {"note", "no tracked released image for the depth swapchain"}};
+  }
+  return VulkanReadbackDepthToPng(depthImage, depthFormat, depthSamples, view);
+}
+
 }  // namespace
 
 const char* GfxApiName(GfxApi api) {
@@ -592,6 +867,26 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
         view.y = pv.subImage.imageRect.offset.y;
         view.w = pv.subImage.imageRect.extent.width;
         view.h = pv.subImage.imageRect.extent.height;
+        // Walk the projection view's next chain for a chained depth submission
+        // (XrCompositionLayerDepthInfoKHR). Most apps submit none; that's fine (depth stays absent).
+        for (const auto* base = static_cast<const XrBaseInStructure*>(pv.next); base != nullptr;
+             base = base->next) {
+          if (base->type == XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR) {
+            const auto* d = reinterpret_cast<const XrCompositionLayerDepthInfoKHR*>(base);
+            view.hasDepth = true;
+            view.depthSwapchain = d->subImage.swapchain;
+            view.depthArrayIndex = d->subImage.imageArrayIndex;
+            view.depthX = d->subImage.imageRect.offset.x;
+            view.depthY = d->subImage.imageRect.offset.y;
+            view.depthW = d->subImage.imageRect.extent.width;
+            view.depthH = d->subImage.imageRect.extent.height;
+            view.minDepth = d->minDepth;
+            view.maxDepth = d->maxDepth;
+            view.nearZ = d->nearZ;
+            view.farZ = d->farZ;
+            break;
+          }
+        }
         snap.views.push_back(view);
       }
       break;  // first projection layer wins
@@ -608,6 +903,7 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
   std::unique_lock<std::mutex> rlock(g_req_mutex);
   if (!g_req_pending) return;
   const std::string eye = g_req_eye;
+  const bool withDepth = g_req_with_depth;
   g_req_pending = false;
 
   // The whole fulfillment is guarded: a capture failure (bad_alloc on the pixel buffer, a json
@@ -650,6 +946,7 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
           } else {
             result = VulkanReadbackToPng(vkImage, format, sampleCount, view, eye, idx);
           }
+          if (withDepth) result["depth"] = ResolveDepth(view);
         } else {
           result = {{"ok", false},
                     {"error", std::string("capture backend for ") + GfxApiName(g_api) +
@@ -657,8 +954,17 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
                     {"api", GfxApiName(g_api)},
                     {"eye", eye},
                     {"viewIndex", idx}};
+          if (withDepth)
+            result["depth"] = {{"available", false},
+                               {"note", "depth capture implemented for the Vulkan backend only"}};
         }
       }
+    }
+    // Uniform depth answer for the early-error paths (no projection / no usable view) that never
+    // reached a backend branch: if depth was requested, still say honestly that none is available.
+    if (withDepth && result.is_object() && !result.contains("depth")) {
+      result["depth"] = {{"available", false},
+                         {"note", "no usable projection view this frame to attach depth to"}};
     }
   } catch (const std::exception& e) {
     result = {{"ok", false}, {"error", std::string("capture failed: ") + e.what()}};
@@ -675,9 +981,10 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
   g_req_cv.notify_all();
 }
 
-std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs) {
+std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs, bool withDepth) {
   std::unique_lock<std::mutex> lock(g_req_mutex);
   g_req_eye = eye;
+  g_req_with_depth = withDepth;
   g_req_done = false;
   g_req_pending = true;
   bool done = g_req_cv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [] { return g_req_done; });

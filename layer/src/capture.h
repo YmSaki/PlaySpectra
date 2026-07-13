@@ -37,8 +37,11 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo);
 
 // Called from the control-channel (socket) thread. Requests a screenshot of the given eye
 // ("left"|"right"|"dominant") and blocks until the next xrEndFrame fulfils it or timeoutMs elapses.
+// When withDepth is true and the app submitted an XrCompositionLayerDepthInfoKHR for that view, the
+// result also carries a "depth" object ({available:true, depthPath, depthMeta} or
+// {available:false, note}); depth is a nice-to-have and never fabricated (CLAUDE.md).
 // Returns a JSON string describing the result (path on success, or diagnostic state / error).
-std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs);
+std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs, bool withDepth = false);
 
 // Snapshot of tracked state for vr_status / diagnostics.
 std::string CaptureStatusJson();

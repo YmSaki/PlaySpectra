@@ -123,16 +123,27 @@ function textResult(obj: unknown) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Read a successful screenshot reply's PNG into an MCP image content block (or null on failure).
-async function shotImage(reply: any) {
-  if (reply && reply.ok && typeof reply.path === "string") {
-    try {
-      const buf = await readFile(reply.path);
-      return { type: "image" as const, data: buf.toString("base64"), mimeType: "image/png" };
-    } catch {
-      return null;
-    }
+// Read a PNG at `path` into an MCP image content block (or null on failure).
+async function pngImage(path: unknown) {
+  if (typeof path !== "string") return null;
+  try {
+    const buf = await readFile(path);
+    return { type: "image" as const, data: buf.toString("base64"), mimeType: "image/png" };
+  } catch {
+    return null;
   }
+}
+
+// Read a successful screenshot reply's color PNG into an MCP image content block (or null on failure).
+async function shotImage(reply: any) {
+  if (reply && reply.ok) return pngImage(reply.path);
+  return null;
+}
+
+// Read a screenshot reply's depth PNG (16-bit grayscale) into an image block, if depth is present
+// and available. Returns null when the app submitted no depth (reply.depth.available === false).
+async function depthImage(reply: any) {
+  if (reply && reply.depth && reply.depth.available) return pngImage(reply.depth.depthPath);
   return null;
 }
 
@@ -311,35 +322,50 @@ server.registerTool(
       "format). `eye` selects left / right / dominant (default dominant = right); the layer copies " +
       "that eye's projection subimage at the next xrEndFrame. `eye:'both'` returns the left AND right " +
       "images — NOTE they are captured on SEPARATE frames (not a simultaneous stereo pair), so on a " +
-      "moving scene they differ by motion, not just parallax. (Vulkan today; D3D11/D3D12 pending.)",
+      "moving scene they differ by motion, not just parallax. (Vulkan today; D3D11/D3D12 pending.) " +
+      "`withDepth:true` also returns a 16-bit grayscale depth map (nearest=black, far=white) plus " +
+      "depthMeta (nearZ/farZ/reversedZ/minView/maxView/encoding) IF the app submits depth via " +
+      "XrCompositionLayerDepthInfoKHR; many apps do not, in which case depth.available is false.",
     inputSchema: {
       eye: z
         .enum(["left", "right", "dominant", "both"])
         .optional()
         .describe("Which eye (default dominant); 'both' returns left+right (separate frames)"),
       timeoutMs: z.number().optional().describe("Max ms to wait for the next frame (default 5000)"),
+      withDepth: z
+        .boolean()
+        .optional()
+        .describe("Also capture a depth map if the app submits one (default false)"),
     },
   },
-  async ({ eye, timeoutMs }) => {
+  async ({ eye, timeoutMs, withDepth }) => {
     const e = eye ?? "dominant";
     const to = timeoutMs ?? 5000;
+    const wd = withDepth ?? false;
     if (e === "both") {
-      const l = await send({ cmd: "screenshot", eye: "left", timeoutMs: to });
-      const r = await send({ cmd: "screenshot", eye: "right", timeoutMs: to });
+      const l = await send({ cmd: "screenshot", eye: "left", timeoutMs: to, withDepth: wd });
+      const r = await send({ cmd: "screenshot", eye: "right", timeoutMs: to, withDepth: wd });
       const content: any[] = [];
       const li = await shotImage(l);
       if (li) content.push(li);
+      if (wd) { const ld = await depthImage(l); if (ld) content.push(ld); }
       const ri = await shotImage(r);
       if (ri) content.push(ri);
+      if (wd) { const rd = await depthImage(r); if (rd) content.push(rd); }
       content.push({ type: "text" as const, text: JSON.stringify({ left: l, right: r }, null, 2) });
       return { content };
     }
     // The layer writes a PNG to disk and returns its path; the MCP server runs on the same host, so
-    // read the file and hand the agent actual pixels (image content) plus metadata.
-    const reply = await send({ cmd: "screenshot", eye: e, timeoutMs: to });
+    // read the file and hand the agent actual pixels (image content) plus metadata. With withDepth,
+    // the depth PNG (when the app submitted one) is returned as a second image block.
+    const reply = await send({ cmd: "screenshot", eye: e, timeoutMs: to, withDepth: wd });
     const img = await shotImage(reply);
-    if (img) return { content: [img, { type: "text" as const, text: JSON.stringify(reply, null, 2) }] };
-    return textResult(reply);
+    const content: any[] = [];
+    if (img) content.push(img);
+    if (wd) { const di = await depthImage(reply); if (di) content.push(di); }
+    if (content.length === 0) return textResult(reply);
+    content.push({ type: "text" as const, text: JSON.stringify(reply, null, 2) });
+    return { content };
   },
 );
 

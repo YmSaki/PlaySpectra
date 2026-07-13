@@ -26,6 +26,9 @@
 // Reuse the layer's logger (defined in openxr_agent_layer.cpp).
 namespace vr_agent {
 void LayerLog(const char* msg, const char* detail);
+// Action-discovery dump for the `actions` command (defined in openxr_agent_layer.cpp, where the
+// action registry lives). Returns a JSON string; parsed and forwarded to the MCP client below.
+std::string LayerBuildActionsJson();
 }
 
 namespace vr_agent {
@@ -257,6 +260,16 @@ json HandleRequest(const std::string& line) {
                        {"amplitude", g_haptic_log[i].amplitude}});
     }
     return json{{"ok", true}, {"haptics", arr}};
+  }
+
+  if (cmd == "actions") {
+    // { cmd:"actions" } -> dump of the app's registered action sets / actions and their bound
+    // interaction-profile paths, so an agent can discover inputs by NAME instead of guessing paths.
+    try {
+      return json::parse(LayerBuildActionsJson());
+    } catch (...) {
+      return json{{"ok", false}, {"error", "actions dump failed"}};
+    }
   }
 
   if (cmd == "reset") {

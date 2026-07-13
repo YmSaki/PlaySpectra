@@ -31,6 +31,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "capture.h"
 #include "control_channel.h"
 
@@ -312,6 +314,40 @@ struct ActionSpaceInfo { XrAction action; std::string handTop; };  // handTop e.
 std::map<XrSpace, ActionSpaceInfo> g_action_spaces;
 std::set<XrAction> g_grip_pose_actions;
 
+// ---------------------------------------------------------------------------------------------
+// Action discovery registry (WU5, `actions` command / vr_actions tool). Lets an agent enumerate the
+// app's action sets + actions by NAME ("Grab", "Teleport") and see which interaction-profile paths
+// each action is bound to, so it never has to guess OpenXR paths. Purely observational: we record
+// what the app registers (xrCreateActionSet/xrCreateAction/xrSuggestInteractionProfileBindings/
+// xrAttachSessionActionSets) and forward every call unchanged. All strings are captured at record
+// time (on the app thread, where PathToStr is valid) so the socket-thread dump touches no OpenXR
+// state. Guarded by the existing g_action_mutex; action sets/actions are instance-scoped and cleared
+// at xrDestroyInstance (attachment is session-scoped and cleared at xrDestroySession).
+struct ActionSetReg { std::string name; std::string localizedName; };
+struct BindingReg { std::string profile; std::string path; };  // interaction profile + bound path
+struct ActionReg {
+  XrActionSet actionSet = XR_NULL_HANDLE;
+  std::string name;
+  std::string localizedName;
+  XrActionType type = XR_ACTION_TYPE_BOOLEAN_INPUT;
+  std::vector<std::string> subactionPaths;
+  std::vector<BindingReg> bindings;
+};
+std::map<XrActionSet, ActionSetReg> g_action_sets;
+std::map<XrAction, ActionReg> g_actions;
+std::set<XrActionSet> g_attached_action_sets;
+
+const char* ActionTypeName(XrActionType t) {
+  switch (t) {
+    case XR_ACTION_TYPE_BOOLEAN_INPUT: return "BOOLEAN_INPUT";
+    case XR_ACTION_TYPE_FLOAT_INPUT: return "FLOAT_INPUT";
+    case XR_ACTION_TYPE_VECTOR2F_INPUT: return "VECTOR2F_INPUT";
+    case XR_ACTION_TYPE_POSE_INPUT: return "POSE_INPUT";
+    case XR_ACTION_TYPE_VIBRATION_OUTPUT: return "VIBRATION_OUTPUT";
+    default: return "UNKNOWN";
+  }
+}
+
 std::string PathToStr(XrPath p) {
   if (p == XR_NULL_PATH || g_instance == XR_NULL_HANDLE) return "";
   if (!g_xrPathToString) g_xrPathToString = ResolveNext<PFN_xrPathToString>("xrPathToString");
@@ -412,6 +448,7 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         std::lock_guard<std::mutex> lock(g_action_mutex);
         g_action_spaces.clear();  // action spaces belong to this session
         g_grip_pose_actions.clear();
+        g_attached_action_sets.clear();  // attachment is per-session (re-attached on a new session)
       }
       g_session = XR_NULL_HANDLE;
       vr_agent::ControlChannelSetSession(false);
@@ -540,6 +577,12 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
   try {
     static PFN_xrDestroyInstance next = ResolveNext<PFN_xrDestroyInstance>("xrDestroyInstance");
     Log("xrDestroyInstance -- stopping control channel");
+    {
+      std::lock_guard<std::mutex> lock(g_action_mutex);
+      g_action_sets.clear();  // action sets/actions are instance-scoped
+      g_actions.clear();
+      g_attached_action_sets.clear();
+    }
     vr_agent::ControlChannelStop();
     vr_agent::ControlChannelSetInstance(false);
     vr_agent::ControlChannelSetSession(false);
@@ -715,7 +758,8 @@ XrResult XRAPI_CALL Hook_xrCreateActionSpace(XrSession session, const XrActionSp
 }
 
 // Track which actions are bound to a .../input/grip/pose path (so their action spaces are the grip
-// pose spaces to override). Records then forwards unchanged.
+// pose spaces to override), AND record the full action->(interaction profile, binding path) map for
+// the `actions` discovery dump. Records then forwards unchanged.
 XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
     XrInstance instance, const XrInteractionProfileSuggestedBinding* suggestedBindings) {
   try {
@@ -723,17 +767,151 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
         ResolveNext<PFN_xrSuggestInteractionProfileBindings>("xrSuggestInteractionProfileBindings");
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     if (suggestedBindings && suggestedBindings->suggestedBindings) {
+      const std::string profile = PathToStr(suggestedBindings->interactionProfile);
       std::lock_guard<std::mutex> lock(g_action_mutex);
       for (uint32_t i = 0; i < suggestedBindings->countSuggestedBindings; ++i) {
         const XrActionSuggestedBinding& b = suggestedBindings->suggestedBindings[i];
-        if (PathToStr(b.binding).find("/input/grip/pose") != std::string::npos)
+        const std::string bindingPath = PathToStr(b.binding);
+        if (bindingPath.find("/input/grip/pose") != std::string::npos)
           g_grip_pose_actions.insert(b.action);
+        auto it = g_actions.find(b.action);  // only actions the app created via the hooked path
+        if (it != g_actions.end()) it->second.bindings.push_back(BindingReg{profile, bindingPath});
       }
     }
     return next(instance, suggestedBindings);
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
   }
+}
+
+// Record an action set: XrActionSet -> (name, localizedName). Forwards unchanged.
+XrResult XRAPI_CALL Hook_xrCreateActionSet(XrInstance instance, const XrActionSetCreateInfo* ci,
+                                           XrActionSet* actionSet) {
+  try {
+    static PFN_xrCreateActionSet next = ResolveNext<PFN_xrCreateActionSet>("xrCreateActionSet");
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(instance, ci, actionSet);
+    if (XR_SUCCEEDED(r) && actionSet && ci) {
+      std::lock_guard<std::mutex> lock(g_action_mutex);
+      g_action_sets[*actionSet] = ActionSetReg{ci->actionSetName, ci->localizedActionSetName};
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// Record an action: XrAction -> (owning set, name, localizedName, type, subactionPaths). Forwards
+// unchanged. Subaction paths are stringified here (app thread) so the socket-thread dump is string-only.
+XrResult XRAPI_CALL Hook_xrCreateAction(XrActionSet actionSet, const XrActionCreateInfo* ci,
+                                        XrAction* action) {
+  try {
+    static PFN_xrCreateAction next = ResolveNext<PFN_xrCreateAction>("xrCreateAction");
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(actionSet, ci, action);
+    if (XR_SUCCEEDED(r) && action && ci) {
+      ActionReg reg;
+      reg.actionSet = actionSet;
+      reg.name = ci->actionName;
+      reg.localizedName = ci->localizedActionName;
+      reg.type = ci->actionType;
+      for (uint32_t i = 0; i < ci->countSubactionPaths; ++i)
+        reg.subactionPaths.push_back(PathToStr(ci->subactionPaths[i]));
+      std::lock_guard<std::mutex> lock(g_action_mutex);
+      g_actions[*action] = std::move(reg);
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// Drop a destroyed action set (and its actions) from the registry. xrDestroyActionSet destroys the
+// set and all actions it owns; a runtime may later recycle those handle values, so -- as with
+// xrDestroySpace -- we erase our tracking to avoid a stale/false entry. Erases then forwards.
+XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
+  try {
+    static PFN_xrDestroyActionSet next = ResolveNext<PFN_xrDestroyActionSet>("xrDestroyActionSet");
+    {
+      std::lock_guard<std::mutex> lock(g_action_mutex);
+      g_action_sets.erase(actionSet);
+      g_attached_action_sets.erase(actionSet);
+      for (auto it = g_actions.begin(); it != g_actions.end();) {
+        if (it->second.actionSet == actionSet) {
+          g_grip_pose_actions.erase(it->first);
+          it = g_actions.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+    return next ? next(actionSet) : XR_ERROR_FUNCTION_UNSUPPORTED;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// Record which action sets the app attached to the session (reported as "attached" in the dump).
+XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
+    XrSession session, const XrSessionActionSetsAttachInfo* attachInfo) {
+  try {
+    static PFN_xrAttachSessionActionSets next =
+        ResolveNext<PFN_xrAttachSessionActionSets>("xrAttachSessionActionSets");
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(session, attachInfo);
+    if (XR_SUCCEEDED(r) && attachInfo && attachInfo->actionSets) {
+      std::lock_guard<std::mutex> lock(g_action_mutex);
+      for (uint32_t i = 0; i < attachInfo->countActionSets; ++i)
+        g_attached_action_sets.insert(attachInfo->actionSets[i]);
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// Build the `actions` discovery dump (called from the control-channel socket thread). Reads only the
+// string-ified registry under g_action_mutex; touches no live OpenXR state. Live action values /
+// isActive are intentionally NOT included -- xrGetActionState* must run on the app's session thread
+// after a sync, which the socket thread must not do (same rule the whole control channel follows).
+std::string BuildActionsJson() {
+  using json = nlohmann::json;
+  json sets = json::array();
+  {
+    std::lock_guard<std::mutex> lock(g_action_mutex);
+    for (const auto& setKv : g_action_sets) {
+      const XrActionSet setHandle = setKv.first;
+      json actions = json::array();
+      for (const auto& actKv : g_actions) {
+        const ActionReg& act = actKv.second;
+        if (act.actionSet != setHandle) continue;
+        json boundPaths = json::array();
+        for (const BindingReg& b : act.bindings)
+          boundPaths.push_back({{"profile", b.profile}, {"path", b.path}});
+        json subs = json::array();
+        for (const std::string& s : act.subactionPaths) subs.push_back(s);
+        actions.push_back({{"name", act.name},
+                           {"localizedName", act.localizedName},
+                           {"type", static_cast<int>(act.type)},
+                           {"typeName", ActionTypeName(act.type)},
+                           {"boundPaths", boundPaths},
+                           {"subactionPaths", subs}});
+      }
+      sets.push_back({{"name", setKv.second.name},
+                      {"localizedName", setKv.second.localizedName},
+                      {"attached", g_attached_action_sets.count(setHandle) > 0},
+                      {"actions", actions}});
+    }
+  }
+  json out = {
+      {"ok", true},
+      {"actionSets", sets},
+      {"note",
+       "Static registry only (action names / types / bound interaction-profile paths). Live action "
+       "values and isActive are not included: reading xrGetActionState* requires the app's session "
+       "thread with an attached, synced action set, which the control channel must not touch."},
+  };
+  return out.dump();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -771,6 +949,11 @@ XrResult XRAPI_CALL VrAgentGetInstanceProcAddr(XrInstance instance, const char* 
         {"xrCreateActionSpace", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrCreateActionSpace)},
         {"xrSuggestInteractionProfileBindings",
          reinterpret_cast<PFN_xrVoidFunction>(Hook_xrSuggestInteractionProfileBindings)},
+        {"xrCreateActionSet", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrCreateActionSet)},
+        {"xrCreateAction", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrCreateAction)},
+        {"xrDestroyActionSet", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrDestroyActionSet)},
+        {"xrAttachSessionActionSets",
+         reinterpret_cast<PFN_xrVoidFunction>(Hook_xrAttachSessionActionSets)},
     };
     for (const HookEntry& h : kHooks) {
       if (std::strcmp(name, h.name) == 0) {
@@ -906,6 +1089,12 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
 }
 
 }  // namespace
+
+namespace vr_agent {
+// Bridge for control_channel.cpp's `actions` command (declared there). Defined here because the
+// action registry and PathToStr-captured strings live in this translation unit.
+std::string LayerBuildActionsJson() { return BuildActionsJson(); }
+}  // namespace vr_agent
 
 extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(
     const XrNegotiateLoaderInfo* loaderInfo, const char* apiLayerName,

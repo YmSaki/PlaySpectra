@@ -658,7 +658,26 @@ server.registerTool(
   },
 );
 
-// TODO(WU5): vr_actions (action-set/action dump) + aim-pose override, xrCreateAction hand tracking.
+server.registerTool(
+  "vr_actions",
+  {
+    title: "Discover the app's actions",
+    description:
+      "List the VR app's registered action sets and actions — the semantic input vocabulary the app " +
+      "defined (e.g. 'Grab', 'Teleport') — so you can drive inputs by NAME and see their bound " +
+      "interaction-profile paths instead of GUESSING OpenXR paths for vr_input / vr_click. Returns " +
+      "per action set {name, localizedName, attached} and per action {name, localizedName, type " +
+      "(numeric + typeName like FLOAT_INPUT/BOOLEAN_INPUT/POSE_INPUT), boundPaths[] (interaction " +
+      "profile + bound path, e.g. /user/hand/left/input/squeeze/value), subactionPaths[]}. This is a " +
+      "STATIC registry captured as the app creates its actions; live action values / isActive are " +
+      "not included (reading them needs the app's session thread). Empty until the app has created " +
+      "its action sets and suggested bindings.",
+    inputSchema: {},
+  },
+  async () => textResult(await send({ cmd: "actions" })),
+);
+
+// TODO(WU5): aim-pose override (vr_point_at grip->aim offset).
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

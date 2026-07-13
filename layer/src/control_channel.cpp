@@ -23,13 +23,7 @@
 
 #include <nlohmann/json.hpp>
 
-// Reuse the layer's logger (defined in openxr_agent_layer.cpp).
-namespace vr_agent {
-void LayerLog(const char* msg, const char* detail);
-// Action-discovery dump for the `actions` command (defined in openxr_agent_layer.cpp, where the
-// action registry lives). Returns a JSON string; parsed and forwarded to the MCP client below.
-std::string LayerBuildActionsJson();
-}
+#include "layer_log.h"
 
 namespace vr_agent {
 namespace {

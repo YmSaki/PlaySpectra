@@ -40,11 +40,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "layer_log.h"
+
 namespace vr_agent {
-
-// Logger from openxr_agent_layer.cpp.
-void LayerLog(const char* msg, const char* detail);
-
 namespace {
 
 using json = nlohmann::json;

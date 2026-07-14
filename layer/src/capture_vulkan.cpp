@@ -822,66 +822,55 @@ json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t format, uint32_t sam
     return {{"available", false}, {"note", "failed to allocate depth staging buffer"}};
   }
 
-  // Record: barrier DEPTH_STENCIL_ATTACHMENT_OPTIMAL -> TRANSFER_SRC, copy DEPTH aspect, barrier back.
-  g_vk.resetCommandBuffer(g_vk_cmd, 0);
-  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  g_vk.beginCommandBuffer(g_vk_cmd, &bi);
+  // Record the depth copy (barrier -> copy -> barrier back), then submit and 5s fence-wait via the
+  // shared helper. Body is verbatim; only g_vk_cmd -> the passed `cmd`.
+  const VkCaptureStatus st = RecordAndSubmitCopy([&](VkCommandBuffer cmd) {
+    const VkPipelineStageFlags depthStages =
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    toSrc.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toSrc.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.image = image;
+    toSrc.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, depthArrayIndex, 1};
+    g_vk.cmdPipelineBarrier(cmd, depthStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                            nullptr, 1, &toSrc);
 
-  const VkPipelineStageFlags depthStages =
-      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-  VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-  toSrc.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-  toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  toSrc.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-  toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  toSrc.image = image;
-  toSrc.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, depthArrayIndex, 1};
-  g_vk.cmdPipelineBarrier(g_vk_cmd, depthStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                          nullptr, 1, &toSrc);
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;    // tightly packed to imageExtent.width
+    region.bufferImageHeight = 0;  // tightly packed to imageExtent.height
+    region.imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, depthArrayIndex, 1};
+    region.imageOffset = {depthX, depthY, 0};
+    region.imageExtent = {w, h, 1};
+    g_vk.cmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_staging, 1,
+                              &region);
 
-  VkBufferImageCopy region{};
-  region.bufferOffset = 0;
-  region.bufferRowLength = 0;    // tightly packed to imageExtent.width
-  region.bufferImageHeight = 0;  // tightly packed to imageExtent.height
-  region.imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, depthArrayIndex, 1};
-  region.imageOffset = {depthX, depthY, 0};
-  region.imageExtent = {w, h, 1};
-  g_vk.cmdCopyImageToBuffer(g_vk_cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_staging, 1,
-                            &region);
-
-  VkImageMemoryBarrier toDepth = toSrc;
-  toDepth.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  toDepth.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-  toDepth.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-  g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, depthStages, 0, 0, nullptr, 0,
-                          nullptr, 1, &toDepth);
-  g_vk.endCommandBuffer(g_vk_cmd);
-
-  g_vk.resetFences(g_vk_device, 1, &g_vk_fence);
-  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-  si.commandBufferCount = 1;
-  si.pCommandBuffers = &g_vk_cmd;
-  if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
+    VkImageMemoryBarrier toDepth = toSrc;
+    toDepth.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toDepth.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    toDepth.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, depthStages, 0, 0, nullptr, 0,
+                            nullptr, 1, &toDepth);
+  });
+  if (st == VkCaptureStatus::SubmitFailed) {
     return {{"available", false}, {"note", "vkQueueSubmit failed for depth copy"}};
   }
-  g_vk_capture_inflight = true;  // see color path: cleared once the fence signals
-  const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
-  if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
+  if (st == VkCaptureStatus::Timeout) {
     return {{"available", false}, {"note", "timed out waiting for GPU depth copy fence"}};  // inflight
   }
-  g_vk_capture_inflight = false;
 
-  void* mapped = nullptr;
-  if (g_vk.mapMemory(g_vk_device, g_vk_staging_mem, 0, bytes, 0, &mapped) != VK_SUCCESS || !mapped) {
+  std::vector<unsigned char> raw(static_cast<size_t>(bytes));
+  const bool mapped_ok = MapStaging(bytes, [&](const void* mapped) {
+    std::memcpy(raw.data(), mapped, static_cast<size_t>(bytes));
+  });
+  if (!mapped_ok) {
     return {{"available", false}, {"note", "vkMapMemory failed for depth"}};
   }
-  std::vector<unsigned char> raw(static_cast<size_t>(bytes));
-  std::memcpy(raw.data(), mapped, static_cast<size_t>(bytes));
-  g_vk.unmapMemory(g_vk_device, g_vk_staging_mem);
 
   // Decode each texel -> [0,1] stored value, undo the viewport [minDepth,maxDepth] scale to recover
   // NDC z, then linearize to view-space metres. Track the finite range for output normalization.

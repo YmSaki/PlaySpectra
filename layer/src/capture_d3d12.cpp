@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "capture_backends.h"
+#include "capture_common.h"
 #include "lodepng.h"
 
 namespace vr_agent {
@@ -270,37 +271,19 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   if (FAILED(hr) || mapped == nullptr) {
     return fail("readback Map failed hr=0x" + std::to_string(hr));
   }
-  const size_t rowBytes = static_cast<size_t>(uw) * 4;
-  std::vector<unsigned char> pixels(rowBytes * uh);
-  const unsigned char* srcBytes =
-      static_cast<const unsigned char*>(mapped) + footprint.Offset;
-  const size_t rowPitch = static_cast<size_t>(footprint.Footprint.RowPitch);
-  for (uint32_t row = 0; row < uh; ++row) {
-    std::memcpy(pixels.data() + static_cast<size_t>(row) * rowBytes, srcBytes + rowPitch * row,
-                rowBytes);
-  }
+  const unsigned char* srcBytes = static_cast<const unsigned char*>(mapped) + footprint.Offset;
+  std::vector<unsigned char> pixels =
+      RepackRows(srcBytes, static_cast<size_t>(footprint.Footprint.RowPitch), uw, uh, bgra);
   const D3D12_RANGE noWrite = {0, 0};  // CPU wrote nothing back to the buffer.
   readback->Unmap(0, &noWrite);
 
-  if (bgra) {
-    for (size_t i = 0; i + 3 < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
-  }
-
   const std::string path = NextColorCapturePath();
-  unsigned err = lodepng::encode(path, pixels, uw, uh, LCT_RGBA, 8);
+  unsigned err = EncodeRgbaPng(path, pixels, uw, uh);
   if (err) {
     return fail(std::string("lodepng encode failed: ") + lodepng_error_text(err));
   }
 
-  return {{"ok", true},
-          {"path", path},
-          {"eye", eye},
-          {"viewIndex", viewIndex},
-          {"api", "D3D12"},
-          {"width", uw},
-          {"height", uh},
-          {"arrayIndex", arrayIndex},
-          {"format", dxgiFormat}};
+  return BuildCaptureSuccessJson(path, eye, viewIndex, "D3D12", uw, uh, arrayIndex, dxgiFormat);
 }
 
 }  // namespace vr_agent

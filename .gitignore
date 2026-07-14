@@ -17,3 +17,5 @@ third_party/
 
 # Dev memos (local only, not shipped)
 feature-inventory.csv
+refactor-plan.csv
+refactor-plan-review.md

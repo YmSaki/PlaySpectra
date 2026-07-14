@@ -38,6 +38,7 @@ add_library(vr_agent_layer SHARED
   src/openxr_agent_layer.cpp
   src/layer_log.cpp
   src/layer_dispatch.cpp
+  src/action_registry.cpp
   src/control_channel.cpp
   src/capture.cpp
   src/capture_vulkan.cpp

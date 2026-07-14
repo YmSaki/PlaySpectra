@@ -33,6 +33,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "action_registry.h"
 #include "capture.h"
 #include "control_channel.h"
 #include "layer_dispatch.h"
@@ -58,6 +59,32 @@ using vr_agent::SetCurrentInstance;
 using vr_agent::SetCurrentSession;
 using vr_agent::SetNextGetInstanceProcAddr;
 using vr_agent::ToPath;
+
+// The action-discovery registry, the grip/aim tracking, and the shared action mutex now live
+// TU-private in action_registry.cpp; these using-declarations pull the accessors/record helpers into
+// the anonymous namespace so the pose (cluster E) / fallback (cluster G) code and the observing hooks
+// keep calling them unqualified. Registry types moved to action_registry.h too.
+using vr_agent::ActionMutex;
+using vr_agent::ActionReg;
+using vr_agent::ActionSpaceInfo;
+using vr_agent::BindingReg;
+using vr_agent::InferHandTops;
+using vr_agent::RegistryActions;
+using vr_agent::RegistryActionSets;
+using vr_agent::RegistryActionSpaces;
+using vr_agent::RegistryAimPoseActions;
+using vr_agent::RegistryAttachedActionSets;
+using vr_agent::RegistryClearInstanceScoped;
+using vr_agent::RegistryClearSessionScoped;
+using vr_agent::RegistryEraseSpace;
+using vr_agent::RegistryGripPoseActions;
+using vr_agent::RegistryGripToAim;
+using vr_agent::RegistryGripToAimValid;
+using vr_agent::RegistryRecordAction;
+using vr_agent::RegistryRecordActionSet;
+using vr_agent::RegistryRecordActionSpace;
+using vr_agent::RegistryRecordAttach;
+using vr_agent::RegistryRecordBindings;
 
 // LOCAL reference space the layer creates itself, to express injected controller poses in (the same
 // space hello_xr and typical apps use for their app space). Session-scoped: created lazily from the
@@ -273,80 +300,11 @@ vr_agent::HeadPose TransformHeadToSpace(XrSession session, const vr_agent::HeadP
 // a harmless position-only fallback. To find the grip action spaces we track: which actions are
 // bound to a .../input/grip/pose path (xrSuggestInteractionProfileBindings), and which XrSpaces are
 // action spaces for which hand (xrCreateActionSpace). (xrPathToString now lives in g_dispatch.)
-std::mutex g_action_mutex;
-struct ActionSpaceInfo { XrAction action; std::string handTop; };  // handTop e.g. "/user/hand/left"
-std::map<XrSpace, ActionSpaceInfo> g_action_spaces;
-std::set<XrAction> g_grip_pose_actions;
-// GAP-04: actions bound to a .../input/aim/pose path. aim and grip are the SAME rigid controller with
-// a fixed offset, so we derive the aim pose as aim = grip * offset rather than tracking it separately.
-std::set<XrAction> g_aim_pose_actions;
-// Cached grip->aim static offset per hand (aim-in-grip frame). Only populated once the runtime returns
-// a VALID offset for that hand; g_grip_to_aim_valid gates that so an initial untracked locate does NOT
-// poison the cache with identity (which would collapse aim onto grip for the whole session). All three
-// are guarded by g_action_mutex.
-std::map<std::string, XrPosef> g_grip_to_aim;
-std::set<std::string> g_grip_to_aim_valid;
-
-// ---------------------------------------------------------------------------------------------
-// Action discovery registry (WU5, `actions` command / vr_actions tool). Lets an agent enumerate the
-// app's action sets + actions by NAME ("Grab", "Teleport") and see which interaction-profile paths
-// each action is bound to, so it never has to guess OpenXR paths. Purely observational: we record
-// what the app registers (xrCreateActionSet/xrCreateAction/xrSuggestInteractionProfileBindings/
-// xrAttachSessionActionSets) and forward every call unchanged. All strings are captured at record
-// time (on the app thread, where PathToStr is valid) so the socket-thread dump touches no OpenXR
-// state. Guarded by the existing g_action_mutex; action sets/actions are instance-scoped and cleared
-// at xrDestroyInstance (attachment is session-scoped and cleared at xrDestroySession).
-struct ActionSetReg { std::string name; std::string localizedName; };
-struct BindingReg { std::string profile; std::string path; };  // interaction profile + bound path
-struct ActionReg {
-  XrActionSet actionSet = XR_NULL_HANDLE;
-  std::string name;
-  std::string localizedName;
-  XrActionType type = XR_ACTION_TYPE_BOOLEAN_INPUT;
-  std::vector<std::string> subactionPaths;
-  std::vector<BindingReg> bindings;
-};
-std::map<XrActionSet, ActionSetReg> g_action_sets;
-std::map<XrAction, ActionReg> g_actions;
-std::set<XrActionSet> g_attached_action_sets;
-
-const char* ActionTypeName(XrActionType t) {
-  switch (t) {
-    case XR_ACTION_TYPE_BOOLEAN_INPUT: return "BOOLEAN_INPUT";
-    case XR_ACTION_TYPE_FLOAT_INPUT: return "FLOAT_INPUT";
-    case XR_ACTION_TYPE_VECTOR2F_INPUT: return "VECTOR2F_INPUT";
-    case XR_ACTION_TYPE_POSE_INPUT: return "POSE_INPUT";
-    case XR_ACTION_TYPE_VIBRATION_OUTPUT: return "VIBRATION_OUTPUT";
-    default: return "UNKNOWN";
-  }
-}
-
-// GAP-06 helper: extract the top-level hand path ("/user/hand/left") from a full binding path
-// ("/user/hand/left/input/grip/pose"). Returns "" if the path is not under /user/hand/*.
-std::string HandTopFromBindingPath(const std::string& path) {
-  if (path.compare(0, 11, "/user/hand/") != 0) return "";
-  size_t slash = path.find('/', 11);  // end of the hand segment
-  return slash == std::string::npos ? path : path.substr(0, slash);
-}
-
-// GAP-06 helper: infer which hand(s) a pose action targets from its recorded binding paths. Used only
-// for action spaces created with a null subactionPath (handTop == ""), where the hand must be resolved
-// lazily at locate time (bindings are only guaranteed present by then). Returns 0, 1, or 2 distinct
-// "/user/hand/*" tops. PRECONDITION: caller already holds g_action_mutex. Pure registry read: no
-// control-channel calls, no locking inside (would deadlock the non-recursive mutex).
-std::vector<std::string> InferHandTops(XrAction action) {
-  std::vector<std::string> out;
-  auto it = g_actions.find(action);
-  if (it == g_actions.end()) return out;
-  for (const BindingReg& b : it->second.bindings) {
-    std::string top = HandTopFromBindingPath(b.path);
-    if (top.empty()) continue;
-    bool dup = false;
-    for (const std::string& t : out) if (t == top) { dup = true; break; }
-    if (!dup) out.push_back(top);
-  }
-  return out;
-}
+// The action-discovery registry (action sets/actions/bindings), the grip/aim action-space tracking,
+// the grip->aim offset cache, and the shared g_action_mutex all moved to action_registry.cpp
+// (refactor phase 4). Cluster E (below) reads/mutates those containers via the Registry* accessors
+// while holding ActionMutex(); ActionTypeName / HandTopFromBindingPath / InferHandTops / the record
+// helpers / BuildActionsJson moved with them. See action_registry.h for the shared-mutex invariants.
 
 // GAP-04: whether a tracked action space serves `handTop`. PRECONDITION: caller holds g_action_mutex.
 bool ActionSpaceServesHand(const ActionSpaceInfo& asi, const std::string& handTop) {
@@ -369,17 +327,17 @@ XrPosef ResolveGripToAimOffset(const std::string& handTop, XrTime time, bool* va
   XrSpace gripSpace = XR_NULL_HANDLE;
   XrSpace aimSpace = XR_NULL_HANDLE;
   {
-    std::lock_guard<std::mutex> lock(g_action_mutex);
-    auto cached = g_grip_to_aim_valid.find(handTop);
-    if (cached != g_grip_to_aim_valid.end()) {
+    std::lock_guard<std::mutex> lock(ActionMutex());
+    auto cached = RegistryGripToAimValid().find(handTop);
+    if (cached != RegistryGripToAimValid().end()) {
       if (validOut) *validOut = true;
-      return g_grip_to_aim[handTop];
+      return RegistryGripToAim()[handTop];
     }
-    for (const auto& kv : g_action_spaces) {
+    for (const auto& kv : RegistryActionSpaces()) {
       const ActionSpaceInfo& asi = kv.second;
       if (!ActionSpaceServesHand(asi, handTop)) continue;
-      if (g_grip_pose_actions.count(asi.action)) gripSpace = kv.first;
-      else if (g_aim_pose_actions.count(asi.action)) aimSpace = kv.first;
+      if (RegistryGripPoseActions().count(asi.action)) gripSpace = kv.first;
+      else if (RegistryAimPoseActions().count(asi.action)) aimSpace = kv.first;
     }
   }  // g_action_mutex released before touching the runtime
   if (gripSpace == XR_NULL_HANDLE || aimSpace == XR_NULL_HANDLE) {
@@ -406,9 +364,9 @@ XrPosef ResolveGripToAimOffset(const std::string& handTop, XrTime time, bool* va
     return identity;  // degrade gracefully; do NOT cache identity (avoids permanent aim=grip collapse)
   }
   {
-    std::lock_guard<std::mutex> lock(g_action_mutex);
-    g_grip_to_aim[handTop] = loc.pose;
-    g_grip_to_aim_valid.insert(handTop);
+    std::lock_guard<std::mutex> lock(ActionMutex());
+    RegistryGripToAim()[handTop] = loc.pose;
+    RegistryGripToAimValid().insert(handTop);
   }
   if (validOut) *validOut = true;
   return loc.pose;
@@ -427,13 +385,13 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   bool handTopKnown = false;
   std::vector<std::string> candidates;  // possible hands for this space (1 for subactionPath'd spaces)
   {
-    std::lock_guard<std::mutex> lock(g_action_mutex);
-    auto it = g_action_spaces.find(space);
-    if (it == g_action_spaces.end()) return false;
+    std::lock_guard<std::mutex> lock(ActionMutex());
+    auto it = RegistryActionSpaces().find(space);
+    if (it == RegistryActionSpaces().end()) return false;
     const ActionSpaceInfo& info = it->second;
     action = info.action;
-    const bool isGrip = g_grip_pose_actions.count(action) > 0;
-    isAim = g_aim_pose_actions.count(action) > 0;
+    const bool isGrip = RegistryGripPoseActions().count(action) > 0;
+    isAim = RegistryAimPoseActions().count(action) > 0;
     if (!isGrip && !isAim) return false;
     if (!info.handTop.empty()) {
       handTopKnown = true;
@@ -487,9 +445,9 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   } else if (!handTopKnown) {
     // Optimization: memoize an UNAMBIGUOUS single-hand resolution so later locates skip inference.
     // Never cache the ambiguous both-hands pick -- its tiebreak depends on live injected poses.
-    std::lock_guard<std::mutex> lock(g_action_mutex);
-    auto it = g_action_spaces.find(space);
-    if (it != g_action_spaces.end() && it->second.handTop.empty()) it->second.handTop = candidates[0];
+    std::lock_guard<std::mutex> lock(ActionMutex());
+    auto it = RegistryActionSpaces().find(space);
+    if (it != RegistryActionSpaces().end() && it->second.handTop.empty()) it->second.handTop = candidates[0];
   }
 
   XrPosef poseLocal = gripLocal;
@@ -556,7 +514,7 @@ float AbsF(float x) { return x < 0.0f ? -x : x; }
 // in practice (same path across profiles), so we match on path alone.
 std::vector<XrAction> ActionsBoundTo(const std::string& sourceBindingPath) {
   std::vector<XrAction> out;
-  for (const auto& kv : g_actions) {
+  for (const auto& kv : RegistryActions()) {
     for (const BindingReg& bnd : kv.second.bindings) {
       if (bnd.path == sourceBindingPath) {
         out.push_back(kv.first);
@@ -585,7 +543,7 @@ void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
     resolved.push_back({&p, ToPath(p.top_level)});
   }
 
-  std::lock_guard<std::mutex> lock(g_action_mutex);
+  std::lock_guard<std::mutex> lock(ActionMutex());
 
   for (const Resolved& r : resolved) {
     const vr_agent::PendingInput& p = *r.p;
@@ -610,8 +568,8 @@ void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
   for (auto& kv : g_fallback_states) {
     FallbackActionState& st = kv.second;
     XrActionSet set = XR_NULL_HANDLE;
-    auto ai = g_actions.find(kv.first.first);
-    if (ai != g_actions.end()) set = ai->second.actionSet;
+    auto ai = RegistryActions().find(kv.first.first);
+    if (ai != RegistryActions().end()) set = ai->second.actionSet;
     if (!g_synced_active_sets.count(set)) {  // inactive set -> not latched, reported inactive
       st.changedSinceLastSync = XR_FALSE;
       continue;
@@ -639,8 +597,8 @@ struct FallbackAgg {
 FallbackAgg AggregateFallback(XrAction action, XrPath subactionPath) {
   FallbackAgg a;
   XrActionSet set = XR_NULL_HANDLE;
-  auto ai = g_actions.find(action);
-  if (ai != g_actions.end()) set = ai->second.actionSet;
+  auto ai = RegistryActions().find(action);
+  if (ai != RegistryActions().end()) set = ai->second.actionSet;
   const bool setActive = g_synced_active_sets.count(set) > 0;
   float bestVecMag = -1.0f;  // for the Vector2f combination rule below
   for (const auto& kv : g_fallback_states) {
@@ -695,13 +653,8 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         g_ref_space_types.clear();
       }
       {
-        std::lock_guard<std::mutex> lock(g_action_mutex);
-        g_action_spaces.clear();  // action spaces belong to this session
-        g_grip_pose_actions.clear();
-        g_aim_pose_actions.clear();  // GAP-04: mirror grip cleanup
-        g_grip_to_aim.clear();
-        g_grip_to_aim_valid.clear();
-        g_attached_action_sets.clear();  // attachment is per-session (re-attached on a new session)
+        std::lock_guard<std::mutex> lock(ActionMutex());
+        RegistryClearSessionScoped();    // [F] action spaces + grip/aim + offset cache + attachment
         g_synced_active_sets.clear();    // GAP-08: sync state is per-session
         g_pending_ip_event = false;
       }
@@ -812,7 +765,7 @@ XrResult XRAPI_CALL Hook_xrGetActionStateBoolean(XrSession session, const XrActi
     PFN_xrGetActionStateBoolean next = Dispatch().getActionStateBoolean;
     XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (CaEnabled() || XR_FAILED(r) || !getInfo || !state) return r;
-    std::lock_guard<std::mutex> lock(g_action_mutex);
+    std::lock_guard<std::mutex> lock(ActionMutex());
     FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
     if (!a.found) return r;  // no injected value: leave the runtime's answer untouched
     state->isActive = a.active ? XR_TRUE : XR_FALSE;
@@ -831,7 +784,7 @@ XrResult XRAPI_CALL Hook_xrGetActionStateFloat(XrSession session, const XrAction
     PFN_xrGetActionStateFloat next = Dispatch().getActionStateFloat;
     XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (CaEnabled() || XR_FAILED(r) || !getInfo || !state) return r;
-    std::lock_guard<std::mutex> lock(g_action_mutex);
+    std::lock_guard<std::mutex> lock(ActionMutex());
     FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
     if (!a.found) return r;
     state->isActive = a.active ? XR_TRUE : XR_FALSE;
@@ -850,7 +803,7 @@ XrResult XRAPI_CALL Hook_xrGetActionStateVector2f(XrSession session, const XrAct
     PFN_xrGetActionStateVector2f next = Dispatch().getActionStateVector2f;
     XrResult r = next ? next(session, getInfo, state) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (CaEnabled() || XR_FAILED(r) || !getInfo || !state) return r;
-    std::lock_guard<std::mutex> lock(g_action_mutex);
+    std::lock_guard<std::mutex> lock(ActionMutex());
     FallbackAgg a = AggregateFallback(getInfo->action, getInfo->subactionPath);
     if (!a.found) return r;
     state->isActive = a.active ? XR_TRUE : XR_FALSE;
@@ -872,7 +825,7 @@ XrResult XRAPI_CALL Hook_xrGetCurrentInteractionProfile(XrSession session, XrPat
     XrResult r =
         next ? next(session, topLevelUserPath, profileState) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (CaEnabled() || !profileState) return r;
-    std::lock_guard<std::mutex> lock(g_action_mutex);
+    std::lock_guard<std::mutex> lock(ActionMutex());
     if (g_emulated_profile != XR_NULL_PATH &&
         (XR_FAILED(r) || profileState->interactionProfile == XR_NULL_PATH)) {
       profileState->interactionProfile = g_emulated_profile;
@@ -891,7 +844,7 @@ XrResult XRAPI_CALL Hook_xrPollEvent(XrInstance instance, XrEventDataBuffer* eve
     if (!CaEnabled() && eventData) {
       bool deliver = false;
       {
-        std::lock_guard<std::mutex> lock(g_action_mutex);
+        std::lock_guard<std::mutex> lock(ActionMutex());
         if (g_pending_ip_event) {
           g_pending_ip_event = false;
           deliver = true;
@@ -940,10 +893,8 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
     PFN_xrDestroyInstance next = Dispatch().destroyInstance;  // capture before clearing the table
     Log("xrDestroyInstance -- stopping control channel");
     {
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_action_sets.clear();  // action sets/actions are instance-scoped
-      g_actions.clear();
-      g_attached_action_sets.clear();
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryClearInstanceScoped();  // [F] action sets + actions + attachment (instance-scoped)
       g_fallback_states.clear();  // GAP-08: fallback state is keyed by (now-invalid) actions
       g_synced_active_sets.clear();
       g_emulated_profile = XR_NULL_PATH;
@@ -1069,8 +1020,8 @@ XrResult XRAPI_CALL Hook_xrDestroySpace(XrSpace space) {
       g_ref_space_types.erase(space);
     }
     {
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_action_spaces.erase(space);
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryEraseSpace(space);
     }
     return next ? next(space) : XR_ERROR_FUNCTION_UNSUPPORTED;
   } catch (...) {
@@ -1201,8 +1152,8 @@ XrResult XRAPI_CALL Hook_xrCreateActionSpace(XrSession session, const XrActionSp
     XrResult r = next(session, ci, space);
     if (XR_SUCCEEDED(r) && space && ci) {
       const std::string hand = PathToStr(ci->subactionPath);  // "" if XR_NULL_PATH
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_action_spaces[*space] = ActionSpaceInfo{ci->action, hand};
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryRecordActionSpace(*space, ci->action, hand);
     }
     return r;
   } catch (...) {
@@ -1220,21 +1171,11 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     if (suggestedBindings && suggestedBindings->suggestedBindings) {
       const std::string profile = PathToStr(suggestedBindings->interactionProfile);
-      std::lock_guard<std::mutex> lock(g_action_mutex);
+      std::lock_guard<std::mutex> lock(ActionMutex());
       // GAP-08: remember the first suggested profile as the one we emulate on a non-CA runtime.
       if (g_emulated_profile == XR_NULL_PATH)
         g_emulated_profile = suggestedBindings->interactionProfile;
-      for (uint32_t i = 0; i < suggestedBindings->countSuggestedBindings; ++i) {
-        const XrActionSuggestedBinding& b = suggestedBindings->suggestedBindings[i];
-        const std::string bindingPath = PathToStr(b.binding);
-        if (bindingPath.find("/input/grip/pose") != std::string::npos)
-          g_grip_pose_actions.insert(b.action);
-        // GAP-04: /input/aim/pose is defined by every OpenXR interaction profile (universal, core).
-        if (bindingPath.find("/input/aim/pose") != std::string::npos)
-          g_aim_pose_actions.insert(b.action);
-        auto it = g_actions.find(b.action);  // only actions the app created via the hooked path
-        if (it != g_actions.end()) it->second.bindings.push_back(BindingReg{profile, bindingPath});
-      }
+      RegistryRecordBindings(suggestedBindings, profile);
     }
     return next(instance, suggestedBindings);
   } catch (...) {
@@ -1250,8 +1191,8 @@ XrResult XRAPI_CALL Hook_xrCreateActionSet(XrInstance instance, const XrActionSe
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(instance, ci, actionSet);
     if (XR_SUCCEEDED(r) && actionSet && ci) {
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_action_sets[*actionSet] = ActionSetReg{ci->actionSetName, ci->localizedActionSetName};
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryRecordActionSet(*actionSet, ci);
     }
     return r;
   } catch (...) {
@@ -1275,8 +1216,8 @@ XrResult XRAPI_CALL Hook_xrCreateAction(XrActionSet actionSet, const XrActionCre
       reg.type = ci->actionType;
       for (uint32_t i = 0; i < ci->countSubactionPaths; ++i)
         reg.subactionPaths.push_back(PathToStr(ci->subactionPaths[i]));
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_actions[*action] = std::move(reg);
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryRecordAction(*action, std::move(reg));
     }
     return r;
   } catch (...) {
@@ -1291,19 +1232,20 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
   try {
     PFN_xrDestroyActionSet next = Dispatch().destroyActionSet;
     {
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      g_action_sets.erase(actionSet);
-      g_attached_action_sets.erase(actionSet);
-      for (auto it = g_actions.begin(); it != g_actions.end();) {
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryActionSets().erase(actionSet);
+      RegistryAttachedActionSets().erase(actionSet);
+      auto& actions = RegistryActions();
+      for (auto it = actions.begin(); it != actions.end();) {
         if (it->second.actionSet == actionSet) {
-          g_grip_pose_actions.erase(it->first);
-          g_aim_pose_actions.erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
+          RegistryGripPoseActions().erase(it->first);
+          RegistryAimPoseActions().erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
           // GAP-08: drop any fallback state keyed by this action (handle may be recycled).
           for (auto fit = g_fallback_states.begin(); fit != g_fallback_states.end();) {
             if (fit->first.first == it->first) fit = g_fallback_states.erase(fit);
             else ++fit;
           }
-          it = g_actions.erase(it);
+          it = actions.erase(it);
         } else {
           ++it;
         }
@@ -1323,9 +1265,8 @@ XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, attachInfo);
     if (XR_SUCCEEDED(r) && attachInfo && attachInfo->actionSets) {
-      std::lock_guard<std::mutex> lock(g_action_mutex);
-      for (uint32_t i = 0; i < attachInfo->countActionSets; ++i)
-        g_attached_action_sets.insert(attachInfo->actionSets[i]);
+      std::lock_guard<std::mutex> lock(ActionMutex());
+      RegistryRecordAttach(attachInfo);
       // GAP-08: the app has finalized its action sets. On a non-CA runtime, arm the one synthetic
       // InteractionProfileChanged so the next xrPollEvent tells the app the virtual controller connected.
       if (!CaEnabled()) g_pending_ip_event = true;
@@ -1334,50 +1275,6 @@ XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
   }
-}
-
-// Build the `actions` discovery dump (called from the control-channel socket thread). Reads only the
-// string-ified registry under g_action_mutex; touches no live OpenXR state. Live action values /
-// isActive are intentionally NOT included -- xrGetActionState* must run on the app's session thread
-// after a sync, which the socket thread must not do (same rule the whole control channel follows).
-std::string BuildActionsJson() {
-  using json = nlohmann::json;
-  json sets = json::array();
-  {
-    std::lock_guard<std::mutex> lock(g_action_mutex);
-    for (const auto& setKv : g_action_sets) {
-      const XrActionSet setHandle = setKv.first;
-      json actions = json::array();
-      for (const auto& actKv : g_actions) {
-        const ActionReg& act = actKv.second;
-        if (act.actionSet != setHandle) continue;
-        json boundPaths = json::array();
-        for (const BindingReg& b : act.bindings)
-          boundPaths.push_back({{"profile", b.profile}, {"path", b.path}});
-        json subs = json::array();
-        for (const std::string& s : act.subactionPaths) subs.push_back(s);
-        actions.push_back({{"name", act.name},
-                           {"localizedName", act.localizedName},
-                           {"type", static_cast<int>(act.type)},
-                           {"typeName", ActionTypeName(act.type)},
-                           {"boundPaths", boundPaths},
-                           {"subactionPaths", subs}});
-      }
-      sets.push_back({{"name", setKv.second.name},
-                      {"localizedName", setKv.second.localizedName},
-                      {"attached", g_attached_action_sets.count(setHandle) > 0},
-                      {"actions", actions}});
-    }
-  }
-  json out = {
-      {"ok", true},
-      {"actionSets", sets},
-      {"note",
-       "Static registry only (action names / types / bound interaction-profile paths). Live action "
-       "values and isActive are not included: reading xrGetActionState* requires the app's session "
-       "thread with an attached, synced action set, which the control channel must not touch."},
-  };
-  return out.dump();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1562,8 +1459,9 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
 }  // namespace
 
 namespace vr_agent {
-// Bridge for control_channel.cpp's `actions` command (declared there). Defined here because the
-// action registry and PathToStr-captured strings live in this translation unit.
+// Bridge for control_channel.cpp's `actions` command (declared in layer_log.h). The registry dump
+// itself now lives in action_registry.cpp (refactor phase 4); this thin forwarder is kept so
+// control_channel.cpp keeps calling the same LayerBuildActionsJson symbol without a new include.
 std::string LayerBuildActionsJson() { return BuildActionsJson(); }
 }  // namespace vr_agent
 

@@ -16,6 +16,7 @@
 #include <vulkan/vulkan.h>
 
 #include "capture_backends.h"
+#include "capture_common.h"
 #include "lodepng.h"
 
 #include <cmath>
@@ -721,15 +722,13 @@ json VulkanReadbackToPng(uint64_t imageHandle, int64_t format, uint32_t sampleCo
       pixels[i * 4 + 3] = QuantizeLinearUnit(HalfToFloat(half[3]));
     }
   } else {
-    std::memcpy(pixels.data(), mapped, count * 4);
-    if (bgra) {
-      for (size_t i = 0; i + 3 < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
-    }
+    pixels = RepackRows(static_cast<const unsigned char*>(mapped), static_cast<size_t>(w) * 4, w, h,
+                        bgra);
   }
   g_vk.unmapMemory(g_vk_device, g_vk_staging_mem);
 
   const std::string path = NextColorCapturePath();
-  unsigned err = lodepng::encode(path, pixels, w, h, LCT_RGBA, 8);
+  unsigned err = EncodeRgbaPng(path, pixels, w, h);
   if (err) {
     return {{"ok", false},
             {"error", std::string("lodepng encode failed: ") + lodepng_error_text(err)}};
@@ -739,18 +738,10 @@ json VulkanReadbackToPng(uint64_t imageHandle, int64_t format, uint32_t sampleCo
       (msaa ? " (MSAA resolved)" : "") + (hdr ? " (HDR tonemapped)" : ""));
   // Observation-side honesty: the PNG is always 8-bit RGBA. When the source was HDR we say so and
   // describe the (fixed) conversion, so the observer never mistakes it for the raw HDR buffer.
-  json result = {{"ok", true},
-                 {"path", path},
-                 {"eye", eye},
-                 {"viewIndex", idx},
-                 {"api", "Vulkan"},
-                 {"width", w},
-                 {"height", h},
-                 {"arrayIndex", arrayIndex},
-                 {"format", format},
-                 {"sampleCount", sampleCount},
-                 {"msaaResolved", msaa},
-                 {"tonemapped", hdr}};
+  json result = BuildCaptureSuccessJson(path, eye, idx, "Vulkan", w, h, arrayIndex, format);
+  result["sampleCount"] = sampleCount;
+  result["msaaResolved"] = msaa;
+  result["tonemapped"] = hdr;
   if (hdr) {
     result["sourceHdrFormat"] = format;
     result["colorConversion"] =

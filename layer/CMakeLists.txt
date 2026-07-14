@@ -43,6 +43,7 @@ add_library(vr_agent_layer SHARED
   src/input_inject.cpp
   src/control_channel.cpp
   src/capture.cpp
+  src/capture_common.cpp
   src/capture_vulkan.cpp
   src/capture_d3d11.cpp
   src/capture_d3d12.cpp

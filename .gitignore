@@ -14,3 +14,6 @@ third_party/
 # Volatile harness state (journal.md and v1.0.0-dod.md ARE tracked)
 .claude/harness/state.json
 .claude/harness/contracts/
+
+# Dev memos (local only, not shipped)
+feature-inventory.csv

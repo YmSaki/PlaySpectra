@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <string>
 #include <utility>
@@ -544,6 +545,50 @@ void VulkanFree() {
   g_vk_instance = VK_NULL_HANDLE;
   g_vk_phys = VK_NULL_HANDLE;
   g_vk_device = VK_NULL_HANDLE;
+}
+
+// Shared GPU-copy plumbing for the color and depth readbacks (move-only extraction, R02). The two
+// readbacks differ only in the recorded barrier/copy body and in how the mapped bytes are consumed;
+// the reset+begin / submit / 5s fence-wait (with GAP-07(c) inflight semantics) / map+unmap skeleton is
+// identical. Each caller injects its body via a lambda and builds its own (asymmetric) result JSON.
+enum class VkCaptureStatus { Ok, SubmitFailed, Timeout };
+
+// reset+begin the capture command buffer, let recordFn record barriers+copy, then submit and wait the
+// fence (5s). g_vk_capture_inflight is raised before the wait and cleared only on success -- on a
+// timeout it stays raised so FreeVulkanResources waits it out before freeing (GAP-07(c)).
+static VkCaptureStatus RecordAndSubmitCopy(const std::function<void(VkCommandBuffer)>& recordFn) {
+  g_vk.resetCommandBuffer(g_vk_cmd, 0);
+  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  g_vk.beginCommandBuffer(g_vk_cmd, &bi);
+  recordFn(g_vk_cmd);
+  g_vk.endCommandBuffer(g_vk_cmd);
+
+  g_vk.resetFences(g_vk_device, 1, &g_vk_fence);
+  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  si.commandBufferCount = 1;
+  si.pCommandBuffers = &g_vk_cmd;
+  if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
+    return VkCaptureStatus::SubmitFailed;
+  }
+  g_vk_capture_inflight = true;  // GPU may now be reading g_vk_cmd/staging; cleared once the fence signals
+  const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
+  if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
+    return VkCaptureStatus::Timeout;  // leave inflight=true
+  }
+  g_vk_capture_inflight = false;
+  return VkCaptureStatus::Ok;
+}
+
+// Map the staging buffer, hand the mapped pointer to readFn, then unmap. Returns false if map failed.
+static bool MapStaging(VkDeviceSize bytes, const std::function<void(const void*)>& readFn) {
+  void* mapped = nullptr;
+  if (g_vk.mapMemory(g_vk_device, g_vk_staging_mem, 0, bytes, 0, &mapped) != VK_SUCCESS || !mapped) {
+    return false;
+  }
+  readFn(mapped);
+  g_vk.unmapMemory(g_vk_device, g_vk_staging_mem);
+  return true;
 }
 
 // Runs on the app (xrEndFrame) thread. Reads back `image` (already COLOR_ATTACHMENT_OPTIMAL, since we

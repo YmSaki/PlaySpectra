@@ -640,137 +640,126 @@ json VulkanReadbackToPng(uint64_t imageHandle, int64_t format, uint32_t sampleCo
     return {{"ok", false}, {"error", "failed to allocate staging buffer"}};
   }
 
-  // Record: barrier source COLOR_ATTACHMENT_OPTIMAL -> TRANSFER_SRC, (optionally resolve into the
-  // intermediate), copy to buffer, barrier source back.
-  g_vk.resetCommandBuffer(g_vk_cmd, 0);
-  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  g_vk.beginCommandBuffer(g_vk_cmd, &bi);
+  // Record the color copy (barrier -> optional MSAA resolve -> copy -> barrier back), then submit and
+  // 5s fence-wait via the shared helper. Body is verbatim; only g_vk_cmd -> the passed `cmd`.
+  const VkCaptureStatus st = RecordAndSubmitCopy([&](VkCommandBuffer cmd) {
+    VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    toSrc.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toSrc.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.image = image;
+    toSrc.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, arrayIndex, 1};
+    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toSrc);
 
-  VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-  toSrc.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  toSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  toSrc.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  toSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  toSrc.image = image;
-  toSrc.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, arrayIndex, 1};
-  g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toSrc);
+    // Copy source defaults to the swapchain image itself (single-sample path). For MSAA we redirect to
+    // the resolve intermediate and ZERO the offset/layer, because that image is w x h origin-based.
+    VkImage copySrc = image;
+    int32_t copyOffX = x, copyOffY = y;
+    uint32_t copyArrayLayer = arrayIndex;
 
-  // Copy source defaults to the swapchain image itself (single-sample path). For MSAA we redirect to
-  // the resolve intermediate and ZERO the offset/layer, because that image is w x h origin-based.
-  VkImage copySrc = image;
-  int32_t copyOffX = x, copyOffY = y;
-  uint32_t copyArrayLayer = arrayIndex;
+    if (msaa) {
+      // Intermediate UNDEFINED -> TRANSFER_DST (contents discarded; we overwrite it fully).
+      VkImageMemoryBarrier toDst{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+      toDst.srcAccessMask = 0;
+      toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toDst.image = g_vk_resolve_image;
+      toDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toDst);
 
-  if (msaa) {
-    // Intermediate UNDEFINED -> TRANSFER_DST (contents discarded; we overwrite it fully).
-    VkImageMemoryBarrier toDst{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    toDst.srcAccessMask = 0;
-    toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toDst.image = g_vk_resolve_image;
-    toDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toDst);
+      // Resolve. NOTE the asymmetry: SRC picks the requested subimage (view.x/y + arrayIndex) out of the
+      // multisample swapchain image; DST always writes the intermediate's origin, layer 0.
+      VkImageResolve rz{};
+      rz.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, arrayIndex, 1};
+      rz.srcOffset = {x, y, 0};
+      rz.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      rz.dstOffset = {0, 0, 0};
+      rz.extent = {w, h, 1};
+      g_vk.cmdResolveImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_resolve_image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rz);
 
-    // Resolve. NOTE the asymmetry: SRC picks the requested subimage (view.x/y + arrayIndex) out of the
-    // multisample swapchain image; DST always writes the intermediate's origin, layer 0.
-    VkImageResolve rz{};
-    rz.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, arrayIndex, 1};
-    rz.srcOffset = {x, y, 0};
-    rz.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    rz.dstOffset = {0, 0, 0};
-    rz.extent = {w, h, 1};
-    g_vk.cmdResolveImage(g_vk_cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_resolve_image,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rz);
+      // Intermediate TRANSFER_DST -> TRANSFER_SRC. Access masks (WRITE->READ, both TRANSFER stage) are
+      // required, not just the layout transition, or the copy races the resolve (RAW hazard).
+      VkImageMemoryBarrier resToSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+      resToSrc.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      resToSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+      resToSrc.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      resToSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+      resToSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      resToSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      resToSrc.image = g_vk_resolve_image;
+      resToSrc.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              0, 0, nullptr, 0, nullptr, 1, &resToSrc);
 
-    // Intermediate TRANSFER_DST -> TRANSFER_SRC. Access masks (WRITE->READ, both TRANSFER stage) are
-    // required, not just the layout transition, or the copy races the resolve (RAW hazard).
-    VkImageMemoryBarrier resToSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    resToSrc.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    resToSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    resToSrc.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    resToSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    resToSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    resToSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    resToSrc.image = g_vk_resolve_image;
-    resToSrc.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            0, 0, nullptr, 0, nullptr, 1, &resToSrc);
+      copySrc = g_vk_resolve_image;
+      copyOffX = 0;
+      copyOffY = 0;
+      copyArrayLayer = 0;
+    }
 
-    copySrc = g_vk_resolve_image;
-    copyOffX = 0;
-    copyOffY = 0;
-    copyArrayLayer = 0;
-  }
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;    // tightly packed to imageExtent.width
+    region.bufferImageHeight = 0;  // tightly packed to imageExtent.height
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, copyArrayLayer, 1};
+    region.imageOffset = {copyOffX, copyOffY, 0};
+    region.imageExtent = {w, h, 1};
+    g_vk.cmdCopyImageToBuffer(cmd, copySrc, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_staging, 1,
+                              &region);
 
-  VkBufferImageCopy region{};
-  region.bufferOffset = 0;
-  region.bufferRowLength = 0;    // tightly packed to imageExtent.width
-  region.bufferImageHeight = 0;  // tightly packed to imageExtent.height
-  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, copyArrayLayer, 1};
-  region.imageOffset = {copyOffX, copyOffY, 0};
-  region.imageExtent = {w, h, 1};
-  g_vk.cmdCopyImageToBuffer(g_vk_cmd, copySrc, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_vk_staging, 1,
-                            &region);
-
-  // Restore the swapchain image to COLOR_ATTACHMENT_OPTIMAL (both paths left it in TRANSFER_SRC).
-  VkImageMemoryBarrier toColor = toSrc;
-  toColor.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  toColor.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  toColor.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  g_vk.cmdPipelineBarrier(g_vk_cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr,
-                          1, &toColor);
-  g_vk.endCommandBuffer(g_vk_cmd);
-
-  g_vk.resetFences(g_vk_device, 1, &g_vk_fence);
-  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-  si.commandBufferCount = 1;
-  si.pCommandBuffers = &g_vk_cmd;
-  if (g_vk.queueSubmit(g_vk_queue, 1, &si, g_vk_fence) != VK_SUCCESS) {
+    // Restore the swapchain image to COLOR_ATTACHMENT_OPTIMAL (both paths left it in TRANSFER_SRC).
+    VkImageMemoryBarrier toColor = toSrc;
+    toColor.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toColor.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    toColor.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr,
+                            1, &toColor);
+  });
+  if (st == VkCaptureStatus::SubmitFailed) {
     return {{"ok", false}, {"error", "vkQueueSubmit failed"}};
   }
-  g_vk_capture_inflight = true;  // GPU may now be reading g_vk_cmd/staging; cleared once the fence signals
-  const uint64_t kTimeoutNs = 5000000000ULL;  // 5s
-  if (g_vk.waitForFences(g_vk_device, 1, &g_vk_fence, VK_TRUE, kTimeoutNs) != VK_SUCCESS) {
+  if (st == VkCaptureStatus::Timeout) {
     return {{"ok", false}, {"error", "timed out waiting for GPU copy fence"}};  // leave inflight=true
   }
-  g_vk_capture_inflight = false;
 
   // Map the staging buffer and produce an 8-bit RGBA pixel buffer.
   //  * RGBA8: memcpy straight.  * BGRA8: memcpy + B<->R swizzle.
   //  * HDR (R16G16B16A16_SFLOAT): decode each 8-byte texel to 4 floats, sRGB-encode RGB, quantize.
-  void* mapped = nullptr;
-  if (g_vk.mapMemory(g_vk_device, g_vk_staging_mem, 0, bytes, 0, &mapped) != VK_SUCCESS || !mapped) {
+  const size_t count = static_cast<size_t>(w) * h;
+  std::vector<unsigned char> pixels;  // 8-bit RGBA output; sized once per path (no wasted pre-alloc)
+  const bool mapped_ok = MapStaging(bytes, [&](const void* mapped) {
+    if (hdr) {
+      static const bool kHalfTested = HalfFloatSelfTest();  // one-time regression check
+      (void)kHalfTested;
+      pixels.resize(count * 4);
+      const unsigned char* src = static_cast<const unsigned char*>(mapped);
+      for (size_t i = 0; i < count; ++i) {
+        uint16_t half[4];
+        std::memcpy(half, src + i * 8, 8);  // R,G,B,A half-floats
+        pixels[i * 4 + 0] = QuantizeSrgb(HalfToFloat(half[0]));
+        pixels[i * 4 + 1] = QuantizeSrgb(HalfToFloat(half[1]));
+        pixels[i * 4 + 2] = QuantizeSrgb(HalfToFloat(half[2]));
+        pixels[i * 4 + 3] = QuantizeLinearUnit(HalfToFloat(half[3]));
+      }
+    } else {
+      pixels = RepackRows(static_cast<const unsigned char*>(mapped), static_cast<size_t>(w) * 4, w, h,
+                          bgra);
+    }
+  });
+  if (!mapped_ok) {
     return {{"ok", false}, {"error", "vkMapMemory failed"}};
   }
-  const size_t count = static_cast<size_t>(w) * h;
-  std::vector<unsigned char> pixels(count * 4);  // always 8-bit RGBA output
-  if (hdr) {
-    static const bool kHalfTested = HalfFloatSelfTest();  // one-time regression check
-    (void)kHalfTested;
-    const unsigned char* src = static_cast<const unsigned char*>(mapped);
-    for (size_t i = 0; i < count; ++i) {
-      uint16_t half[4];
-      std::memcpy(half, src + i * 8, 8);  // R,G,B,A half-floats
-      pixels[i * 4 + 0] = QuantizeSrgb(HalfToFloat(half[0]));
-      pixels[i * 4 + 1] = QuantizeSrgb(HalfToFloat(half[1]));
-      pixels[i * 4 + 2] = QuantizeSrgb(HalfToFloat(half[2]));
-      pixels[i * 4 + 3] = QuantizeLinearUnit(HalfToFloat(half[3]));
-    }
-  } else {
-    pixels = RepackRows(static_cast<const unsigned char*>(mapped), static_cast<size_t>(w) * 4, w, h,
-                        bgra);
-  }
-  g_vk.unmapMemory(g_vk_device, g_vk_staging_mem);
 
   const std::string path = NextColorCapturePath();
   unsigned err = EncodeRgbaPng(path, pixels, w, h);

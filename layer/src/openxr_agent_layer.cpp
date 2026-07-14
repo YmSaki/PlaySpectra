@@ -900,13 +900,6 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
 
 }  // namespace
 
-namespace vr_agent {
-// Bridge for control_channel.cpp's `actions` command (declared in layer_log.h). The registry dump
-// itself now lives in action_registry.cpp (refactor phase 4); this thin forwarder is kept so
-// control_channel.cpp keeps calling the same LayerBuildActionsJson symbol without a new include.
-std::string LayerBuildActionsJson() { return BuildActionsJson(); }
-}  // namespace vr_agent
-
 extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(
     const XrNegotiateLoaderInfo* loaderInfo, const char* apiLayerName,
     XrNegotiateApiLayerRequest* apiLayerRequest) {

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "capture_backends.h"
+#include "capture_common.h"
 #include "lodepng.h"
 
 namespace vr_agent {
@@ -175,27 +176,18 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
             {"viewIndex", viewIndex}};
   }
 
-  // Step 8: repack into tight w*4 RGBA rows, honoring RowPitch (RowPitch != w*4 in general). Swizzle
-  // B<->R per pixel for BGRA sources.
+  // Step 8: repack into tight w*4 RGBA rows (honoring RowPitch, which != w*4 in general), swizzling
+  // BGRA->RGBA if needed. Shared with the other backends (capture_common.cpp).
   const uint32_t uw = static_cast<uint32_t>(w);
   const uint32_t uh = static_cast<uint32_t>(h);
-  std::vector<unsigned char> pixels(static_cast<size_t>(uw) * uh * 4);
-  const unsigned char* src = static_cast<const unsigned char*>(mapped.pData);
-  const size_t rowBytes = static_cast<size_t>(uw) * 4;
-  for (uint32_t r = 0; r < uh; ++r) {
-    const unsigned char* srcRow = src + static_cast<size_t>(r) * mapped.RowPitch;
-    unsigned char* dstRow = pixels.data() + static_cast<size_t>(r) * rowBytes;
-    std::memcpy(dstRow, srcRow, rowBytes);
-    if (bgra) {
-      for (size_t p = 0; p + 3 < rowBytes; p += 4) std::swap(dstRow[p], dstRow[p + 2]);
-    }
-  }
+  std::vector<unsigned char> pixels =
+      RepackRows(static_cast<const unsigned char*>(mapped.pData), mapped.RowPitch, uw, uh, bgra);
 
   // Step 9: unmap, then encode.
   ctx->Unmap(staging, 0);
 
   const std::string path = NextColorCapturePath();
-  unsigned err = lodepng::encode(path, pixels, uw, uh, LCT_RGBA, 8);
+  unsigned err = EncodeRgbaPng(path, pixels, uw, uh);
 
   // Step 10: release the resources WE own (staging + the AddRef'd context). tex and g_d3d11_device
   // are app-owned -- never Release them.
@@ -211,15 +203,7 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   }
 
   // Step 11: success.
-  return {{"ok", true},
-          {"path", path},
-          {"eye", eye},
-          {"viewIndex", viewIndex},
-          {"api", "D3D11"},
-          {"width", uw},
-          {"height", uh},
-          {"arrayIndex", arrayIndex},
-          {"format", dxgiFormat}};
+  return BuildCaptureSuccessJson(path, eye, viewIndex, "D3D11", uw, uh, arrayIndex, dxgiFormat);
 }
 
 }  // namespace vr_agent

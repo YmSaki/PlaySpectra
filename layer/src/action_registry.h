@@ -10,6 +10,7 @@
 
 #include <openxr/openxr.h>
 
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
@@ -93,6 +94,11 @@ void RegistryRecordAttach(const XrSessionActionSetsAttachInfo* attachInfo);
 
 // Erase / scope-clear helpers. PRECONDITION: caller holds ActionMutex().
 void RegistryEraseSpace(XrSpace space);          // xrDestroySpace: drop a recycled action-space handle
+// xrDestroyActionSet: erase the action set + its actions and all handle-reuse-safety mirror state
+// (grip/aim pose sets). eraseFallback is injected by the caller (so this TU needn't depend on
+// input_inject) and is invoked per erased action to drop its GAP-08 fallback entries.
+void RegistryEraseActionSet(XrActionSet actionSet,
+                            const std::function<void(XrAction)>& eraseFallback);
 void RegistryClearSessionScoped();               // xrDestroySession: action spaces + grip/aim + offset
                                                  //   cache + attachment (session-scoped registry state)
 void RegistryClearInstanceScoped();              // xrDestroyInstance: action sets + actions + attachment

@@ -151,6 +151,25 @@ void RegistryClearInstanceScoped() {
   g_attached_action_sets.clear();
 }
 
+// PRECONDITION: caller holds ActionMutex(). eraseFallback is injected (input_inject's fallback erase)
+// so this TU stays free of an input_inject dependency.
+void RegistryEraseActionSet(XrActionSet actionSet,
+                            const std::function<void(XrAction)>& eraseFallback) {
+  g_action_sets.erase(actionSet);
+  g_attached_action_sets.erase(actionSet);
+  for (auto it = g_actions.begin(); it != g_actions.end();) {
+    if (it->second.actionSet == actionSet) {
+      g_grip_pose_actions.erase(it->first);
+      g_aim_pose_actions.erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
+      // GAP-08: drop any fallback state keyed by this action (handle may be recycled).
+      eraseFallback(it->first);
+      it = g_actions.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 // Build the `actions` discovery dump (called from the control-channel socket thread). Reads only the
 // string-ified registry under g_action_mutex; touches no live OpenXR state. Live action values /
 // isActive are intentionally NOT included -- xrGetActionState* must run on the app's session thread

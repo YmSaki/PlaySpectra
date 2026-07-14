@@ -1,0 +1,182 @@
+// Locate/reference-space hook cluster implementation. Moved verbatim from openxr_agent_layer.cpp
+// (refactor R04); behaviour is unchanged (same head/VIEW + controller-pose override, same GAP-05
+// velocity zeroing, same view publication). See hooks_locate.h.
+#include "hooks_locate.h"
+
+#include <string>
+#include <vector>
+
+#include "control_channel.h"   // ControlChannelGetHead / ControlChannelSetViews / HeadPose / ViewInfo
+#include "layer_dispatch.h"    // Dispatch() / CurrentSession()
+#include "pose_override.h"     // pose math + VIEW tracking + velocity/next-chain helpers
+
+using vr_agent::ApplyHeadToLocation;
+using vr_agent::ApplyPoseOverride;
+using vr_agent::CurrentSession;
+using vr_agent::DescribeRefSpace;
+using vr_agent::Dispatch;
+using vr_agent::FindInNextChain;
+using vr_agent::IsViewSpace;
+using vr_agent::RebaseViewsToHead;
+using vr_agent::RecordRefSpace;
+using vr_agent::TransformHeadToSpace;
+using vr_agent::ZeroVelocity;
+
+// xrLocateViews: what the app renders (and submits) from. Override to the injected head pose.
+XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo* viewLocateInfo,
+                                       XrViewState* viewState, uint32_t viewCapacityInput,
+                                       uint32_t* viewCountOutput, XrView* views) {
+  try {
+    PFN_xrLocateViews next = Dispatch().locateViews;
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(session, viewLocateInfo, viewState, viewCapacityInput, viewCountOutput, views);
+    if (XR_SUCCEEDED(r) && views && viewCountOutput && *viewCountOutput > 0) {
+      vr_agent::HeadPose h;
+      // Head override is a PULL-model interception: unlike controller poses (which are pushed to the
+      // runtime via xrSetInputDeviceLocationEXT on every xrSyncActions), the head is applied by
+      // reading g_head here at locate time and rewriting the runtime's answer -- no per-sync re-apply.
+      if (vr_agent::ControlChannelGetHead(h)) {
+        const XrViewStateFlags need =
+            XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+        // Rebase only off *valid* runtime views -- the per-eye IPD/offset decomposition is meaningless
+        // if the runtime returned untracked/garbage poses.
+        if (viewState && (viewState->viewStateFlags & need) == need) {
+          const vr_agent::HeadPose hInSpace =
+              viewLocateInfo ? TransformHeadToSpace(session, h, viewLocateInfo->space,
+                                                    viewLocateInfo->displayTime)
+                             : h;
+          RebaseViewsToHead(hInSpace, *viewCountOutput, views);
+          viewState->viewStateFlags |=
+              XR_VIEW_STATE_POSITION_TRACKED_BIT | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT;
+        }
+      }
+      // Publish the FINAL located views (after any head override) so the `view` control command can
+      // hand the agent the viewpoint pose + FOV -- the observe/act bridge for world<->pixel mapping.
+      // Only when the runtime returned valid pose data; otherwise the poses are meaningless.
+      if (viewState) {
+        const XrViewStateFlags valid =
+            XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+        if ((viewState->viewStateFlags & valid) == valid) {
+          std::vector<vr_agent::ViewInfo> infos;
+          infos.reserve(*viewCountOutput);
+          for (uint32_t i = 0; i < *viewCountOutput; ++i) {
+            vr_agent::ViewInfo vi;
+            vi.px = views[i].pose.position.x;
+            vi.py = views[i].pose.position.y;
+            vi.pz = views[i].pose.position.z;
+            vi.qx = views[i].pose.orientation.x;
+            vi.qy = views[i].pose.orientation.y;
+            vi.qz = views[i].pose.orientation.z;
+            vi.qw = views[i].pose.orientation.w;
+            vi.angleLeft = views[i].fov.angleLeft;
+            vi.angleRight = views[i].fov.angleRight;
+            vi.angleUp = views[i].fov.angleUp;
+            vi.angleDown = views[i].fov.angleDown;
+            infos.push_back(vi);
+          }
+          const std::string space =
+              viewLocateInfo ? DescribeRefSpace(viewLocateInfo->space) : std::string("unknown");
+          vr_agent::ControlChannelSetViews(infos, space);
+        }
+      }
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// Track which reference spaces are VIEW-type so xrLocateSpace(VIEW) can be overridden consistently.
+XrResult XRAPI_CALL Hook_xrCreateReferenceSpace(XrSession session,
+                                                const XrReferenceSpaceCreateInfo* createInfo,
+                                                XrSpace* space) {
+  try {
+    PFN_xrCreateReferenceSpace next = Dispatch().createReferenceSpace;
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(session, createInfo, space);
+    if (XR_SUCCEEDED(r) && space && createInfo) {
+      RecordRefSpace(*space, createInfo->referenceSpaceType);  // track type + VIEW membership
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// xrLocateSpace: override VIEW located in a world (non-VIEW) space to the injected head pose.
+XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime time,
+                                       XrSpaceLocation* location) {
+  try {
+    PFN_xrLocateSpace next = Dispatch().locateSpace;
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(space, baseSpace, time, location);
+    if (XR_SUCCEEDED(r) && location) {
+      bool overrode = false;
+      if (IsViewSpace(space)) {
+        vr_agent::HeadPose h;
+        if (!IsViewSpace(baseSpace) && vr_agent::ControlChannelGetHead(h)) {
+          const vr_agent::HeadPose hInBase = TransformHeadToSpace(CurrentSession(), h, baseSpace, time);
+          overrode = ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
+        }
+      } else {
+        // Controller grip/aim pose override (authoritative pose path; makes orientation work regardless
+        // of the runtime's CA behaviour). No-op unless this is a tracked pose space with a pose set.
+        overrode =
+            ApplyPoseOverride(CurrentSession(), space, baseSpace, time, location->pose, location->locationFlags);
+      }
+      // GAP-05: only zero velocity on entries we actually overrode (static injected pose -> no motion).
+      if (overrode) {
+        void* v = FindInNextChain(location->next, XR_TYPE_SPACE_VELOCITY);
+        if (v) {
+          XrSpaceVelocity* vel = reinterpret_cast<XrSpaceVelocity*>(v);
+          ZeroVelocity(vel->velocityFlags, vel->linearVelocity, vel->angularVelocity);
+        }
+      }
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}
+
+// xrLocateSpaces (OpenXR 1.1 batch locate): same VIEW override, per entry. Only intercepted when
+// the runtime actually provides it (guarded in the dispatch table so we never falsely advertise it).
+XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateInfo* locateInfo,
+                                        XrSpaceLocations* locations) {
+  try {
+    PFN_xrLocateSpaces next = Dispatch().locateSpaces;
+    if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    XrResult r = next(session, locateInfo, locations);
+    if (XR_SUCCEEDED(r) && locateInfo && locateInfo->spaces && locations && locations->locations) {
+      vr_agent::HeadPose h;
+      const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::ControlChannelGetHead(h);
+      const vr_agent::HeadPose hInBase =
+          headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;
+      // GAP-05: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry
+      // velocities[i] is zeroed only for entries we actually override, with null + range guards.
+      XrSpaceVelocities* vels = reinterpret_cast<XrSpaceVelocities*>(
+          FindInNextChain(locations->next, XR_TYPE_SPACE_VELOCITIES));
+      const uint32_t n = locations->locationCount < locateInfo->spaceCount ? locations->locationCount
+                                                                           : locateInfo->spaceCount;
+      for (uint32_t i = 0; i < n; ++i) {
+        XrSpace s = locateInfo->spaces[i];
+        bool overrode = false;
+        if (IsViewSpace(s)) {
+          if (headActive)
+            overrode = ApplyHeadToLocation(hInBase, locations->locations[i].pose,
+                                           locations->locations[i].locationFlags);
+        } else {
+          overrode = ApplyPoseOverride(session, s, locateInfo->baseSpace, locateInfo->time,
+                                       locations->locations[i].pose, locations->locations[i].locationFlags);
+        }
+        if (overrode && vels && vels->velocities && i < vels->velocityCount) {
+          ZeroVelocity(vels->velocities[i].velocityFlags, vels->velocities[i].linearVelocity,
+                       vels->velocities[i].angularVelocity);
+        }
+      }
+    }
+    return r;
+  } catch (...) {
+    return XR_ERROR_RUNTIME_FAILURE;
+  }
+}

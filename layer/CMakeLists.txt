@@ -37,6 +37,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 add_library(vr_agent_layer SHARED
   src/openxr_agent_layer.cpp
   src/hooks_capture.cpp
+  src/hooks_locate.cpp
   src/layer_log.cpp
   src/layer_dispatch.cpp
   src/action_registry.cpp

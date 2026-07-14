@@ -72,6 +72,7 @@ using vr_agent::ActionSpaceInfo;
 using vr_agent::BindingReg;
 using vr_agent::InferHandTops;
 using vr_agent::RegistryActions;
+using vr_agent::RegistryEraseActionSet;
 using vr_agent::RegistryActionSets;
 using vr_agent::RegistryActionSpaces;
 using vr_agent::RegistryAimPoseActions;
@@ -678,20 +679,9 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
     PFN_xrDestroyActionSet next = Dispatch().destroyActionSet;
     {
       std::lock_guard<std::mutex> lock(ActionMutex());
-      RegistryActionSets().erase(actionSet);
-      RegistryAttachedActionSets().erase(actionSet);
-      auto& actions = RegistryActions();
-      for (auto it = actions.begin(); it != actions.end();) {
-        if (it->second.actionSet == actionSet) {
-          RegistryGripPoseActions().erase(it->first);
-          RegistryAimPoseActions().erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
-          // GAP-08: drop any fallback state keyed by this action (handle may be recycled).
-          FallbackEraseForAction(it->first);
-          it = actions.erase(it);
-        } else {
-          ++it;
-        }
-      }
+      // Registry-internal erase (action set + actions + grip/aim mirror + GAP-08 fallback) lives in
+      // action_registry now; FallbackEraseForAction is injected so that TU needn't know input_inject.
+      RegistryEraseActionSet(actionSet, FallbackEraseForAction);
     }
     return next ? next(actionSet) : XR_ERROR_FUNCTION_UNSUPPORTED;
   } catch (...) {

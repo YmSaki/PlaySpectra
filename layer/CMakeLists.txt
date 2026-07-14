@@ -44,6 +44,7 @@ add_library(vr_agent_layer SHARED
   src/control_channel.cpp
   src/capture.cpp
   src/capture_common.cpp
+  src/pixel_convert.cpp
   src/capture_vulkan.cpp
   src/capture_d3d11.cpp
   src/capture_d3d12.cpp

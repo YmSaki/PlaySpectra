@@ -211,6 +211,15 @@ async function main() {
           `distinctColors=${png.distinctColors} dominant=${(png.dominantFraction * 100).toFixed(1)}%`);
   }
 
+  // (e) depth-request path degrades honestly. Meta sim submits no XrCompositionLayerDepthInfoKHR, so
+  // this exercises the withDepth parse -> dispatch -> ResolveDepth honest {available:false} degrade
+  // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is NOT
+  // reached here (no depth swapchain) and stays review-only -- documented, not silently assumed green.
+  const dshot = await rpc({ cmd: "screenshot", eye: "dominant", withDepth: true, timeoutMs: 8000 });
+  check("withDepth request degrades gracefully (color ok, depth honest available:false)",
+        dshot.ok === true && dshot.depth != null && typeof dshot.depth.available === "boolean",
+        JSON.stringify({ ok: dshot.ok, depthAvailable: dshot.depth?.available, note: dshot.depth?.note }));
+
   console.log(`\n[integration] PASS=${pass} FAIL=${fail}`);
   sock.end();
   process.exit(fail > 0 ? 2 : 0);

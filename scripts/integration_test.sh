@@ -32,8 +32,12 @@ echo "[integration] layer=$XR_API_LAYER_PATH  gfx=$GFX"
 taskkill //F //IM hello_xr.exe //IM MetaXRSimulator.exe //IM synth_env_server.exe >/dev/null 2>&1
 sleep 1
 
-# hello_xr quits when getchar() on stdin returns EOF; hold stdin open with a sleep so the session runs.
-sleep 70 | "$HELLO" -g "$GFX" > "$LOG" 2>&1 &
+# hello_xr quits when getchar() on stdin returns EOF; hold stdin open with a sleep so the session
+# runs. We wrap the sleep in a subshell that records its PID, so later we can kill JUST the feeder to
+# send EOF and trigger hello_xr's own graceful teardown (see the graceful block below). A real pipe
+# (not a FIFO) is required so the native hello_xr.exe gets a valid Windows stdin handle.
+( sleep 70 & echo $! > "$CAP_DIR/feed.pid"; wait ) | "$HELLO" -g "$GFX" > "$LOG" 2>&1 &
+HELLO_PID=$!
 
 # Wait for the layer control channel to LISTEN on 52700 (session reached FOCUSED).
 ok=0; secs=0
@@ -51,6 +55,32 @@ else
   echo "[integration] control channel never came up -- hello_xr did not reach FOCUSED"
   echo "--- hello_xr log tail ---"; tail -25 "$LOG"
 fi
+
+# Graceful-teardown gate: force-kill (below) never calls xrDestroySession/xrDestroyInstance, so the
+# layer's ClearLayerDispatch / VulkanFree / registry+pose+inject cleanup go UNVERIFIED. Here we close
+# hello_xr's stdin (kill the feeder) so getchar() hits EOF and hello_xr runs its OWN teardown chain
+# through our layer: xrEndSession -> xrDestroySession (VulkanFree + session-scoped clears) -> ... ->
+# xrDestroyInstance (ClearLayerDispatch + control-channel stop). We assert the chain COMPLETED by
+# waiting for the instance-destroy markers in the layer log -- a crash in VulkanFree/a session clear
+# would abort before them. We deliberately do NOT wait on process exit: the Meta sim's own process
+# teardown lingers well past our cleanup and is not what this gate covers. This is the runtime gate
+# for every "Destroy* -> Clear function" conversion in the refactor (phases 4-6).
+graceful="skipped (session/asserts did not pass)"
+if [ "$ok" = "1" ] && [ "$rc" = "0" ]; then
+  LOG_G="$(echo "${CAP_DIR}/vr_agent_layer.log" | tr '\\' '/')"   # forward slashes for MSYS grep
+  FEED_PID="$(cat "$CAP_DIR/feed.pid" 2>/dev/null)"
+  [ -n "$FEED_PID" ] && kill "$FEED_PID" >/dev/null 2>&1
+  graceful="FAIL (layer did not reach clean xrDestroyInstance within 20s -- cleanup hung or crashed)"
+  for i in $(seq 1 20); do
+    if grep -q "xrDestroyInstance -- stopping control channel" "$LOG_G" 2>/dev/null \
+       && grep -q "control_channel: accept loop exited" "$LOG_G" 2>/dev/null; then
+      graceful="PASS"; break
+    fi
+    sleep 1
+  done
+  [ "$graceful" = "PASS" ] || rc=3
+fi
+echo "[integration] graceful teardown (xrDestroy* -> layer cleanup ran clean): $graceful"
 
 taskkill //F //IM hello_xr.exe //IM MetaXRSimulator.exe //IM synth_env_server.exe >/dev/null 2>&1
 echo "[integration] exit rc=$rc (captures + logs in ${CAP_DIR})"

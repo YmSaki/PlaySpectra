@@ -23,6 +23,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "action_registry.h"
 #include "layer_log.h"
 
 namespace vr_agent {
@@ -258,7 +259,7 @@ json Handle_actions(const json&) {
   // { cmd:"actions" } -> dump of the app's registered action sets / actions and their bound
   // interaction-profile paths, so an agent can discover inputs by NAME instead of guessing paths.
   try {
-    return json::parse(LayerBuildActionsJson());
+    return json::parse(BuildActionsJson());
   } catch (...) {
     return json{{"ok", false}, {"error", "actions dump failed"}};
   }

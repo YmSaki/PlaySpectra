@@ -296,7 +296,9 @@ void CaptureOnReleaseImage(XrSwapchain swapchain) {
   if (it != g_swapchains.end()) it->second.lastReleasedIndex = it->second.lastAcquiredIndex;
 }
 
-void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
+// Build the EndFrameSnapshot (projection views + any chained XrCompositionLayerDepthInfoKHR) from the
+// app's xrEndFrame layers. The first projection layer wins. frameCount is assigned by the caller.
+static EndFrameSnapshot ParseEndFrameSnapshot(const XrFrameEndInfo* frameEndInfo) {
   EndFrameSnapshot snap;
   if (frameEndInfo && frameEndInfo->layers) {
     for (uint32_t i = 0; i < frameEndInfo->layerCount; ++i) {
@@ -339,6 +341,11 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
       break;  // first projection layer wins
     }
   }
+  return snap;
+}
+
+void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
+  EndFrameSnapshot snap = ParseEndFrameSnapshot(frameEndInfo);
 
   {
     std::lock_guard<std::mutex> lock(g_mutex);

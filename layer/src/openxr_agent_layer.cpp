@@ -23,107 +23,33 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
-#include <fstream>
-#include <map>
-#include <mutex>
-#include <set>
 #include <string>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
-#include "action_registry.h"
-#include "capture.h"
 #include "control_channel.h"
 #include "hooks_action.h"
 #include "hooks_capture.h"
 #include "hooks_locate.h"
-#include "input_inject.h"
 #include "layer_dispatch.h"
 #include "layer_log.h"
-#include "pose_override.h"
 
 namespace {
 
 void Log(const char* msg, const char* detail = nullptr) { vr_agent::LayerLog(msg, detail); }
 
-// The layer's dispatch table and single-instance state (instance / session / CA flag / next-gipa)
-// now live TU-private in layer_dispatch.cpp; these using-declarations pull the accessors into the
-// anonymous namespace so the hooks below keep calling them unqualified.
-using vr_agent::CaEnabled;
-using vr_agent::ClearLayerDispatch;
+// The layer's dispatch table and single-instance state (instance / CA flag / next-gipa) live
+// TU-private in layer_dispatch.cpp; these using-declarations pull the accessors the remaining
+// dispatch/lifecycle code (VrAgentGetInstanceProcAddr / VrAgentCreateApiLayerInstance /
+// PublishRuntimeName) uses into the anonymous namespace so it keeps calling them unqualified. The
+// per-cluster accessors (action_registry / pose_override / input_inject) moved out with their hooks
+// to hooks_*.cpp, so only these dispatch accessors remain here.
 using vr_agent::CurrentInstance;
-using vr_agent::CurrentSession;
 using vr_agent::Dispatch;
 using vr_agent::NextGetInstanceProcAddr;
-using vr_agent::PathToStr;
 using vr_agent::RebuildLayerDispatch;
 using vr_agent::SetCaEnabled;
 using vr_agent::SetCurrentInstance;
-using vr_agent::SetCurrentSession;
 using vr_agent::SetNextGetInstanceProcAddr;
-using vr_agent::ToPath;
-
-// The action-discovery registry, the grip/aim tracking, and the shared action mutex now live
-// TU-private in action_registry.cpp; these using-declarations pull the accessors/record helpers into
-// the anonymous namespace so the pose (cluster E) / fallback (cluster G) code and the observing hooks
-// keep calling them unqualified. Registry types moved to action_registry.h too.
-using vr_agent::ActionMutex;
-using vr_agent::ActionReg;
-using vr_agent::ActionSpaceInfo;
-using vr_agent::BindingReg;
-using vr_agent::InferHandTops;
-using vr_agent::RegistryEraseActionSet;
-using vr_agent::RegistryActionSpaces;
-using vr_agent::RegistryClearInstanceScoped;
-using vr_agent::RegistryClearSessionScoped;
-using vr_agent::RegistryEraseSpace;
-using vr_agent::RegistryGripToAim;
-using vr_agent::RegistryGripToAimValid;
-using vr_agent::RegistryRecordAction;
-using vr_agent::RegistryRecordActionSet;
-using vr_agent::RegistryRecordActionSpace;
-using vr_agent::RegistryRecordAttach;
-using vr_agent::RegistryRecordBindings;
-
-// The head/VIEW override and controller grip/aim pose override (cluster D+E) -- the pose math, the
-// VIEW-space tracking, the layer's own LOCAL reference space, and the log-once guards -- now live
-// TU-private in pose_override.cpp; these using-declarations pull the public entry points into the
-// anonymous namespace so cluster C (ApplyPendingInputs) and the thin locate/lifecycle hooks below keep
-// calling them unqualified. See pose_override.h for the lock/velocity invariants.
-using vr_agent::ApplyHeadToLocation;
-using vr_agent::ApplyPoseOverride;
-using vr_agent::DescribeRefSpace;
-using vr_agent::EnsureLocalSpace;
-using vr_agent::EraseRefSpace;
-using vr_agent::FindInNextChain;
-using vr_agent::IsViewSpace;
-using vr_agent::PoseOverrideClearSessionScoped;
-using vr_agent::PoseOverrideResetWarnings;
-using vr_agent::RebaseViewsToHead;
-using vr_agent::RecordRefSpace;
-using vr_agent::TransformHeadToSpace;
-using vr_agent::ZeroVelocity;
-
-// The CA input application (ApplyPendingInputs) and the GAP-08 non-CA fallback (the (action,
-// subactionPath) store, ApplyFallbackSync/AggregateFallback, and the emulated-profile / synthetic-event
-// accessors) -- the two paths of the single "inject button/analog input" responsibility -- now live
-// TU-private in input_inject.cpp; these using-declarations pull the public entry points into the
-// anonymous namespace so the thin xrSyncActions / GetActionState* / PollEvent / lifecycle hooks below
-// keep calling them unqualified. See input_inject.h for the GAP-08 description and lock discipline
-// (all fallback state is under ActionMutex(); ApplyFallbackSync is two-phase).
-using vr_agent::AggregateFallback;
-using vr_agent::ApplyFallbackSync;
-using vr_agent::ApplyPendingInputs;
-using vr_agent::FallbackAgg;
-using vr_agent::FallbackArmIpEvent;
-using vr_agent::FallbackClearInstanceScoped;
-using vr_agent::FallbackClearSessionScoped;
-using vr_agent::FallbackCurrentProfile;
-using vr_agent::FallbackEraseForAction;
-using vr_agent::FallbackNoteSuggestedProfile;
-using vr_agent::FallbackTakePendingIpEvent;
 
 // ---------------------------------------------------------------------------------------------
 // Hooked functions.

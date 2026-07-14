@@ -40,6 +40,7 @@ add_library(vr_agent_layer SHARED
   src/layer_dispatch.cpp
   src/action_registry.cpp
   src/pose_override.cpp
+  src/input_inject.cpp
   src/control_channel.cpp
   src/capture.cpp
   src/capture_vulkan.cpp

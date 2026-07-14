@@ -296,7 +296,9 @@ void CaptureOnReleaseImage(XrSwapchain swapchain) {
   if (it != g_swapchains.end()) it->second.lastReleasedIndex = it->second.lastAcquiredIndex;
 }
 
-void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
+// Build the EndFrameSnapshot (projection views + any chained XrCompositionLayerDepthInfoKHR) from the
+// app's xrEndFrame layers. The first projection layer wins. frameCount is assigned by the caller.
+static EndFrameSnapshot ParseEndFrameSnapshot(const XrFrameEndInfo* frameEndInfo) {
   EndFrameSnapshot snap;
   if (frameEndInfo && frameEndInfo->layers) {
     for (uint32_t i = 0; i < frameEndInfo->layerCount; ++i) {
@@ -339,6 +341,11 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
       break;  // first projection layer wins
     }
   }
+  return snap;
+}
+
+void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
+  EndFrameSnapshot snap = ParseEndFrameSnapshot(frameEndInfo);
 
   {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -393,30 +400,34 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
         const json kDepthVulkanOnly = {{"available", false},
                                        {"note", "depth capture implemented for the Vulkan backend only"}};
 
-        if (g_api == GfxApi::Vulkan) {
+        // One dispatch table over the graphics-API backends. All three readback fns share the flat
+        // signature (capture_backends.h); only depth differs -- Vulkan reads real depth, D3D says N/A.
+        struct Backend {
+          GfxApi api;
+          json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t, uint32_t,
+                           const std::string&, int);
+          bool depthSupported;
+        };
+        static const Backend kBackends[] = {
+            {GfxApi::Vulkan, VulkanReadbackToPng, true},
+            {GfxApi::D3D11, D3D11ReadbackToPng, false},
+            {GfxApi::D3D12, D3D12ReadbackToPng, false},
+        };
+        const Backend* be = nullptr;
+        for (const Backend& b : kBackends) {
+          if (b.api == g_api) {
+            be = &b;
+            break;
+          }
+        }
+        if (be != nullptr) {
           if (!haveImage) {
             result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
           } else {
-            result = VulkanReadbackToPng(rawHandle, format, sampleCount, view.x, view.y, view.w,
-                                         view.h, view.arrayIndex, eye, idx);
+            result = be->readback(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                  view.arrayIndex, eye, idx);
           }
-          if (withDepth) result["depth"] = ResolveDepth(view);
-        } else if (g_api == GfxApi::D3D11) {
-          if (!haveImage) {
-            result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
-          } else {
-            result = D3D11ReadbackToPng(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
-                                        view.arrayIndex, eye, idx);
-          }
-          if (withDepth) result["depth"] = kDepthVulkanOnly;
-        } else if (g_api == GfxApi::D3D12) {
-          if (!haveImage) {
-            result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
-          } else {
-            result = D3D12ReadbackToPng(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
-                                        view.arrayIndex, eye, idx);
-          }
-          if (withDepth) result["depth"] = kDepthVulkanOnly;
+          if (withDepth) result["depth"] = be->depthSupported ? ResolveDepth(view) : kDepthVulkanOnly;
         } else {
           result = {{"ok", false},
                     {"error", std::string("capture backend for ") + GfxApiName(g_api) +

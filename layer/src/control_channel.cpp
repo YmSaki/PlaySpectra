@@ -95,11 +95,247 @@ json BuildStatus() {
   };
 }
 
+// ---- Command handlers. Each takes the parsed request json and returns the reply json. Bodies moved
+// verbatim from the former HandleRequest if-chain (R06 move-only); response JSON is unchanged. They
+// stay in this TU because they touch TU-internal statics (g_queue_mutex/g_queue/g_state_mutex/
+// g_haptic_log/g_pose_mutex/g_poses) and file-local helpers. Handlers that don't read the request
+// take an unnamed json&. ----
+
+json Handle_status(const json&) {
+  json s = BuildStatus();
+  try {
+    s["capture"] = json::parse(CaptureStatusJson());
+  } catch (...) {
+  }
+  return s;
+}
+
+json Handle_screenshot(const json& req) {
+  // { cmd:"screenshot", eye:"left"|"right"|"dominant", timeoutMs:5000, withDepth:false }
+  const std::string eye = req.value("eye", std::string("dominant"));
+  const int timeoutMs = req.value("timeoutMs", 5000);
+  const bool withDepth = req.value("withDepth", false);
+  try {
+    return json::parse(CaptureRequestScreenshot(eye, timeoutMs, withDepth));
+  } catch (...) {
+    return json{{"ok", false}, {"error", "capture returned malformed result"}};
+  }
+}
+
+json Handle_input(const json& req) {
+  // { cmd:"input", hand:"right", input:"squeeze/value", type:"float", value:1.0 }
+  // { cmd:"input", hand:"left",  input:"thumbstick",    type:"vec2", x:0.5, y:-0.2 }
+  // { cmd:"input", hand:"right", input:"a/click",       type:"bool", value:true }
+  const std::string hand = req.value("hand", "");
+  const std::string input = req.value("input", "");
+  const std::string type = req.value("type", "");
+  if (hand != "left" && hand != "right") {
+    return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
+  }
+  if (input.empty()) {
+    return json{{"ok", false}, {"error", "missing 'input' (e.g. 'squeeze/value')"}};
+  }
+
+  PendingInput p;
+  p.top_level = TopLevelFromHand(hand);
+  p.source = p.top_level + "/input/" + input;
+  if (type == "float") {
+    p.type = InputType::Float;
+    p.f = req.value("value", 0.0f);
+  } else if (type == "bool") {
+    p.type = InputType::Bool;
+    p.b = req.value("value", false);
+  } else if (type == "vec2") {
+    p.type = InputType::Vector2f;
+    p.x = req.value("x", 0.0f);
+    p.y = req.value("y", 0.0f);
+  } else {
+    return json{{"ok", false}, {"error", "type must be 'float', 'bool', or 'vec2'"}};
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_queue_mutex);
+    g_queue.push_back(std::move(p));
+  }
+  return json{{"ok", true}, {"queued", "input"}};
+}
+
+json Handle_pose(const json& req) {
+  // { cmd:"pose", hand:"left", x:-0.2, y:-0.2, z:-0.5, qx:0, qy:0, qz:0, qw:1 }
+  // Sets a sticky grip pose (LOCAL space, -Z forward, +Y up), held until pose_clear.
+  const std::string hand = req.value("hand", "");
+  if (hand != "left" && hand != "right") {
+    return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
+  }
+  StickyPose sp;
+  sp.top_level = TopLevelFromHand(hand);
+  sp.source = sp.top_level + "/input/grip/pose";
+  sp.px = req.value("x", 0.0f);
+  sp.py = req.value("y", 0.0f);
+  sp.pz = req.value("z", 0.0f);
+  sp.qx = req.value("qx", 0.0f);
+  sp.qy = req.value("qy", 0.0f);
+  sp.qz = req.value("qz", 0.0f);
+  sp.qw = req.value("qw", 1.0f);
+  ControlChannelSetStickyPose(sp);
+  return json{{"ok", true}, {"queued", "pose"}};
+}
+
+json Handle_pose_clear(const json& req) {
+  // { cmd:"pose_clear", hand:"left" }
+  const std::string hand = req.value("hand", "");
+  if (hand != "left" && hand != "right") {
+    return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
+  }
+  ControlChannelClearStickyPose(TopLevelFromHand(hand));
+  return json{{"ok", true}, {"cleared", "pose"}};
+}
+
+json Handle_pose_get(const json& req) {
+  // { cmd:"pose_get", hand:"left" } -> authoritative sticky pose, or {active:false}.
+  // The layer is the single source of truth for injected poses; MCP tools query this instead of
+  // mirroring state (so vr_move / vr_look_at act on what's really held).
+  const std::string hand = req.value("hand", "");
+  if (hand != "left" && hand != "right") {
+    return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
+  }
+  const std::string top = TopLevelFromHand(hand);
+  for (const StickyPose& sp : ControlChannelGetStickyPoses()) {
+    if (sp.top_level == top) {
+      return json{{"ok", true}, {"active", true}, {"x", sp.px}, {"y", sp.py}, {"z", sp.pz},
+                  {"qx", sp.qx}, {"qy", sp.qy}, {"qz", sp.qz}, {"qw", sp.qw}};
+    }
+  }
+  return json{{"ok", true}, {"active", false}};
+}
+
+json Handle_head_get(const json&) {
+  // { cmd:"head_get" } -> authoritative head override, or {active:false}.
+  HeadPose h;
+  if (ControlChannelGetHead(h)) {
+    return json{{"ok", true}, {"active", true}, {"x", h.px}, {"y", h.py}, {"z", h.pz},
+                {"qx", h.qx}, {"qy", h.qy}, {"qz", h.qz}, {"qw", h.qw}};
+  }
+  return json{{"ok", true}, {"active", false}};
+}
+
+json Handle_head(const json& req) {
+  // { cmd:"head", x:0, y:0, z:0, qx:0, qy:0, qz:0, qw:1 }
+  // Overrides the viewpoint (head pose) in the app's world locate space. Held until head_clear.
+  HeadPose h;
+  h.px = req.value("x", 0.0f);
+  h.py = req.value("y", 0.0f);
+  h.pz = req.value("z", 0.0f);
+  h.qx = req.value("qx", 0.0f);
+  h.qy = req.value("qy", 0.0f);
+  h.qz = req.value("qz", 0.0f);
+  h.qw = req.value("qw", 1.0f);
+  ControlChannelSetHead(h);
+  return json{{"ok", true}, {"queued", "head"}};
+}
+
+json Handle_head_clear(const json&) {
+  ControlChannelClearHead();
+  return json{{"ok", true}, {"cleared", "head"}};
+}
+
+json Handle_haptics(const json& req) {
+  // { cmd:"haptics", limit:20 } -> the most recent app-requested haptic pulses (newest last).
+  const int limit = req.value("limit", 20);
+  json arr = json::array();
+  {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    size_t start = 0;
+    if (limit > 0 && g_haptic_log.size() > static_cast<size_t>(limit))
+      start = g_haptic_log.size() - static_cast<size_t>(limit);
+    for (size_t i = start; i < g_haptic_log.size(); ++i)
+      arr.push_back({{"seq", g_haptic_log[i].seq}, {"hand", g_haptic_log[i].hand},
+                     {"amplitude", g_haptic_log[i].amplitude}});
+  }
+  return json{{"ok", true}, {"haptics", arr}};
+}
+
+json Handle_actions(const json&) {
+  // { cmd:"actions" } -> dump of the app's registered action sets / actions and their bound
+  // interaction-profile paths, so an agent can discover inputs by NAME instead of guessing paths.
+  try {
+    return json::parse(LayerBuildActionsJson());
+  } catch (...) {
+    return json{{"ok", false}, {"error", "actions dump failed"}};
+  }
+}
+
+json Handle_reset(const json&) {
+  // Drop every override: all sticky controller poses and the head. Runtime reverts to its own poses.
+  {
+    std::lock_guard<std::mutex> lock(g_pose_mutex);
+    g_poses.clear();
+  }
+  ControlChannelClearHead();
+  return json{{"ok", true}, {"reset", true}};
+}
+
+json Handle_active(const json& req) {
+  // { cmd:"active", hand:"right", active:true, profile:"/interaction_profiles/oculus/touch_controller" }
+  const std::string hand = req.value("hand", "");
+  if (hand != "left" && hand != "right") {
+    return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
+  }
+  PendingInput p;
+  p.type = InputType::Active;
+  p.top_level = TopLevelFromHand(hand);
+  p.profile = req.value("profile", std::string("/interaction_profiles/oculus/touch_controller"));
+  p.b = req.value("active", true);
+  {
+    std::lock_guard<std::mutex> lock(g_queue_mutex);
+    g_queue.push_back(std::move(p));
+  }
+  return json{{"ok", true}, {"queued", "active"}};
+}
+
+json Handle_view(const json&) {
+  // { cmd:"view" } -> the latest per-eye view pose + FOV captured at xrLocateViews (after any head
+  // override). The observe/act bridge: with these an agent maps screen pixels <-> world points, so
+  // a button seen in a screenshot maps to a world coordinate to point/look at. {available:false}
+  // until the app has located views at least once.
+  std::vector<ViewInfo> views;
+  std::string space;
+  if (!ControlChannelGetViews(views, space)) {
+    return json{{"ok", true}, {"available", false}};
+  }
+  json arr = json::array();
+  for (const ViewInfo& v : views) {
+    arr.push_back({
+        {"pose",
+         {{"x", v.px}, {"y", v.py}, {"z", v.pz},
+          {"qx", v.qx}, {"qy", v.qy}, {"qz", v.qz}, {"qw", v.qw}}},
+        {"fov",
+         {{"angleLeft", v.angleLeft}, {"angleRight", v.angleRight},
+          {"angleUp", v.angleUp}, {"angleDown", v.angleDown}}},
+    });
+  }
+  return json{
+      {"ok", true},
+      {"available", true},
+      {"viewCount", views.size()},
+      {"space", space},
+      {"views", arr},
+      {"note",
+       "Per-eye view pose (position+orientation) and projection FOV, in the app's view-locate "
+       "space. World->camera: view matrix = inverse of the eye pose (rotation R from the "
+       "quaternion, translation t from the position; view = [R^T | -R^T t]). Projection: from the "
+       "asymmetric FOV half-angles in radians via tan(angleLeft/Right/Up/Down) per the OpenXR "
+       "convention (angleLeft/angleDown are typically negative). camera->clip through that "
+       "projection gives NDC (x,y in [-1,1]); NDC->pixel: px=(ndcX*0.5+0.5)*width, "
+       "py=(1-(ndcY*0.5+0.5))*height using the captured eye image's width/height (from "
+       "vr_screenshot metadata). Invert the chain to turn a pixel into a world-space ray."},
+  };
+}
+
 // Parse a single request line and return the JSON reply. Never throws (a malformed/mis-typed
 // request must produce an error reply, NEVER an exception -- an exception here would unwind through
 // the socket thread and std::terminate the whole VR app, i.e. the tool would crash the app it
 // observes). nlohmann's json::value throws type_error when a field has the wrong type or the doc
-// isn't an object, so the entire body below is guarded.
+// isn't an object, so the whole dispatch below is guarded.
 json HandleRequest(const std::string& line) {
   json req;
   try {
@@ -108,238 +344,23 @@ json HandleRequest(const std::string& line) {
     return json{{"ok", false}, {"error", "invalid json"}};
   }
   try {
-  const std::string cmd = req.value("cmd", "");
-  if (cmd == "status") {
-    json s = BuildStatus();
-    try {
-      s["capture"] = json::parse(CaptureStatusJson());
-    } catch (...) {
-    }
-    return s;
-  }
-
-  if (cmd == "screenshot") {
-    // { cmd:"screenshot", eye:"left"|"right"|"dominant", timeoutMs:5000, withDepth:false }
-    const std::string eye = req.value("eye", std::string("dominant"));
-    const int timeoutMs = req.value("timeoutMs", 5000);
-    const bool withDepth = req.value("withDepth", false);
-    try {
-      return json::parse(CaptureRequestScreenshot(eye, timeoutMs, withDepth));
-    } catch (...) {
-      return json{{"ok", false}, {"error", "capture returned malformed result"}};
-    }
-  }
-
-  if (cmd == "input") {
-    // { cmd:"input", hand:"right", input:"squeeze/value", type:"float", value:1.0 }
-    // { cmd:"input", hand:"left",  input:"thumbstick",    type:"vec2", x:0.5, y:-0.2 }
-    // { cmd:"input", hand:"right", input:"a/click",       type:"bool", value:true }
-    const std::string hand = req.value("hand", "");
-    const std::string input = req.value("input", "");
-    const std::string type = req.value("type", "");
-    if (hand != "left" && hand != "right") {
-      return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
-    }
-    if (input.empty()) {
-      return json{{"ok", false}, {"error", "missing 'input' (e.g. 'squeeze/value')"}};
-    }
-
-    PendingInput p;
-    p.top_level = TopLevelFromHand(hand);
-    p.source = p.top_level + "/input/" + input;
-    if (type == "float") {
-      p.type = InputType::Float;
-      p.f = req.value("value", 0.0f);
-    } else if (type == "bool") {
-      p.type = InputType::Bool;
-      p.b = req.value("value", false);
-    } else if (type == "vec2") {
-      p.type = InputType::Vector2f;
-      p.x = req.value("x", 0.0f);
-      p.y = req.value("y", 0.0f);
-    } else {
-      return json{{"ok", false}, {"error", "type must be 'float', 'bool', or 'vec2'"}};
-    }
-    {
-      std::lock_guard<std::mutex> lock(g_queue_mutex);
-      g_queue.push_back(std::move(p));
-    }
-    return json{{"ok", true}, {"queued", "input"}};
-  }
-
-  if (cmd == "pose") {
-    // { cmd:"pose", hand:"left", x:-0.2, y:-0.2, z:-0.5, qx:0, qy:0, qz:0, qw:1 }
-    // Sets a sticky grip pose (LOCAL space, -Z forward, +Y up), held until pose_clear.
-    const std::string hand = req.value("hand", "");
-    if (hand != "left" && hand != "right") {
-      return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
-    }
-    StickyPose sp;
-    sp.top_level = TopLevelFromHand(hand);
-    sp.source = sp.top_level + "/input/grip/pose";
-    sp.px = req.value("x", 0.0f);
-    sp.py = req.value("y", 0.0f);
-    sp.pz = req.value("z", 0.0f);
-    sp.qx = req.value("qx", 0.0f);
-    sp.qy = req.value("qy", 0.0f);
-    sp.qz = req.value("qz", 0.0f);
-    sp.qw = req.value("qw", 1.0f);
-    ControlChannelSetStickyPose(sp);
-    return json{{"ok", true}, {"queued", "pose"}};
-  }
-
-  if (cmd == "pose_clear") {
-    // { cmd:"pose_clear", hand:"left" }
-    const std::string hand = req.value("hand", "");
-    if (hand != "left" && hand != "right") {
-      return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
-    }
-    ControlChannelClearStickyPose(TopLevelFromHand(hand));
-    return json{{"ok", true}, {"cleared", "pose"}};
-  }
-
-  if (cmd == "pose_get") {
-    // { cmd:"pose_get", hand:"left" } -> authoritative sticky pose, or {active:false}.
-    // The layer is the single source of truth for injected poses; MCP tools query this instead of
-    // mirroring state (so vr_move / vr_look_at act on what's really held).
-    const std::string hand = req.value("hand", "");
-    if (hand != "left" && hand != "right") {
-      return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
-    }
-    const std::string top = TopLevelFromHand(hand);
-    for (const StickyPose& sp : ControlChannelGetStickyPoses()) {
-      if (sp.top_level == top) {
-        return json{{"ok", true}, {"active", true}, {"x", sp.px}, {"y", sp.py}, {"z", sp.pz},
-                    {"qx", sp.qx}, {"qy", sp.qy}, {"qz", sp.qz}, {"qw", sp.qw}};
-      }
-    }
-    return json{{"ok", true}, {"active", false}};
-  }
-
-  if (cmd == "head_get") {
-    // { cmd:"head_get" } -> authoritative head override, or {active:false}.
-    HeadPose h;
-    if (ControlChannelGetHead(h)) {
-      return json{{"ok", true}, {"active", true}, {"x", h.px}, {"y", h.py}, {"z", h.pz},
-                  {"qx", h.qx}, {"qy", h.qy}, {"qz", h.qz}, {"qw", h.qw}};
-    }
-    return json{{"ok", true}, {"active", false}};
-  }
-
-  if (cmd == "head") {
-    // { cmd:"head", x:0, y:0, z:0, qx:0, qy:0, qz:0, qw:1 }
-    // Overrides the viewpoint (head pose) in the app's world locate space. Held until head_clear.
-    HeadPose h;
-    h.px = req.value("x", 0.0f);
-    h.py = req.value("y", 0.0f);
-    h.pz = req.value("z", 0.0f);
-    h.qx = req.value("qx", 0.0f);
-    h.qy = req.value("qy", 0.0f);
-    h.qz = req.value("qz", 0.0f);
-    h.qw = req.value("qw", 1.0f);
-    ControlChannelSetHead(h);
-    return json{{"ok", true}, {"queued", "head"}};
-  }
-
-  if (cmd == "head_clear") {
-    ControlChannelClearHead();
-    return json{{"ok", true}, {"cleared", "head"}};
-  }
-
-  if (cmd == "haptics") {
-    // { cmd:"haptics", limit:20 } -> the most recent app-requested haptic pulses (newest last).
-    const int limit = req.value("limit", 20);
-    json arr = json::array();
-    {
-      std::lock_guard<std::mutex> lock(g_state_mutex);
-      size_t start = 0;
-      if (limit > 0 && g_haptic_log.size() > static_cast<size_t>(limit))
-        start = g_haptic_log.size() - static_cast<size_t>(limit);
-      for (size_t i = start; i < g_haptic_log.size(); ++i)
-        arr.push_back({{"seq", g_haptic_log[i].seq}, {"hand", g_haptic_log[i].hand},
-                       {"amplitude", g_haptic_log[i].amplitude}});
-    }
-    return json{{"ok", true}, {"haptics", arr}};
-  }
-
-  if (cmd == "actions") {
-    // { cmd:"actions" } -> dump of the app's registered action sets / actions and their bound
-    // interaction-profile paths, so an agent can discover inputs by NAME instead of guessing paths.
-    try {
-      return json::parse(LayerBuildActionsJson());
-    } catch (...) {
-      return json{{"ok", false}, {"error", "actions dump failed"}};
-    }
-  }
-
-  if (cmd == "reset") {
-    // Drop every override: all sticky controller poses and the head. Runtime reverts to its own poses.
-    {
-      std::lock_guard<std::mutex> lock(g_pose_mutex);
-      g_poses.clear();
-    }
-    ControlChannelClearHead();
-    return json{{"ok", true}, {"reset", true}};
-  }
-
-  if (cmd == "active") {
-    // { cmd:"active", hand:"right", active:true, profile:"/interaction_profiles/oculus/touch_controller" }
-    const std::string hand = req.value("hand", "");
-    if (hand != "left" && hand != "right") {
-      return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
-    }
-    PendingInput p;
-    p.type = InputType::Active;
-    p.top_level = TopLevelFromHand(hand);
-    p.profile = req.value("profile", std::string("/interaction_profiles/oculus/touch_controller"));
-    p.b = req.value("active", true);
-    {
-      std::lock_guard<std::mutex> lock(g_queue_mutex);
-      g_queue.push_back(std::move(p));
-    }
-    return json{{"ok", true}, {"queued", "active"}};
-  }
-
-  if (cmd == "view") {
-    // { cmd:"view" } -> the latest per-eye view pose + FOV captured at xrLocateViews (after any head
-    // override). The observe/act bridge: with these an agent maps screen pixels <-> world points, so
-    // a button seen in a screenshot maps to a world coordinate to point/look at. {available:false}
-    // until the app has located views at least once.
-    std::vector<ViewInfo> views;
-    std::string space;
-    if (!ControlChannelGetViews(views, space)) {
-      return json{{"ok", true}, {"available", false}};
-    }
-    json arr = json::array();
-    for (const ViewInfo& v : views) {
-      arr.push_back({
-          {"pose",
-           {{"x", v.px}, {"y", v.py}, {"z", v.pz},
-            {"qx", v.qx}, {"qy", v.qy}, {"qz", v.qz}, {"qw", v.qw}}},
-          {"fov",
-           {{"angleLeft", v.angleLeft}, {"angleRight", v.angleRight},
-            {"angleUp", v.angleUp}, {"angleDown", v.angleDown}}},
-      });
-    }
-    return json{
-        {"ok", true},
-        {"available", true},
-        {"viewCount", views.size()},
-        {"space", space},
-        {"views", arr},
-        {"note",
-         "Per-eye view pose (position+orientation) and projection FOV, in the app's view-locate "
-         "space. World->camera: view matrix = inverse of the eye pose (rotation R from the "
-         "quaternion, translation t from the position; view = [R^T | -R^T t]). Projection: from the "
-         "asymmetric FOV half-angles in radians via tan(angleLeft/Right/Up/Down) per the OpenXR "
-         "convention (angleLeft/angleDown are typically negative). camera->clip through that "
-         "projection gives NDC (x,y in [-1,1]); NDC->pixel: px=(ndcX*0.5+0.5)*width, "
-         "py=(1-(ndcY*0.5+0.5))*height using the captured eye image's width/height (from "
-         "vr_screenshot metadata). Invert the chain to turn a pixel into a world-space ray."},
+    const std::string cmd = req.value("cmd", "");
+    static const struct {
+      const char* name;
+      json (*fn)(const json&);
+    } kHandlers[] = {
+        {"status", Handle_status},         {"screenshot", Handle_screenshot},
+        {"input", Handle_input},           {"pose", Handle_pose},
+        {"pose_clear", Handle_pose_clear}, {"pose_get", Handle_pose_get},
+        {"head_get", Handle_head_get},     {"head", Handle_head},
+        {"head_clear", Handle_head_clear}, {"haptics", Handle_haptics},
+        {"actions", Handle_actions},       {"reset", Handle_reset},
+        {"active", Handle_active},         {"view", Handle_view},
     };
-  }
-
-  return json{{"ok", false}, {"error", "unknown cmd: " + cmd}};
+    for (const auto& h : kHandlers) {
+      if (cmd == h.name) return h.fn(req);
+    }
+    return json{{"ok", false}, {"error", "unknown cmd: " + cmd}};
   } catch (const std::exception& e) {
     return json{{"ok", false}, {"error", std::string("bad request: ") + e.what()}};
   } catch (...) {

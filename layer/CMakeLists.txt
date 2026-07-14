@@ -81,3 +81,46 @@ set_target_properties(vr_agent_layer PROPERTIES
   OUTPUT_NAME "vr_agent_layer"
   PREFIX ""
 )
+
+# --- GoogleTest ---
+include(CTest)
+if(BUILD_TESTING)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.14.0
+  )
+  # For Windows: Prevent overriding the parent project's compiler/linker settings
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+
+  add_executable(vr_agent_test
+    tests/test_capture_common.cpp
+    tests/test_action_registry.cpp
+    tests/test_mock_dispatch.cpp
+    tests/test_pose_math.cpp
+    # Tests require the source files they are testing.
+    src/capture_common.cpp
+    src/action_registry.cpp
+    src/pose_override.cpp
+    ${lodepng_SOURCE_DIR}/lodepng.cpp
+  )
+
+  target_include_directories(vr_agent_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${lodepng_SOURCE_DIR}
+  )
+
+  target_link_libraries(vr_agent_test PRIVATE
+    gtest_main
+    nlohmann_json::nlohmann_json
+    OpenXR::headers
+  )
+
+  if(MINGW)
+    target_link_options(vr_agent_test PRIVATE -static-libgcc -static-libstdc++ -static)
+  endif()
+
+  include(GoogleTest)
+  gtest_discover_tests(vr_agent_test)
+endif()

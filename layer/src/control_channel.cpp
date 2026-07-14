@@ -95,18 +95,13 @@ json BuildStatus() {
   };
 }
 
-// Parse a single request line and return the JSON reply. Never throws (a malformed/mis-typed
-// request must produce an error reply, NEVER an exception -- an exception here would unwind through
-// the socket thread and std::terminate the whole VR app, i.e. the tool would crash the app it
-// observes). nlohmann's json::value throws type_error when a field has the wrong type or the doc
-// isn't an object, so the entire body below is guarded.
 // ---- Command handlers. Each takes the parsed request json and returns the reply json. Bodies moved
 // verbatim from the former HandleRequest if-chain (R06 move-only); response JSON is unchanged. They
 // stay in this TU because they touch TU-internal statics (g_queue_mutex/g_queue/g_state_mutex/
 // g_haptic_log/g_pose_mutex/g_poses) and file-local helpers. Handlers that don't read the request
 // take an unnamed json&. ----
 
-static json Handle_status(const json&) {
+json Handle_status(const json&) {
   json s = BuildStatus();
   try {
     s["capture"] = json::parse(CaptureStatusJson());
@@ -115,7 +110,7 @@ static json Handle_status(const json&) {
   return s;
 }
 
-static json Handle_screenshot(const json& req) {
+json Handle_screenshot(const json& req) {
   // { cmd:"screenshot", eye:"left"|"right"|"dominant", timeoutMs:5000, withDepth:false }
   const std::string eye = req.value("eye", std::string("dominant"));
   const int timeoutMs = req.value("timeoutMs", 5000);
@@ -127,7 +122,7 @@ static json Handle_screenshot(const json& req) {
   }
 }
 
-static json Handle_input(const json& req) {
+json Handle_input(const json& req) {
   // { cmd:"input", hand:"right", input:"squeeze/value", type:"float", value:1.0 }
   // { cmd:"input", hand:"left",  input:"thumbstick",    type:"vec2", x:0.5, y:-0.2 }
   // { cmd:"input", hand:"right", input:"a/click",       type:"bool", value:true }
@@ -164,7 +159,7 @@ static json Handle_input(const json& req) {
   return json{{"ok", true}, {"queued", "input"}};
 }
 
-static json Handle_pose(const json& req) {
+json Handle_pose(const json& req) {
   // { cmd:"pose", hand:"left", x:-0.2, y:-0.2, z:-0.5, qx:0, qy:0, qz:0, qw:1 }
   // Sets a sticky grip pose (LOCAL space, -Z forward, +Y up), held until pose_clear.
   const std::string hand = req.value("hand", "");
@@ -185,7 +180,7 @@ static json Handle_pose(const json& req) {
   return json{{"ok", true}, {"queued", "pose"}};
 }
 
-static json Handle_pose_clear(const json& req) {
+json Handle_pose_clear(const json& req) {
   // { cmd:"pose_clear", hand:"left" }
   const std::string hand = req.value("hand", "");
   if (hand != "left" && hand != "right") {
@@ -195,7 +190,7 @@ static json Handle_pose_clear(const json& req) {
   return json{{"ok", true}, {"cleared", "pose"}};
 }
 
-static json Handle_pose_get(const json& req) {
+json Handle_pose_get(const json& req) {
   // { cmd:"pose_get", hand:"left" } -> authoritative sticky pose, or {active:false}.
   // The layer is the single source of truth for injected poses; MCP tools query this instead of
   // mirroring state (so vr_move / vr_look_at act on what's really held).
@@ -213,7 +208,7 @@ static json Handle_pose_get(const json& req) {
   return json{{"ok", true}, {"active", false}};
 }
 
-static json Handle_head_get(const json&) {
+json Handle_head_get(const json&) {
   // { cmd:"head_get" } -> authoritative head override, or {active:false}.
   HeadPose h;
   if (ControlChannelGetHead(h)) {
@@ -223,7 +218,7 @@ static json Handle_head_get(const json&) {
   return json{{"ok", true}, {"active", false}};
 }
 
-static json Handle_head(const json& req) {
+json Handle_head(const json& req) {
   // { cmd:"head", x:0, y:0, z:0, qx:0, qy:0, qz:0, qw:1 }
   // Overrides the viewpoint (head pose) in the app's world locate space. Held until head_clear.
   HeadPose h;
@@ -238,12 +233,12 @@ static json Handle_head(const json& req) {
   return json{{"ok", true}, {"queued", "head"}};
 }
 
-static json Handle_head_clear(const json&) {
+json Handle_head_clear(const json&) {
   ControlChannelClearHead();
   return json{{"ok", true}, {"cleared", "head"}};
 }
 
-static json Handle_haptics(const json& req) {
+json Handle_haptics(const json& req) {
   // { cmd:"haptics", limit:20 } -> the most recent app-requested haptic pulses (newest last).
   const int limit = req.value("limit", 20);
   json arr = json::array();
@@ -259,7 +254,7 @@ static json Handle_haptics(const json& req) {
   return json{{"ok", true}, {"haptics", arr}};
 }
 
-static json Handle_actions(const json&) {
+json Handle_actions(const json&) {
   // { cmd:"actions" } -> dump of the app's registered action sets / actions and their bound
   // interaction-profile paths, so an agent can discover inputs by NAME instead of guessing paths.
   try {
@@ -269,7 +264,7 @@ static json Handle_actions(const json&) {
   }
 }
 
-static json Handle_reset(const json&) {
+json Handle_reset(const json&) {
   // Drop every override: all sticky controller poses and the head. Runtime reverts to its own poses.
   {
     std::lock_guard<std::mutex> lock(g_pose_mutex);
@@ -279,7 +274,7 @@ static json Handle_reset(const json&) {
   return json{{"ok", true}, {"reset", true}};
 }
 
-static json Handle_active(const json& req) {
+json Handle_active(const json& req) {
   // { cmd:"active", hand:"right", active:true, profile:"/interaction_profiles/oculus/touch_controller" }
   const std::string hand = req.value("hand", "");
   if (hand != "left" && hand != "right") {
@@ -297,7 +292,7 @@ static json Handle_active(const json& req) {
   return json{{"ok", true}, {"queued", "active"}};
 }
 
-static json Handle_view(const json&) {
+json Handle_view(const json&) {
   // { cmd:"view" } -> the latest per-eye view pose + FOV captured at xrLocateViews (after any head
   // override). The observe/act bridge: with these an agent maps screen pixels <-> world points, so
   // a button seen in a screenshot maps to a world coordinate to point/look at. {available:false}
@@ -336,6 +331,11 @@ static json Handle_view(const json&) {
   };
 }
 
+// Parse a single request line and return the JSON reply. Never throws (a malformed/mis-typed
+// request must produce an error reply, NEVER an exception -- an exception here would unwind through
+// the socket thread and std::terminate the whole VR app, i.e. the tool would crash the app it
+// observes). nlohmann's json::value throws type_error when a field has the wrong type or the doc
+// isn't an object, so the whole dispatch below is guarded.
 json HandleRequest(const std::string& line) {
   json req;
   try {

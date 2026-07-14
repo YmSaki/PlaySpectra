@@ -1,0 +1,47 @@
+// Shared color-readback helpers. See capture_common.h for the contract and the R01 rationale.
+
+#include "capture_common.h"
+
+#include <algorithm>  // std::swap
+#include <cstring>    // std::memcpy
+
+#include "lodepng.h"
+
+namespace vr_agent {
+
+std::vector<unsigned char> RepackRows(const unsigned char* src, std::size_t rowPitch,
+                                      std::uint32_t w, std::uint32_t h, bool bgra) {
+  const std::size_t rowBytes = static_cast<std::size_t>(w) * 4;
+  std::vector<unsigned char> pixels(rowBytes * h);
+  for (std::uint32_t r = 0; r < h; ++r) {
+    const unsigned char* srcRow = src + static_cast<std::size_t>(r) * rowPitch;
+    unsigned char* dstRow = pixels.data() + static_cast<std::size_t>(r) * rowBytes;
+    std::memcpy(dstRow, srcRow, rowBytes);
+    if (bgra) {
+      for (std::size_t p = 0; p + 3 < rowBytes; p += 4) std::swap(dstRow[p], dstRow[p + 2]);
+    }
+  }
+  return pixels;
+}
+
+unsigned EncodeRgbaPng(const std::string& path, const std::vector<unsigned char>& pixels,
+                       std::uint32_t w, std::uint32_t h) {
+  return lodepng::encode(path, pixels, w, h, LCT_RGBA, 8);
+}
+
+nlohmann::json BuildCaptureSuccessJson(const std::string& path, const std::string& eye,
+                                       int viewIndex, const char* api, std::uint32_t width,
+                                       std::uint32_t height, std::uint32_t arrayIndex,
+                                       std::int64_t format) {
+  return {{"ok", true},
+          {"path", path},
+          {"eye", eye},
+          {"viewIndex", viewIndex},
+          {"api", api},
+          {"width", width},
+          {"height", height},
+          {"arrayIndex", arrayIndex},
+          {"format", format}};
+}
+
+}  // namespace vr_agent

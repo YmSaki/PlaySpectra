@@ -377,6 +377,9 @@ void ServeClient(SOCKET client) {
     int n = recv(client, chunk, sizeof(chunk), 0);
     if (n <= 0) break;  // client closed or error
     buffer.append(chunk, n);
+    if (buffer.size() > 1024 * 1024) { // 1 MB limit to prevent DoS via unbounded memory growth
+      break;
+    }
     size_t nl;
     while ((nl = buffer.find('\n')) != std::string::npos) {
       std::string line = buffer.substr(0, nl);

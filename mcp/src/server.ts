@@ -56,6 +56,10 @@ class ControlClient {
 
   private onData(chunk: Buffer) {
     this.buffer += chunk.toString("utf8");
+    if (this.buffer.length > 1024 * 1024) { // 1 MB limit
+      this.teardown(new Error("buffer limit exceeded (1MB) - possible DoS"));
+      return;
+    }
     let nl: number;
     while ((nl = this.buffer.indexOf("\n")) !== -1) {
       const line = this.buffer.slice(0, nl).trim();

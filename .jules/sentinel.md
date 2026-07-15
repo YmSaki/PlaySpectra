@@ -1,0 +1,4 @@
+## 2024-07-15 - [TCP Control Channel DoS Mitigation]
+**Vulnerability:** The TCP control channel implementations in both C++ (`layer/src/control_channel.cpp`) and TypeScript (`mcp/src/server.ts`) read data from the socket into an unbounded string buffer, only processing and clearing the buffer upon receiving a newline `\n` character. An attacker could exploit this by sending continuous data without a newline, causing unbounded memory growth leading to an Out-Of-Memory (OOM) crash (Denial of Service).
+**Learning:** Raw socket reading loops must always enforce a maximum buffer size limit before attempting to parse delimiter-based protocols to prevent memory exhaustion attacks.
+**Prevention:** Always implement a fixed maximum buffer size limit when reading from streams. If the limit is exceeded, cleanly terminate the connection or reject the request.

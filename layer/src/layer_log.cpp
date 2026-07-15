@@ -1,8 +1,14 @@
-// Shared layer logger implementation. Moved verbatim from openxr_agent_layer.cpp (refactor phase 1);
-// behaviour is unchanged (same env vars, same format, same mutex).
+// Shared layer logger implementation. Moved verbatim from openxr_agent_layer.cpp (refactor phase 1),
+// then extended with a wall-clock timestamp prefix: correlating this log against the app's own log
+// and the integration harness's sleeps is how flakes and glide timing get diagnosed, and without
+// timestamps that correlation needed ad-hoc instrumentation. Same env vars, same mutex; consumers
+// grep by message substring, which the prefix does not disturb.
 #include "layer_log.h"
 
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -23,11 +29,26 @@ static std::ofstream& LogStream() {
   return stream;
 }
 
+// Local wall-clock time as "HH:MM:SS.mmm" (date omitted: these logs live per-run and are read
+// side by side with same-day harness output). PRECONDITION: caller holds g_log_mutex -- the
+// std::localtime result is a shared static, and this logger is its only caller in the layer.
+static void FormatNow(char (&buf)[16]) {
+  const auto now = std::chrono::system_clock::now();
+  const std::time_t secs = std::chrono::system_clock::to_time_t(now);
+  const int ms = static_cast<int>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000);
+  const std::tm* tm = std::localtime(&secs);
+  if (!tm) { buf[0] = '\0'; return; }
+  std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d", tm->tm_hour, tm->tm_min, tm->tm_sec, ms);
+}
+
 void LayerLog(const char* msg, const char* detail) {
   std::lock_guard<std::mutex> lock(g_log_mutex);
   std::ofstream& out = LogStream();
   if (!out) return;
-  out << "[vr_agent] " << msg;
+  char ts[16];
+  FormatNow(ts);
+  out << "[vr_agent " << ts << "] " << msg;
   if (detail) out << ": " << detail;
   out << "\n";
   out.flush();

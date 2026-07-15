@@ -57,6 +57,11 @@ cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build
 # build/vr_agent_layer.dll を layer/manifest/ にコピーする
 
+# ユニットテスト（任意）— 既定 OFF。ON のときだけ googletest を追加取得する
+cmake -S . -B build -G "MinGW Makefiles" -DVR_AGENT_BUILD_TESTS=ON
+cmake --build build --target vr_agent_test
+ctest --test-dir build --output-on-failure
+
 # MCP サーバー（TypeScript）
 cd mcp
 npm install

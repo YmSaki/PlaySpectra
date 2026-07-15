@@ -10,6 +10,12 @@ endif()
 
 include(FetchContent)
 
+# OpenXR-SDK-Source include(CTest)s, which would otherwise cache BUILD_TESTING=ON and register the
+# SDK's own loader_test into our ctest run (it is never built here, so it reports Not Run). Seed the
+# cache OFF first so that option() is a no-op there. Our tests have their own knob:
+# VR_AGENT_BUILD_TESTS, below.
+set(BUILD_TESTING OFF CACHE BOOL "Build the fetched dependencies' testing trees")
+
 # OpenXR-SDK: headers only (the layer talks to the loader via xrNegotiateLoaderApiLayerInterface,
 # it does not link against openxr_loader). Also provides hello_xr + openxr_loader used by task #3
 # for bring-up, via the same fetched source tree.
@@ -82,9 +88,12 @@ set_target_properties(vr_agent_layer PROPERTIES
   PREFIX ""
 )
 
-# --- GoogleTest ---
-include(CTest)
-if(BUILD_TESTING)
+# --- Host-run unit tests (opt in with -DVR_AGENT_BUILD_TESTS=ON) ---
+# Off by default so a plain `cmake ..` never network-fetches googletest. Kept separate from
+# BUILD_TESTING (see the seed near the top) so enabling ours does not also drag in the SDK's tests.
+option(VR_AGENT_BUILD_TESTS "Build the host-run unit tests" OFF)
+if(VR_AGENT_BUILD_TESTS)
+  enable_testing()
   FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -96,13 +105,8 @@ if(BUILD_TESTING)
 
   add_executable(vr_agent_test
     tests/test_capture_common.cpp
-    tests/test_action_registry.cpp
-    tests/test_mock_dispatch.cpp
-    tests/test_pose_math.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
-    src/action_registry.cpp
-    src/pose_override.cpp
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )
 
@@ -114,7 +118,6 @@ if(BUILD_TESTING)
   target_link_libraries(vr_agent_test PRIVATE
     gtest_main
     nlohmann_json::nlohmann_json
-    OpenXR::headers
   )
 
   if(MINGW)

@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,10 @@ struct StickyPose {
   std::string source;                        // e.g. "/user/hand/left/input/grip/pose"
   float px = 0.0f, py = 0.0f, pz = 0.0f;     // position (metres, LOCAL space, -Z forward, +Y up)
   float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;  // orientation quaternion (default identity)
+  // durationMs glide (pose_animator): 0 = snap (the default). seq is the target generation, stamped
+  // by ControlChannelSetStickyPose on every set -- a changed seq tells the animator "new glide".
+  uint32_t durationMs = 0;
+  uint64_t seq = 0;
 };
 
 // Lifecycle -- started once when the first XrInstance is created, stopped at layer unload.
@@ -59,6 +64,8 @@ std::vector<StickyPose> ControlChannelGetStickyPoses();
 struct HeadPose {
   float px = 0.0f, py = 0.0f, pz = 0.0f;
   float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;
+  uint32_t durationMs = 0;  // glide duration, 0 = snap (see StickyPose)
+  uint64_t seq = 0;         // target generation, stamped by ControlChannelSetHead
 };
 void ControlChannelSetHead(const HeadPose& pose);
 void ControlChannelClearHead();

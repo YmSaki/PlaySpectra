@@ -15,6 +15,7 @@
 #include "control_channel.h"   // HeadPose / StickyPose + ControlChannelGetStickyPoses
 #include "layer_dispatch.h"    // Dispatch() (raw next xrLocateSpace / xrCreateReferenceSpace)
 #include "layer_log.h"         // LayerLog
+#include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
 
 namespace vr_agent {
 
@@ -312,8 +313,10 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
     bool isCandidate = false;
     for (const std::string& c : candidates) if (c == sp.top_level) { isCandidate = true; break; }
     if (!isCandidate) continue;
-    gripLocal.orientation = XrQuaternionf{sp.qx, sp.qy, sp.qz, sp.qw};
-    gripLocal.position = XrVector3f{sp.px, sp.py, sp.pz};
+    // durationMs glide: evaluate the target through the animator at the locate time. Both this
+    // locate path and the xrSyncActions re-apply path share the per-hand glide state, so they agree
+    // on where the glide currently is. Called AFTER ActionMutex() was released (leaf-mutex rule).
+    gripLocal = AnimatorEvalController(sp, time).pose;
     matchedHand = sp.top_level;
     have = true;
     break;

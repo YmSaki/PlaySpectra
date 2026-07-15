@@ -160,9 +160,17 @@ json Handle_input(const json& req) {
   return json{{"ok", true}, {"queued", "input"}};
 }
 
+// Optional durationMs on pose/head: how long the glide to the new target takes (pose_animator).
+// Absent/0/negative/non-numeric all mean "snap now" -- the pre-durationMs behaviour.
+uint32_t ParseDurationMs(const json& req) {
+  const double d = req.value("durationMs", 0.0);
+  return d > 0.0 ? static_cast<uint32_t>(d) : 0u;
+}
+
 json Handle_pose(const json& req) {
-  // { cmd:"pose", hand:"left", x:-0.2, y:-0.2, z:-0.5, qx:0, qy:0, qz:0, qw:1 }
-  // Sets a sticky grip pose (LOCAL space, -Z forward, +Y up), held until pose_clear.
+  // { cmd:"pose", hand:"left", x:-0.2, y:-0.2, z:-0.5, qx:0, qy:0, qz:0, qw:1, durationMs:0 }
+  // Sets a sticky grip pose (LOCAL space, -Z forward, +Y up), held until pose_clear. durationMs>0
+  // glides there from the previous injected pose instead of snapping.
   const std::string hand = req.value("hand", "");
   if (hand != "left" && hand != "right") {
     return json{{"ok", false}, {"error", "hand must be 'left' or 'right'"}};
@@ -177,6 +185,7 @@ json Handle_pose(const json& req) {
   sp.qy = req.value("qy", 0.0f);
   sp.qz = req.value("qz", 0.0f);
   sp.qw = req.value("qw", 1.0f);
+  sp.durationMs = ParseDurationMs(req);
   ControlChannelSetStickyPose(sp);
   return json{{"ok", true}, {"queued", "pose"}};
 }
@@ -220,8 +229,9 @@ json Handle_head_get(const json&) {
 }
 
 json Handle_head(const json& req) {
-  // { cmd:"head", x:0, y:0, z:0, qx:0, qy:0, qz:0, qw:1 }
+  // { cmd:"head", x:0, y:0, z:0, qx:0, qy:0, qz:0, qw:1, durationMs:0 }
   // Overrides the viewpoint (head pose) in the app's world locate space. Held until head_clear.
+  // durationMs>0 glides there from the previous injected head pose instead of snapping.
   HeadPose h;
   h.px = req.value("x", 0.0f);
   h.py = req.value("y", 0.0f);
@@ -230,6 +240,7 @@ json Handle_head(const json& req) {
   h.qy = req.value("qy", 0.0f);
   h.qz = req.value("qz", 0.0f);
   h.qw = req.value("qw", 1.0f);
+  h.durationMs = ParseDurationMs(req);
   ControlChannelSetHead(h);
   return json{{"ok", true}, {"queued", "head"}};
 }
@@ -496,9 +507,14 @@ std::vector<PendingInput> ControlChannelDrainInputs() {
   return out;
 }
 
+// Target generation counter, shared by controller + head targets. Stamped on every set so the
+// pose_animator can tell "same target, keep the glide in flight" from "new target, start a glide".
+namespace { std::atomic<uint64_t> g_target_seq{0}; }
+
 void ControlChannelSetStickyPose(const StickyPose& pose) {
   StickyPose p = pose;
   NormalizeQuat(p.qx, p.qy, p.qz, p.qw);  // JSON gives no unit-length guarantee
+  p.seq = ++g_target_seq;
   std::lock_guard<std::mutex> lock(g_pose_mutex);
   g_poses[p.top_level] = p;
 }
@@ -517,6 +533,7 @@ std::vector<StickyPose> ControlChannelGetStickyPoses() {
 void ControlChannelSetHead(const HeadPose& pose) {
   HeadPose p = pose;
   NormalizeQuat(p.qx, p.qy, p.qz, p.qw);  // JSON gives no unit-length guarantee
+  p.seq = ++g_target_seq;
   std::lock_guard<std::mutex> lock(g_head_mutex);
   g_head = p;
   g_head_active = true;

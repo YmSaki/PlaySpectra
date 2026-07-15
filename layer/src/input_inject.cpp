@@ -15,6 +15,7 @@
 #include "control_channel.h"   // PendingInput / StickyPose / InputType + drain/sticky queries
 #include "layer_dispatch.h"    // Dispatch() / CaEnabled() / ToPath() (runtime-backed)
 #include "layer_log.h"         // LayerLog
+#include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
 #include "pose_override.h"     // EnsureLocalSpace (inject sticky poses in the layer's LOCAL space)
 
 namespace vr_agent {
@@ -76,10 +77,11 @@ void ApplyPendingInputs(XrSession session) {
   if (!poses.empty() && Dispatch().setInputDeviceLocation) {
     XrSpace space = EnsureLocalSpace(session);
     if (space != XR_NULL_HANDLE) {
+      // xrSyncActions carries no XrTime, so the glide evaluates against the latest intercepted
+      // display time (0 before the first frame -> the animator snaps to the target).
+      const XrTime now = AnimatorLastDisplayTime();
       for (const vr_agent::StickyPose& sp : poses) {
-        XrPosef pose{};
-        pose.orientation = XrQuaternionf{sp.qx, sp.qy, sp.qz, sp.qw};
-        pose.position = XrVector3f{sp.px, sp.py, sp.pz};
+        const XrPosef pose = AnimatorEvalController(sp, now).pose;
         XrResult r =
             Dispatch().setInputDeviceLocation(session, ToPath(sp.top_level), ToPath(sp.source), space, pose);
         Log("setInputDeviceLocation", (sp.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());

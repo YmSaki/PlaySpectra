@@ -48,6 +48,7 @@ add_library(vr_agent_layer SHARED
   src/layer_log.cpp
   src/layer_dispatch.cpp
   src/action_registry.cpp
+  src/pose_animator.cpp
   src/pose_override.cpp
   src/input_inject.cpp
   src/control_channel.cpp
@@ -88,6 +89,16 @@ set_target_properties(vr_agent_layer PROPERTIES
   PREFIX ""
 )
 
+# The manifest (manifest/XrApiLayer_vr_agent.json) points the OpenXR loader at
+# ./vr_agent_layer.dll NEXT TO the manifest -- keep that copy in sync with every build, otherwise
+# integration runs silently load a stale layer (this bit us: a green build, an old DLL under test).
+add_custom_command(TARGET vr_agent_layer POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          $<TARGET_FILE:vr_agent_layer>
+          ${CMAKE_CURRENT_SOURCE_DIR}/manifest/vr_agent_layer.dll
+  COMMENT "Syncing vr_agent_layer.dll next to the loader manifest"
+)
+
 # --- Host-run unit tests (opt in with -DVR_AGENT_BUILD_TESTS=ON) ---
 # Off by default so a plain `cmake ..` never network-fetches googletest. Kept separate from
 # BUILD_TESTING (see the seed near the top) so enabling ours does not also drag in the SDK's tests.
@@ -105,8 +116,10 @@ if(VR_AGENT_BUILD_TESTS)
 
   add_executable(vr_agent_test
     tests/test_capture_common.cpp
+    tests/test_pose_animator.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
+    src/pose_animator.cpp
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )
 
@@ -118,6 +131,7 @@ if(VR_AGENT_BUILD_TESTS)
   target_link_libraries(vr_agent_test PRIVATE
     gtest_main
     nlohmann_json::nlohmann_json
+    OpenXR::headers
   )
 
   if(MINGW)

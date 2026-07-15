@@ -181,6 +181,25 @@ async function main() {
         `|delta|=${moved.toFixed(3)} (before ${p0.x.toFixed(2)},${p0.y.toFixed(2)},${p0.z.toFixed(2)} -> after ${p1.x.toFixed(2)},${p1.y.toFixed(2)},${p1.z.toFixed(2)})`);
   await rpc({ cmd: "head_clear" });
 
+  // (b2) durationMs glide: a head move with durationMs is IN FLIGHT partway through (neither at the
+  // start nor at the target) and settles ON the target after the duration -- the pose_animator path
+  // end to end (control channel field -> animator eval inside xrLocateViews -> published view).
+  // Bounds are generous because view poses are per-eye (head +/- half-IPD) and sleeps are inexact.
+  await rpc({ cmd: "head", x: 0, y: 1.3, z: 0, qw: 1 });         // anchor the glide start (snap)
+  await sleep(500);                                               // let a few locates latch it
+  await rpc({ cmd: "head", x: 2.0, y: 1.3, z: 0, qw: 1, durationMs: 5000 });
+  await sleep(1200);                                              // ~24% into the 5 s glide
+  const vg = await rpc({ cmd: "view" });
+  const pgm = vg.views?.[0]?.pose || { x: 99 };
+  check("durationMs: glide is mid-flight (between start and target)", pgm.x > 0.08 && pgm.x < 1.8,
+        `x=${pgm.x?.toFixed(3)} (start 0, target 2.0)`);
+  await sleep(4500);                                              // well past the 5 s mark
+  const ve = await rpc({ cmd: "view" });
+  const pge = ve.views?.[0]?.pose || { x: 99 };
+  check("durationMs: glide settles on the target", Math.abs(pge.x - 2.0) < 0.08,
+        `x=${pge.x?.toFixed(3)} (target 2.0, tolerance covers the per-eye half-IPD offset)`);
+  await rpc({ cmd: "head_clear" });
+
   // (c) sync-semantics round-trip: inject grab>0.9; hello_xr responds by buzzing the controller.
   const h0 = (await rpc({ cmd: "haptics", limit: 200 })).haptics?.length || 0;
   await rpc({ cmd: "active", hand: "right", active: true });

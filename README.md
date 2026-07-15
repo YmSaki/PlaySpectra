@@ -96,7 +96,9 @@ cd mcp && npm start
 1. `vr_status` — セッション / CA 拡張の有無 / ランタイム名を確認
 2. `vr_actions` — アプリが登録したアクション名と束縛パスを取得
 3. `vr_input` / `vr_click` — コントローラー入力を注入
-4. `vr_set_hmd` / `vr_set_controller` / `vr_look_at` / `vr_point_at` — 頭部・コントローラー姿勢を注入
+4. `vr_set_hmd` / `vr_set_controller` / `vr_look_at` / `vr_point_at` — 頭部・コントローラー姿勢を注入。
+   `vr_set_hmd` / `vr_set_controller` / `vr_move` は任意の `durationMs` を受け付け、直前の注入姿勢から
+   目標へ滑らかに補間移動する（lerp/slerp、ツールは移動完了後に返る）。省略時は従来どおり即時反映
 5. `vr_wait` — 注入反映のため N フレーム待つ
 6. `vr_screenshot`（`eye` / `withDepth`）— 結果を PNG で取得
 7. `vr_view` — 視点姿勢 + FOV を取得（画面ピクセル ↔ ワールド座標の橋渡し）
@@ -105,7 +107,7 @@ cd mcp && npm start
 
 | 領域 | 状況 |
 | --- | --- |
-| 入力注入 | ✅ 全経路（全アクション種別・両手・頭部/コントローラー姿勢） |
+| 入力注入 | ✅ 全経路（全アクション種別・両手・頭部/コントローラー姿勢、`durationMs` 補間移動） |
 | キャプチャ: Vulkan | ✅ RGBA8/BGRA8/HDR、MSAA resolve、深度 |
 | キャプチャ: D3D11 / D3D12 | 🟡 8bit RGBA/BGRA 実装済み。MSAA / HDR / TYPELESS は明示エラー（コア必須の対応を進行中） |
 | 深度マップ | ➖ nice-to-have・Vulkan 専用（`XrCompositionLayerDepthInfoKHR` 提出フレームのみ） |

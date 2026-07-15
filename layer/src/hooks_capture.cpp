@@ -6,6 +6,7 @@
 #include "control_channel.h"   // ControlChannelSetSession
 #include "layer_dispatch.h"    // Dispatch() / SetCurrentSession()
 #include "layer_log.h"         // LayerLog
+#include "pose_animator.h"     // AnimatorNoteDisplayTime (durationMs glide time base)
 
 using vr_agent::Dispatch;
 using vr_agent::SetCurrentSession;
@@ -101,6 +102,8 @@ XrResult XRAPI_CALL Hook_xrReleaseSwapchainImage(XrSwapchain swapchain,
 
 XrResult XRAPI_CALL Hook_xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) {
   try {
+    // Feed the animator's time base (the other intercepted stream is xrLocateViews).
+    if (frameEndInfo) vr_agent::AnimatorNoteDisplayTime(frameEndInfo->displayTime);
     vr_agent::CaptureOnEndFrame(frameEndInfo);
     PFN_xrEndFrame next = Dispatch().endFrame;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;

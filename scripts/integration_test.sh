@@ -36,7 +36,7 @@ sleep 1
 # runs. We wrap the sleep in a subshell that records its PID, so later we can kill JUST the feeder to
 # send EOF and trigger hello_xr's own graceful teardown (see the graceful block below). A real pipe
 # (not a FIFO) is required so the native hello_xr.exe gets a valid Windows stdin handle.
-( sleep 70 & echo $! > "$CAP_DIR/feed.pid"; wait ) | "$HELLO" -g "$GFX" > "$LOG" 2>&1 &
+( sleep 85 & echo $! > "$CAP_DIR/feed.pid"; wait ) | "$HELLO" -g "$GFX" > "$LOG" 2>&1 &
 HELLO_PID=$!
 
 # Wait for the layer control channel to LISTEN on 52700 (session reached FOCUSED).

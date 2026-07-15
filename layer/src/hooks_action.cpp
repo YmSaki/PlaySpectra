@@ -13,6 +13,7 @@
 #include "input_inject.h"      // CA + GAP-08 non-CA fallback entry points
 #include "layer_dispatch.h"    // Dispatch() / instance-session state / CaEnabled() / PathToStr()
 #include "layer_log.h"         // LayerLog
+#include "pose_animator.h"     // AnimatorReset (glide state is dead-runtime-scoped, like XrTime)
 #include "pose_override.h"     // PoseOverride* session/warning reset + EraseRefSpace
 
 using vr_agent::ActionMutex;
@@ -230,6 +231,9 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
     vr_agent::ControlChannelStop();
     vr_agent::ControlChannelSetInstance(false);
     vr_agent::ControlChannelSetSession(false);
+    // XrTime values are runtime-scoped: drop the cached display time + glide state so a fresh
+    // instance never compares its times against this dead runtime's. Leaf mutex; no lock held here.
+    vr_agent::AnimatorReset();
     XrResult r = next ? next(instance) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (instance == CurrentInstance()) {
       // GAP-07: drop all next-layer pointers (they belong to the runtime we just tore down) and reset

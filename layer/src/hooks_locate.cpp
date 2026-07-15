@@ -8,6 +8,7 @@
 
 #include "control_channel.h"   // ControlChannelGetHead / ControlChannelSetViews / HeadPose / ViewInfo
 #include "layer_dispatch.h"    // Dispatch() / CurrentSession()
+#include "pose_animator.h"     // AnimatorEvalHead / AnimatorNoteDisplayTime (durationMs glide)
 #include "pose_override.h"     // pose math + VIEW tracking + velocity/next-chain helpers
 
 using vr_agent::ApplyHeadToLocation;
@@ -22,6 +23,20 @@ using vr_agent::RecordRefSpace;
 using vr_agent::TransformHeadToSpace;
 using vr_agent::ZeroVelocity;
 
+namespace {
+// Evaluate the injected head target through the pose_animator (durationMs glide) at `now`, still in
+// LOCAL space -- callers then transform to their locate space as before. Duration 0 returns the
+// target unchanged, so the pre-durationMs behaviour is untouched.
+vr_agent::HeadPose EvalHead(const vr_agent::HeadPose& target, XrTime now) {
+  const XrPosef p = vr_agent::AnimatorEvalHead(target, now).pose;
+  vr_agent::HeadPose out = target;
+  out.px = p.position.x; out.py = p.position.y; out.pz = p.position.z;
+  out.qx = p.orientation.x; out.qy = p.orientation.y; out.qz = p.orientation.z;
+  out.qw = p.orientation.w;
+  return out;
+}
+}  // namespace
+
 // xrLocateViews: what the app renders (and submits) from. Override to the injected head pose.
 XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo* viewLocateInfo,
                                        XrViewState* viewState, uint32_t viewCapacityInput,
@@ -29,6 +44,9 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
   try {
     PFN_xrLocateViews next = Dispatch().locateViews;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    // Feed the animator's time base (one of the two intercepted display-time streams; the other is
+    // xrEndFrame) so the xrSyncActions path -- which has no XrTime -- can evaluate glides too.
+    if (viewLocateInfo) vr_agent::AnimatorNoteDisplayTime(viewLocateInfo->displayTime);
     XrResult r = next(session, viewLocateInfo, viewState, viewCapacityInput, viewCountOutput, views);
     if (XR_SUCCEEDED(r) && views && viewCountOutput && *viewCountOutput > 0) {
       vr_agent::HeadPose h;
@@ -36,6 +54,8 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
       // runtime via xrSetInputDeviceLocationEXT on every xrSyncActions), the head is applied by
       // reading g_head here at locate time and rewriting the runtime's answer -- no per-sync re-apply.
       if (vr_agent::ControlChannelGetHead(h)) {
+        h = EvalHead(h, viewLocateInfo ? viewLocateInfo->displayTime
+                                       : vr_agent::AnimatorLastDisplayTime());
         const XrViewStateFlags need =
             XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
         // Rebase only off *valid* runtime views -- the per-eye IPD/offset decomposition is meaningless
@@ -115,6 +135,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
       if (IsViewSpace(space)) {
         vr_agent::HeadPose h;
         if (!IsViewSpace(baseSpace) && vr_agent::ControlChannelGetHead(h)) {
+          h = EvalHead(h, time);
           const vr_agent::HeadPose hInBase = TransformHeadToSpace(CurrentSession(), h, baseSpace, time);
           overrode = ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
         }
@@ -150,6 +171,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
     if (XR_SUCCEEDED(r) && locateInfo && locateInfo->spaces && locations && locations->locations) {
       vr_agent::HeadPose h;
       const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::ControlChannelGetHead(h);
+      if (headActive) h = EvalHead(h, locateInfo->time);
       const vr_agent::HeadPose hInBase =
           headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;
       // GAP-05: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry

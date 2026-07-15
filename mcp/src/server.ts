@@ -376,7 +376,9 @@ server.registerTool(
     description:
       "Place a controller at a pose (position + orientation) in the app's world space (LOCAL: " +
       "-Z forward, +Y up, metres). Held until vr_clear_controller / vr_reset. Orientation may be " +
-      "given as yaw/pitch/roll degrees (ergonomic) or a raw quaternion; default identity.",
+      "given as yaw/pitch/roll degrees (ergonomic) or a raw quaternion; default identity. " +
+      "Optional durationMs glides the controller linearly from its previous injected pose to the " +
+      "target over that time (like a real hand moving); the tool returns after the glide completes.",
     inputSchema: {
       hand: z.enum(["left", "right"]),
       x: z.number().describe("metres, +X right"),
@@ -389,15 +391,21 @@ server.registerTool(
       qy: z.number().optional(),
       qz: z.number().optional(),
       qw: z.number().optional(),
+      durationMs: z.number().optional().describe("glide time in ms (default 0 = snap)"),
     },
   },
-  async ({ hand, x, y, z: zz, yaw, pitch, roll, qx, qy, qz, qw }) => {
+  async ({ hand, x, y, z: zz, yaw, pitch, roll, qx, qy, qz, qw, durationMs }) => {
     const o = orientationFrom({ qx, qy, qz, qw, yaw, pitch, roll });
     if (!o.ok) return textResult({ ok: false, error: o.error });
     const q = o.q;
-    return textResult(
-      await send({ cmd: "pose", hand, x, y, z: zz, qx: q.x, qy: q.y, qz: q.z, qw: q.w }),
-    );
+    const reply = await send({
+      cmd: "pose", hand, x, y, z: zz, qx: q.x, qy: q.y, qz: q.z, qw: q.w,
+      ...(durationMs && durationMs > 0 ? { durationMs } : {}),
+    });
+    // Playwright-like: an animated action resolves when the motion is done, so the caller's next
+    // observe (screenshot/view) sees the settled pose. The layer glides on its own; we just wait.
+    if (reply?.ok && durationMs && durationMs > 0) await sleep(durationMs);
+    return textResult(reply);
   },
 );
 
@@ -418,7 +426,9 @@ server.registerTool(
     description:
       "Move the viewpoint: override the head pose in the app's world space (LOCAL: -Z forward, " +
       "+Y up, metres). Applied inside xrLocateViews (keeps the runtime's IPD + FOV). Orientation " +
-      "as yaw/pitch/roll degrees or a raw quaternion; default identity. Held until vr_reset.",
+      "as yaw/pitch/roll degrees or a raw quaternion; default identity. Held until vr_reset. " +
+      "Optional durationMs glides the viewpoint smoothly from its previous injected pose to the " +
+      "target over that time (a comfortable move, not a teleport); the tool returns after the glide.",
     inputSchema: {
       x: z.number().optional().describe("metres, +X right (default 0)"),
       y: z.number().optional().describe("metres, +Y up (default 0)"),
@@ -430,16 +440,20 @@ server.registerTool(
       qy: z.number().optional(),
       qz: z.number().optional(),
       qw: z.number().optional(),
+      durationMs: z.number().optional().describe("glide time in ms (default 0 = snap)"),
     },
   },
-  async ({ x, y, z: zz, yaw, pitch, roll, qx, qy, qz, qw }) => {
+  async ({ x, y, z: zz, yaw, pitch, roll, qx, qy, qz, qw, durationMs }) => {
     const o = orientationFrom({ qx, qy, qz, qw, yaw, pitch, roll });
     if (!o.ok) return textResult({ ok: false, error: o.error });
     const q = o.q;
     const px = x ?? 0, py = y ?? 0, pz = zz ?? 0;
-    return textResult(
-      await send({ cmd: "head", x: px, y: py, z: pz, qx: q.x, qy: q.y, qz: q.z, qw: q.w }),
-    );
+    const reply = await send({
+      cmd: "head", x: px, y: py, z: pz, qx: q.x, qy: q.y, qz: q.z, qw: q.w,
+      ...(durationMs && durationMs > 0 ? { durationMs } : {}),
+    });
+    if (reply?.ok && durationMs && durationMs > 0) await sleep(durationMs);
+    return textResult(reply);
   },
 );
 
@@ -460,15 +474,17 @@ server.registerTool(
     description:
       "Translate the head or a controller by (dx,dy,dz) metres from its CURRENT injected pose " +
       "(queried from the layer, the single source of truth). Orientation is preserved. Errors if " +
-      "that target has no active override yet — set one first with vr_set_hmd / vr_set_controller.",
+      "that target has no active override yet — set one first with vr_set_hmd / vr_set_controller. " +
+      "Optional durationMs glides instead of snapping (the tool returns after the glide).",
     inputSchema: {
       target: z.enum(["head", "left", "right"]),
       dx: z.number().default(0),
       dy: z.number().default(0),
       dz: z.number().default(0),
+      durationMs: z.number().optional().describe("glide time in ms (default 0 = snap)"),
     },
   },
-  async ({ target, dx, dy, dz }) => {
+  async ({ target, dx, dy, dz, durationMs }) => {
     // Query the layer (single source of truth) for the current override, then nudge it. If nothing
     // is overridden yet, there's no meaningful base to move from -> error rather than warp to origin.
     const cur = await send(target === "head" ? { cmd: "head_get" } : { cmd: "pose_get", hand: target });
@@ -481,11 +497,14 @@ server.registerTool(
         }`,
       });
     const nx = cur.x + dx, ny = cur.y + dy, nz = cur.z + dz;
+    const dur = durationMs && durationMs > 0 ? { durationMs } : {};
     const cmd =
       target === "head"
-        ? { cmd: "head", x: nx, y: ny, z: nz, qx: cur.qx, qy: cur.qy, qz: cur.qz, qw: cur.qw }
-        : { cmd: "pose", hand: target, x: nx, y: ny, z: nz, qx: cur.qx, qy: cur.qy, qz: cur.qz, qw: cur.qw };
-    return textResult(await send(cmd));
+        ? { cmd: "head", x: nx, y: ny, z: nz, qx: cur.qx, qy: cur.qy, qz: cur.qz, qw: cur.qw, ...dur }
+        : { cmd: "pose", hand: target, x: nx, y: ny, z: nz, qx: cur.qx, qy: cur.qy, qz: cur.qz, qw: cur.qw, ...dur };
+    const reply = await send(cmd);
+    if (reply?.ok && durationMs && durationMs > 0) await sleep(durationMs);
+    return textResult(reply);
   },
 );
 

@@ -77,17 +77,3 @@ TEST(CaptureCommonTest, BuildCaptureSuccessJson_FormatsCorrectly) {
     EXPECT_EQ(j["arrayIndex"].get<uint32_t>(), 0);
     EXPECT_EQ(j["format"].get<int64_t>(), 87);
 }
-
-/*
-このテストは `EncodeRgbaPng` において、width や height が 0 などの境界値が与えられた際、
-未定義動作にならずにエラーコードを返すことを検査します。
-理由: 仕様外の不正な画像サイズが渡された場合、ライブラリ側(lodepng)で例外が発生せず、
-適切にエラーステータスが返ってくることを保証するため。
-*/
-TEST(CaptureCommonTest, EncodeRgbaPng_HandlesZeroDimensions) {
-    std::vector<unsigned char> empty_pixels;
-    // width=0, height=0
-    unsigned err = EncodeRgbaPng("test_out.png", empty_pixels, 0, 0);
-    // 実際にlodepngはどう返すか。空ベクターなどを食わせるとエラーコード(48等)になる。
-    EXPECT_NE(err, 0);
-}

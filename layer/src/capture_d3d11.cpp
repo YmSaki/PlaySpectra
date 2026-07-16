@@ -3,9 +3,10 @@
 //
 // This backend is one leaf behind capture.cpp's single dispatch (not a parallel capture system): at
 // xrEndFrame capture.cpp resolves the released swapchain image + subimage geometry under its mutex,
-// then hands us the raw ID3D11Texture2D* (as uint64_t) plus the DXGI format and rect. We copy the
-// requested rect into a STAGING texture, map it, de-pad rows, swizzle BGRA->RGBA if needed, and encode
-// an 8-bit RGBA PNG via lodepng -- mirroring VulkanReadbackToPng's format handling / json result shape.
+// then hands us the raw ID3D11Texture2D* (as uint64_t) plus the DXGI format and rect. We acquire the
+// image's keyed mutex (runtime-shared textures gate reads on it), copy the requested rect into a
+// STAGING texture, map it, de-pad rows, swizzle BGRA->RGBA if needed, and encode an 8-bit RGBA PNG
+// via lodepng -- mirroring VulkanReadbackToPng's format handling / json result shape.
 // Unsupported formats and MSAA sources return an explicit error json, never a silently-broken image
 // (CLAUDE.md).
 

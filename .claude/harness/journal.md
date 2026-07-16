@@ -319,3 +319,10 @@ Note: bug-Fable A5 referenced `capture_d3d11.cpp` — that file does NOT exist (
   設計書に既在で规則化の一般性なし)、L30/L31/L33/L34/L37(レンズ1に包含)、L50(ship policy として既に機能)。
 - metrics 所見: 15ループ・rejections平均0.33・ドリフトなし → レビューキャリブレーション提案なし(健全)。
 - agent-memory: h-reviewer の review-checklist-frame-capture は既に蒸留済み品質のため整理不要。
+
+## 2026-07-17 — ship policy 更新
+
+**push 実施済み**(ユーザー実行、リモート master = e018854 で全10コミット同期を ls-remote で確認)。
+以後の ship policy: コミットは従来どおりループ内で実施、**push はユーザーの明示指示または `! git push` で行う**
+(保護ブランチガードにより自動 push は不可 — これは意図された防御層)。
+次タスク: backlog Deferred の R08→R09→R10→R17(ユーザー着手指示 2026-07-16 済み)。

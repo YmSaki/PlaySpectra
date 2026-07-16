@@ -1,26 +1,24 @@
-# Investigation summary: R10 d3d-hdr — R16G16B16A16_FLOAT の half→sRGB decode を D3D11/D3D12 に追加
-Updated: 2026-07-16T17:10:00Z
+# Investigation summary: R17 d3d11-typeless — D3D11 で 8bit TYPELESS スワップチェーンを受理
+Updated: 2026-07-16T18:15:00Z
 
 ## Impact scope
-- `layer/src/capture_vulkan.cpp:655-680` — **参考実装**: HDR は staging の 8byte/texel を HalfToFloat×4 → RGB=QuantizeSrgb / A=QuantizeLinearUnit で 8-bit RGBA 化。`HalfFloatSelfTest()`(1回限り、:405-425)。結果 JSON(:700-711): `tonemapped`(常設 bool)、hdr 時 `sourceHdrFormat` + `colorConversion`(固定文言)、非 hdr 時 `colorConversion:"direct 8-bit (no tonemap)"`。
-- `layer/src/pixel_convert.h` — HalfToFloat/LinearToSrgb/QuantizeSrgb/QuantizeLinearUnit は R03 で共有済み(vr_agent::)。R10 はこれを D3D 側から使う。
-- `layer/src/capture_common.{h,cpp}` — 共有 decode の置き場: `DecodeHdrRowsToSrgb(src, rowPitch, w, h)`(RepackRows の HDR 版、RowPitch 対応)を新設し D3D11/D3D12 で共用(Vulkan は staging がタイト詰めで独自ループ既存 — 触らない=回帰ゼロ)。
-- `layer/src/capture_d3d11.cpp:41-46, 73-82` — format guard に `DXGI_FORMAT_R16G16B16A16_FLOAT`(=10) を追加。staging は desc.Format のまま(16F でも CopySubresourceRegion/Map は同じ)。Map 後、hdr なら RepackRows でなく DecodeHdrRowsToSrgb(RowPitch 対応必須 — **RepackRows は 4byte/px 前提なので HDR に流用不可**)。MSAA+HDR 複合は R08 の resolve が 16F でもそのまま働く(ResolveSubresource は FLOAT 対応)。成功 JSON へ tonemapped/colorConversion(+sourceHdrFormat) を Vulkan 同形で追加。
-- `layer/src/capture_d3d12.cpp:40-57, 88-93` — guard に FLOAT16 追加(**TYPELESS の 16bit 族は追加しない** — UNORM か FLOAT か外形から断定できず、推測 decode は「無言の壊れた画像」class。8bit 族の TYPELESS 受理と非対称になるが明示エラーが正直)。footprint format は ResolveFootprintFormat(16F はそのまま返る)。RowPitch は footprint 由来 — decode は同じ共有関数。texel 8byte 前提の totalBytes は GetCopyableFootprints が自動計算。JSON 同上。
-- `layer/build/_deps/openxr_sdk-src/src/tests/hello_xr/graphicsplugin_d3d11.cpp:120-127` / `graphicsplugin_d3d12.cpp:289-296` — 選好リストは 8bit 4種のみ(16F なし) → **E2E には env パッチ第3弾**: `HELLO_XR_HDR=1` で `DXGI_FORMAT_R16G16B16A16_FLOAT` をリスト先頭へ(未設定=挙動不変)。ランタイムが 16F を enumerate しなければ hello_xr は既存リストへフォールバック(SelectColorSwapchainFormat の仕様上、無害に 8bit で走る — この場合 HDR E2E は不能でその旨の SKIP 相当判定が必要)。
-- `scripts/setup_helloxr_msvc.sh` — 上記パッチ追記(d3d11/d3d12 両ブロック)。
-- `scripts/integration_hello_xr.mjs` — env `HELLO_XR_HDR=1` のとき `shot.tonemapped===true` + `shot.format===10` を追加検証(MSAA 行と同型の env ガード)。**16F 非提供ランタイムでは fmt が 8bit のままなので、その場合は「ランタイムが 16F を提供しない」ことを明示して SKIP 扱いにする設計が要る**(アプリは正常動作するため integration_test.sh の既存 SKIP とは別問題 — mjs 内で shot.format を見て判定)。
+- `layer/src/capture_d3d11.cpp` guard(Step 2) — DxgiIsRGBA8 へ `DXGI_FORMAT_R8G8B8A8_TYPELESS`(27)、DxgiIsBGRA8 へ `DXGI_FORMAT_B8G8R8A8_TYPELESS`(90) を追加(D3D12 の guard と同形に)。8bit TYPELESS は族内でバイト配置同一のため生バイト読みで正しい(L69 の原理どおり、16bit TYPELESS とは違い曖昧性なし)。
+- `layer/src/capture_d3d11.cpp` staging — `sdesc.Format = desc.Format` のまま変更不要(TYPELESS staging の Map は合法、生バイトが読める — backlog 記載どおり)。
+- `layer/src/capture_d3d11.cpp` MSAA resolve — **要修正**: 現在 `ResolveSubresource(..., static_cast<DXGI_FORMAT>(dxgiFormat))` で、F3 修正後のコメントが「guard の受理フォーマットは全て typed」を根拠にしている。R17 で TYPELESS が guard を通ると **resolve の format 引数が typeless になり不正**。D3D12 の `ResolveFootprintFormat` と同規則の同族 UNORM 写像(R8G8B8A8_TYPELESS→UNORM / B8G8R8A8_TYPELESS→UNORM)をローカル関数 `ResolveTypedFormat` として追加し resolve 引数に使う。コメントも追従。
+  ※R16(dxgi_formats.h 共有ヘッダ)未実施のため写像は capture_d3d12.cpp と一時重複 — R16(Open, move-only)実施時に統合される。R16 を先にやる案は、ユーザー承認順(R08→R09→R10→R17)の外に別タスクを差し込むことになるため不採用。
+- `scripts/setup_helloxr_msvc.sh` — E2E 用パッチ第4弾(D3D11 ブロックのみ): `HELLO_XR_TYPELESS=1` で SelectColorSwapchainFormat が R8G8B8A8_TYPELESS(27) をランタイム列挙から探して早期 return(HDR パッチと同型)。**加えて hello_xr の RTV は swapchainFormat 直渡しのため typeless だと CreateRenderTargetView が失敗** → RenderView の RTV format を「typeless なら同族 UNORM」に写像するサブパッチも必要(R08 で追加済みの rtvColorDesc ブロックに手を入れる形)。
+- `scripts/integration_hello_xr.mjs` — env `HELLO_XR_TYPELESS=1` のとき `shot.format===27` を PASS 項目に(MSAA/HDR 行と同型の env ガード)。ランタイムが TYPELESS を列挙しない場合は mjs 内で明示 SKIP(HDR の防御 SKIP と同型 — hello_xr は列挙になければ typed へフォールバックするため)。
+- `scripts/integration_test.sh` — 変更不要見込み(swapchain 作成拒否経路は既存 SKIP grep が VALIDATION_FAILURE 前提。TYPELESS では「列挙にない→hello_xr が typed へフォールバック」が先に起きるので xrCreateSwapchain 失敗経路は通らない見込み)。
 
 ## Constraints and assumptions
-- CLAUDE.md: HDR「decode 出力」自体はコア必須(フォーマット完全性)。深度とは違い許容表現ではない(R10 は Deferred でユーザー着手承認済み)。
-- 観測の正直さ(Vulkan 前例): PNG は常に 8-bit。hdr 時は tonemapped/sourceHdrFormat/colorConversion で変換を明示。文言は Vulkan と一字一句同じにする(R15 の統一を先取りしない範囲で同形)。
-- hello_xr は線形値を描く: 16F RTV では sRGB 自動エンコードが効かないため、decode の LinearToSrgb がちょうど正しい(PNG は 8bit 時とほぼ同じ見た目になるはず — 非フラット判定は既存のまま効く)。
-- Vulkan バックエンドは触らない(回帰ゼロ)。共有 decode は D3D 2バックエンドのみ。
-- ビルド/テスト手順は R08/R09 と同一。probe 先行: metasim/monado が D3D11/D3D12 で 16F を enumerate するか。
+- 8bit TYPELESS→UNORM 解釈は D3D12 バックエンドの既存実装(ResolveFootprintFormat + guard の TYPELESS 受理)と同じ規則 — バックエンド間の一貫性がそのまま設計根拠。
+- PNG 出力は 8bit 生バイトコピーのため UNORM/UNORM_SRGB のどちらの解釈でもバイト列は同一(変換なし) — 「無言の壊れた画像」リスクなし。成功 JSON の format には dxgiFormat(27) がそのまま載る(観測の正直さ)。
+- probe 先行: metasim/monado の D3D11 が TYPELESS をスワップチェーンフォーマットとして**列挙するか**は未知。列挙しなければ E2E 不能 → mjs の明示 SKIP+レビュー重点(HDR と同じ扱い)。レイヤー側の受理コード自体はどのみちコア必須(実アプリが TYPELESS を要求し得る)。
+- ビルド/回帰手順は R08-R10 と同一。単体テスト(vr_agent_test 14件)も green 維持(L67: DoD に含める)。
 
 ## Assumptions (minor ambiguities — state them and proceed)
-- HalfFloatSelfTest は capture_vulkan.cpp 内 static のまま(移動は move-only 別件)。D3D 側 decode は同じ HalfToFloat(R03 共有・単体テスト対象)を使うため自己テストの重複配置はしない。
-- D3D11 の guard は typed のみ(現状踏襲)。16F の TYPELESS(=9) は D3D11/D3D12 とも明示エラー維持。
+- R16 は未実施のまま R17 を単独実装(写像関数の一時重複を許容、R16 で統合)。理由: ユーザー承認済みの着手順を崩さない+重複は2関数×数行で管理可能。
+- hello_xr の D3D12 側 TYPELESS パッチは作らない(R17 は D3D11 タスク。D3D12 レイヤーは既に TYPELESS 受理済みで、その E2E 検証残はスコープ外)。
 
 ## Open questions (unresolved)
-- [ ] metasim/monado が 16F カラーフォーマットを enumerate するか(empirical、work 冒頭 probe。両方非提供なら E2E 不能 → mjs の SKIP 設計+レビュー重点で出荷し、その旨を明記)。critical だが probe で即断可。
+- [ ] metasim/monado の D3D11 が TYPELESS(27) を列挙するか(empirical、work 冒頭 probe。両方非列挙なら E2E は SKIP+コード審査で出荷 — HDR の防御 SKIP 前例に従う)。critical だが probe で即断可。

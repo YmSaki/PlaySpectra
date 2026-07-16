@@ -264,6 +264,22 @@ async function main() {
     }
   }
 
+  // (d4) 8-bit TYPELESS acceptance (R17): with HELLO_XR_TYPELESS the patched hello_xr requests
+  // R8G8B8A8_TYPELESS when the runtime enumerates it. Neither current runtime (metasim/monado)
+  // does on D3D11 -- probed 2026-07-16 -- so on them this prints the explicit SKIP and the layer
+  // path is covered by code review + the D3D12 sibling rule; a runtime that does enumerate it
+  // exercises the full assertion.
+  const wantTypeless = process.env.HELLO_XR_TYPELESS === "1";
+  if (wantTypeless) {
+    const DXGI_R8G8B8A8_TYPELESS = 27;
+    if (shot.format === DXGI_R8G8B8A8_TYPELESS) {
+      check("TYPELESS capture: format 27 captured ok", shot.ok === true, `format=${shot.format}`);
+    } else {
+      console.log(`  SKIP TYPELESS assertions: runtime does not enumerate R8G8B8A8_TYPELESS ` +
+                  `(hello_xr fell back to format ${shot.format})`);
+    }
+  }
+
   // (e) depth-request path degrades honestly. Meta sim submits no XrCompositionLayerDepthInfoKHR, so
   // this exercises the withDepth parse -> dispatch -> ResolveDepth honest {available:false} degrade
   // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is NOT

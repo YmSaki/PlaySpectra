@@ -38,15 +38,28 @@ ID3D11Device* g_d3d11_device = nullptr;
 
 // D3D11 color-format handling mirrors the Vulkan path: we store bytes straight to an 8-bit RGBA PNG.
 // RGBA8 formats copy directly; BGRA8 formats get a B<->R swizzle; R16G16B16A16_FLOAT (HDR) is
-// decoded half-float -> sRGB via the shared DecodeHdrRowsToSrgb. Anything else (typeless, packed)
-// is an explicit error -- never a silently-broken image (CLAUDE.md).
+// decoded half-float -> sRGB via the shared DecodeHdrRowsToSrgb. 8-bit TYPELESS is read as its
+// family UNORM member (byte layout is identical across the family -- same rule as capture_d3d12).
+// Anything else (16-bit typeless, packed) is an explicit error -- never a silently-broken image
+// (CLAUDE.md).
 bool DxgiIsRGBA8(int64_t f) {
-  return f == DXGI_FORMAT_R8G8B8A8_UNORM || f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+  return f == DXGI_FORMAT_R8G8B8A8_UNORM || f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+         f == DXGI_FORMAT_R8G8B8A8_TYPELESS;
 }
 bool DxgiIsBGRA8(int64_t f) {
-  return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+  return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB ||
+         f == DXGI_FORMAT_B8G8R8A8_TYPELESS;
 }
 bool DxgiIsHDR16F(int64_t f) { return f == DXGI_FORMAT_R16G16B16A16_FLOAT; }
+
+// A fully-typed format for operations that reject typeless (the MSAA ResolveSubresource format
+// parameter). Same family-UNORM rule as capture_d3d12's ResolveFootprintFormat; the duplication is
+// deliberate until R16 lifts both into a shared dxgi_formats.h.
+DXGI_FORMAT ResolveTypedFormat(int64_t f) {
+  if (f == DXGI_FORMAT_R8G8B8A8_TYPELESS) return DXGI_FORMAT_R8G8B8A8_UNORM;
+  if (f == DXGI_FORMAT_B8G8R8A8_TYPELESS) return DXGI_FORMAT_B8G8R8A8_UNORM;
+  return static_cast<DXGI_FORMAT>(f);
+}
 
 // Reusable single-sample intermediate for the MSAA resolve (the D3D11 sibling of capture_vulkan's
 // EnsureResolveImage / GAP-03). ResolveSubresource always resolves a WHOLE subresource -- no rect
@@ -133,7 +146,7 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   if (!rgba && !bgra && !hdr) {
     return {{"ok", false},
             {"error", "unsupported D3D11 color format " + std::to_string(dxgiFormat) +
-                          " (RGBA8/BGRA8/R16G16B16A16_FLOAT implemented; typeless/packed are a core-required follow-on)"},
+                          " (RGBA8/BGRA8 incl. 8-bit typeless / R16G16B16A16_FLOAT implemented)"},
             {"api", "D3D11"},
             {"eye", eye},
             {"viewIndex", viewIndex}};
@@ -275,9 +288,10 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     // ResolveSubresource has no rect form (whole-subresource only), so resolve the full source
     // subresource into the reusable intermediate, then rect-copy from THAT. Both commands that read
     // the shared texture are issued while the keyed mutex is held; the intermediate is
-    // process-local, so the mutex is released before the rect copy. The resolve format is the
-    // typed OpenXR swapchain format (it already passed the Step 2 format guard, whose accepted
-    // formats are all typed -- legal even if desc.Format were a typeless family).
+    // process-local, so the mutex is released before the rect copy. The resolve format parameter
+    // must be fully typed, so the OpenXR swapchain format goes through ResolveTypedFormat (maps
+    // 8-bit TYPELESS to its family UNORM; already-typed formats pass through -- legal even if
+    // desc.Format were a typeless family).
     if (!EnsureResolveTexture(desc.Width, desc.Height, desc.Format)) {
       if (keyedMutex != nullptr) {
         keyedMutex->ReleaseSync(0);
@@ -291,7 +305,7 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
               {"eye", eye},
               {"viewIndex", viewIndex}};
     }
-    ctx->ResolveSubresource(g_resolve_tex, 0, tex, srcSub, static_cast<DXGI_FORMAT>(dxgiFormat));
+    ctx->ResolveSubresource(g_resolve_tex, 0, tex, srcSub, ResolveTypedFormat(dxgiFormat));
     if (keyedMutex != nullptr) {
       keyedMutex->ReleaseSync(0);
       keyedMutex->Release();

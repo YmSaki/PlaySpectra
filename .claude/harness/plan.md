@@ -1,48 +1,37 @@
-# Plan: R10 d3d-hdr — R16G16B16A16_FLOAT の half→sRGB decode を D3D11/D3D12 に追加
-Updated: 2026-07-16T17:15:00Z
+# Plan: R17 d3d11-typeless — D3D11 で 8bit TYPELESS スワップチェーンを受理
+Updated: 2026-07-16T18:20:00Z
 
 ## Definition of Done
-- [x] `cmake --build layer/build --target vr_agent_layer` がクリーンに通る(manifest 同期確認)
-- [x] HDR E2E: **全4組合せ(metasim/monado × D3D11/D3D12)で 18/18 PASS**(fmt=10、tonemapped:true、colorConversion Vulkan 同文言、非フラット)。16F 非提供 SKIP 分岐は防御として実装(現ランタイムでは踏めない — 全ランタイムが 16F 提供のため。mjs 内にその旨をコメント記載)
-- [x] 回帰: 既定 env D3D11/D3D12 × {metasim, monado} = 17/17 ×4本。MSAA 再確認(metasim D3D11/D3D12) = 18/18 ×2本
-- [x] 差分が capture_common.{h,cpp} / capture_d3d11.cpp / capture_d3d12.cpp / setup_helloxr_msvc.sh / integration_hello_xr.mjs(+ハーネス文書)のみ。**capture_vulkan.cpp 差分ゼロ**(git diff で実測確認)
+- [x] `cmake --build layer/build --target vr_agent_layer` クリーン + `vr_agent_test` **14/14 green**
+- [x] TYPELESS E2E: 両ランタイムとも非列挙(probe 実測) → mjs が明示 SKIP 行出力+rc=0+他 17/17(両ランタイムで実測)。列挙ランタイム向けアサーションは実装済み(防御)
+- [x] 回帰: 既定 env D3D11 17/17 × {metasim, monado} + MSAA(metasim) 18/18 + HDR(metasim) 18/18
+- [x] 差分が capture_d3d11.cpp(+23/-9) / setup_helloxr_msvc.sh(+19) / integration_hello_xr.mjs(+16)のみ(numstat 実測)。D3D12/Vulkan/capture_common 差分なし
 
 ## Approach
-approach gate: skipped (obvious) — Vulkan 実証済み decode(HalfToFloat→QuantizeSrgb/QuantizeLinearUnit)を RowPitch 対応の共有関数 `DecodeHdrRowsToSrgb`(capture_common)にして D3D 2バックエンドから呼ぶ。RepackRows は 4byte/px 前提のため流用不可(inv 記載)。JSON は Vulkan と同形・同文言(tonemapped 常設、hdr 時 sourceHdrFormat/colorConversion)。TYPELESS 16bit 族は明示エラー維持(推測 decode 禁止)。
+approach gate: skipped (obvious) — D3D12 バックエンドの既存規則(8bit TYPELESS 受理+同族 UNORM 写像)を D3D11 に揃えるだけ。R16 未実施のため写像関数(ResolveTypedFormat)は capture_d3d12 の ResolveFootprintFormat と一時重複(数行、R16 で統合予定 — ユーザー承認順を崩してまで R16 を先行させない)。非自明点は1つ: MSAA resolve の format 引数が typed 必須のため、`static_cast<DXGI_FORMAT>(dxgiFormat)` を写像経由に変更(コメントも追従)。
 
 ## Rollback policy
 WIP コミット単位で `git revert`。hello_xr は setup 再実行で再現(パッチ既定=挙動不変)。
 
 ## Steps
-- [x] 1. **hello_xr HDR パッチ + 16F enumerate probe** — target: `scripts/setup_helloxr_msvc.sh` — 内容: d3d11/d3d12 両ブロックへ `HELLO_XR_HDR=1` で選好リスト先頭に `DXGI_FORMAT_R16G16B16A16_FLOAT` を差すサブパッチ(マーカー式冪等、未設定=挙動不変。非提供時は既存リストへ自然フォールバック)。 — done when: 再ビルド+デプロイ後、metasim/monado × D3D11/D3D12 で `HELLO_XR_HDR=1` 実行時のレイヤログ `fmt=` を実測記録(10=16F 選択 / 29等=フォールバック)。
-- [x] 2. **capture_common に DecodeHdrRowsToSrgb 追加 + D3D11/D3D12 へ HDR 経路実装** — target: `layer/src/capture_common.{h,cpp}`, `capture_d3d11.cpp`, `capture_d3d12.cpp` — 内容: 共有 decode(RowPitch 対応、8byte/texel、RGB=QuantizeSrgb/A=QuantizeLinearUnit)。両バックエンドの guard へ FLOAT16(=10) 追加、Map 後の分岐(hdr→共有 decode / それ以外→RepackRows)、成功 JSON へ tonemapped/colorConversion(+sourceHdrFormat)を Vulkan 同文言で追加(非 hdr 時も colorConversion:"direct 8-bit (no tonemap)" — Vulkan 同形)。MSAA+HDR 複合は既存 resolve がそのまま効く(フォーマット汎化の確認のみ)。 — done when: `cmake --build layer/build --target vr_agent_layer` 成功+manifest 同期。
-- [x] 3. **mjs に HDR アサーション+16F 非提供 SKIP** → 4組合せ全てで HDR 行 PASS(SKIP 分岐は防御実装、現ランタイムでは発火せず)。
-- [x] 4. **回帰+複合確認** → 17/17×4本、MSAA 18/18×2本、差分5ファイル+ハーネス文書のみ、capture_vulkan.cpp 差分ゼロ。
+- [x] 1. **hello_xr TYPELESS パッチ + 列挙 probe** — target: `scripts/setup_helloxr_msvc.sh`(D3D11 ブロックのみ) — 内容: (i) `HELLO_XR_TYPELESS=1` で R8G8B8A8_TYPELESS(27) をランタイム列挙から探して早期 return(HDR パッチと同型)、(ii) RenderView の RTV format を「typeless なら同族 UNORM」写像(rtvColorDesc ブロック拡張。swapchainFormat 直渡しの CreateRenderTargetView は typeless で失敗するため)。 — done when: 再ビルド+デプロイ後、metasim/monado × D3D11 で `HELLO_XR_TYPELESS=1` 時のレイヤログ fmt を実測記録(27=列挙あり / 29等=フォールバック=非列挙)。
+- [x] 2. **capture_d3d11.cpp の guard 拡張 + resolve 引数の typed 化** → guard へ TYPELESS 2種、ResolveTypedFormat 新設(R16 統合予定の一時重複と明記)、エラー文言/コメント追従。ビルド+14/14。
+- [x] 3. **mjs に TYPELESS アサーション+非列挙 SKIP** → 両ランタイムで SKIP 行+rc=0+17/17 実測(列挙時アサーションは防御実装)。
+- [x] 4. **回帰確認** → 17/17×2、MSAA 18/18、HDR 18/18、差分3ファイルのみ。
 
-Metacognition self-check: pass — R03 の共有化意図(pixel_convert)の完遂であり、decode 重複を capture_common に一本化(D3D11/12 で同じループを2度書かない)。Vulkan 不変で回帰面を最小化。16F 非提供の可能性は mjs 側 SKIP で正直に落とす(素通しなし)。
+Metacognition self-check: pass — バックエンド間の規則統一(API完全性の最後の欠落解消)で、D3D12 実証済み規則の適用。写像の一時重複は R16 が畳む前提を明記(短期しのぎでなく承認順の尊重)。E2E 不能条件は防御 SKIP で正直に落とす。
 
 ## Resume pack
-- **全 Step(1-4)+修正 F1-F3+全 DoD 完了** → 再レビューへ(判定対象は vr_agent_test の green のみ、とレビュアー指定済み)。単体テスト 14/14 PASS。
-- **全 Step(1-4)+全 DoD 完了**(初回レビュー時点)。
-- 実測サマリ(再導出禁止): HDR E2E 18/18 × 全4組合せ(monado も HDR は受理 — MSAA と対照的)。回帰 17/17×4 + MSAA 18/18×2。capture_vulkan.cpp 差分ゼロ。R10 差分= capture_common.{h,cpp} / capture_d3d11.cpp / capture_d3d12.cpp / setup_helloxr_msvc.sh(+27) / integration_hello_xr.mjs(+20)。
-- レビュー対象: R10 の wip 3件(step 1, 2, 3-4)。contract=r10-d3d-hdr(profile=runtime)。
-- Metacognition self-check: pass — decode は capture_common に一本化(D3D 2箇所で重複させない=R03 共有意図の完遂)。JSON 文言は Vulkan と一字一句同一(将来の R15 統一を阻害しない)。16F 非提供 SKIP は防御実装でその旨コメント明記(無言素通しなし)。
+- **全 Step(1-4)+全 DoD 完了** → h-review へ。
+- 実測サマリ(再導出禁止): probe=両ランタイム非列挙(fmt=29 フォールバック) → SKIP 経路で出荷。SKIP 行+rc=0+17/17 を両ランタイムで実測。回帰 17/17×2+MSAA 18/18+HDR 18/18+単体 14/14。R17 差分= capture_d3d11.cpp(+23/-9) / setup_helloxr_msvc.sh(+19) / integration_hello_xr.mjs(+16)。
+- レビュー対象: R17 の wip 2件。contract=r17-d3d11-typeless(profile=runtime)。
+- Metacognition self-check: pass — D3D12 実証済み規則の同型適用でバックエンド規則を統一。ResolveTypedFormat の一時重複は R16 統合前提をコード内コメントに明記(短期しのぎでなく承認順尊重)。非列挙は防御 SKIP で正直。
 
 ## Review result (iteration 3)
-**Verdict: needs-fix**(h-reviewer 委譲、runtime profile)
-- 検証は全て green(ビルド/HDR 18/18/回帰 17/17/PNG 目視/数値等価性/JSON 文言一致/Vulkan 差分ゼロ/numstat 一致)だが、**vr_agent_test がリンク不能**: capture_common.cpp が pixel_convert に依存するようになったのにテストターゲットのソース列に pixel_convert.cpp 未追加(undefined reference)。lens 1(依存宣言の追従)の実例。
-- minor: DecodeHdrRowsToSrgb の単体テスト不在(RowPitch パディング1ケース推奨)。nit: capture_d3d11.cpp:279 の「RGBA8/BGRA8 guard」コメントが stale。
-- 16F TYPELESS 非受理・setup パッチ・mjs SKIP は問題なしと判定(needs-human 不要)。
-
-## 修正 Steps (review iteration 3)
-- [x] F1. layer/CMakeLists.txt の vr_agent_test ソース列へ `src/pixel_convert.cpp` を追加 → ビルド成功。
-- [x] F2. test_capture_common.cpp へ DecodeHdrRowsToSrgb の単体テスト追加(sRGB 丸め非依存の端点値 0/1 + RowPitch パディング+sentinel) → **14/14 PASS**(新テスト含む)。
-- [x] F3. capture_d3d11.cpp:279 の stale コメント修正 → 「Step 2 format guard(受理フォーマットは全て typed)」表現に更新、レイヤービルド成功。
-
-## Review result (iteration 5 — 再レビュー)
-**Verdict: pass**
-- 初回レビュアーが「再レビューは vr_agent_test のビルド/実行結果のみで判定可能」と受入基準を事前指定していたため、その基準を main loop が直接検証: `cmake --build layer/build --target vr_agent_test` 成功(pixel_convert.cpp のコンパイルをビルドログで確認) → `vr_agent_test.exe` **14/14 PASS**(新設 DecodeHdrRowsToSrgb_HonorsRowPitchAndEndpoints 含む)。レイヤー本体も再ビルド green。F2/F3 は指摘どおりの追加/修正で新規リスクなし(テスト追加+コメント1行)。
+**Verdict: needs-fix → 修正 → pass**
+- レビュアー実測(全 green): numstat 一致 / ビルド+14/14 / TYPELESS SKIP 両ランタイム再現(17/17+rc=0) / 回帰 17/17×2 / MSAA 18/18 / HDR 18/18 / D3D12 規則突き合わせ一致 / MSAA×TYPELESS 静的解析 OK / lens 3 grep 残存なし。
+- **Finding(修正済み)**: setup パッチ(f)の冪等マーカー(スペース1個)が挿入テキスト(整列でスペース3個)に実在せず、setup 再実行が assert で死ぬ(レビュアーが read-only probe で実証)。→ マーカーを実在文字列(3スペース)へ修正し、受入基準どおり **2連続実行で rc=0+patched 0行** を実測確認(初回 rc=1 はゾンビ exe ロック由来で無関係、mv 退避後 rc=0)。
+- nit(スコープ外の既存 doc-rot): capture.cpp:6-8 の「D3D11/D3D12 は not implemented エラーを返す」記述が現状と乖離 → 次の docs タスクで拭き取り(backlog R21 に既存の同種項目あり、そこへ追記)。
 
 ## Findings (h-work appends unplanned discoveries here)
-- hello_xr の SelectColorSwapchainFormat は find_first_of(runtimeFormats 順)のため「選好リストへの追加」では16Fを強制できない — env 時の早期 return 方式に変更(plan の「リスト先頭へ差す」から実装方式を修正、意図は同一)。
-- metasim は稀に起動直後 xrEnumerateEnvironmentBlendModes が SIZE_INSUFFICIENT で落ちるフレークあり(連続 probe 中に1回観測、再試行で解消)。統合テストは1回実行のためフレーク時は再実行で判断する。
+- metasim/monado とも D3D11 では TYPELESS スワップチェーンフォーマットを列挙しない(実測)。D3D12 バックエンドの TYPELESS 受理も同様に E2E 未踏の防御コードである可能性が高い(バックエンド間一貫性が受理の根拠であり、実アプリ+他ランタイムへの備え)。

@@ -92,6 +92,25 @@ sub('HELLO_XR_HDR',
     '            }\n'
     '        }\n'
     '        // List of supported color swapchain formats.')
+# (e) HELLO_XR_TYPELESS=1: prefer R8G8B8A8_TYPELESS when the runtime enumerates it (R17 E2E).
+sub('HELLO_XR_TYPELESS',
+    '        }\n'
+    '        // List of supported color swapchain formats.',
+    '        }\n'
+    '        const char* typelessEnv = std::getenv("HELLO_XR_TYPELESS");\n'
+    '        if (typelessEnv && *typelessEnv && *typelessEnv != \'0\') {\n'
+    '            for (int64_t f : runtimeFormats) {\n'
+    '                if (f == DXGI_FORMAT_R8G8B8A8_TYPELESS) return f;\n'
+    '            }\n'
+    '        }\n'
+    '        // List of supported color swapchain formats.')
+# (f) a typeless swapchain format cannot be fed to CreateRenderTargetView directly -- map it to the
+# family UNORM member for the RTV (the resource itself may stay typeless).
+sub('R8G8B8A8_TYPELESS   ? DXGI_FORMAT',
+    '            (DXGI_FORMAT)swapchainFormat);',
+    '            swapchainFormat == DXGI_FORMAT_R8G8B8A8_TYPELESS   ? DXGI_FORMAT_R8G8B8A8_UNORM\n'
+    '            : swapchainFormat == DXGI_FORMAT_B8G8R8A8_TYPELESS ? DXGI_FORMAT_B8G8R8A8_UNORM\n'
+    '            : (DXGI_FORMAT)swapchainFormat);')
 
 open(p, 'w', encoding='utf-8', newline='\n').write(s)
 EOF

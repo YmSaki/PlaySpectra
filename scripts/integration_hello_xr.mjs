@@ -80,7 +80,9 @@ function decodePng(buf) {
     else if (type === "IEND") break;
     off += 12 + len;
   }
-  const isPalette = colorType === 3;
+  // colorType 0 (greyscale) unpacks identically to palette: 1 channel, possibly sub-byte bit depth;
+  // "distinct colours" = distinct grey levels, which still serves the flat-fill check.
+  const isPalette = colorType === 3 || colorType === 0;
   const isTrue = colorType === 2 || colorType === 6;
   if (!isPalette && !isTrue) throw new Error(`unsupported colorType ${colorType}`);
   if (isTrue && bitDepth !== 8) throw new Error(`unsupported truecolor bitDepth ${bitDepth}`);
@@ -148,7 +150,8 @@ async function main() {
   const st = await rpc({ cmd: "status" });
   const cap = st.capture || {};
   check("status.instance", st.instance === true, JSON.stringify({ instance: st.instance, ca: st.conformanceAutomation }));
-  check("capture.api == Vulkan", cap.api === "Vulkan", cap.api);
+  const expectedApi = process.env.VR_GFX_API || "Vulkan";
+  check(`capture.api == ${expectedApi}`, cap.api === expectedApi, cap.api);
   check("projection frames flowing", (cap.framesObserved || 0) > 0 && cap.lastFrameHadProjection === true,
         `frames=${cap.framesObserved} proj=${cap.lastFrameHadProjection} views=${cap.lastFrameViewCount}`);
   const sc = (cap.swapchains && cap.swapchains[0]) || {};

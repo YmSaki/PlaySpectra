@@ -88,6 +88,9 @@ cd mcp && npm start
 | `XR_ENABLE_API_LAYERS` | — | `XR_APILAYER_vr_agent` |
 | `VR_AGENT_PORT` | `52700` | 制御チャネルの TCP ポート（レイヤー ↔ MCP で一致させる） |
 | `VR_AGENT_CAPTURE_DIR` | `%TEMP%` | スクリーンショット / 深度 PNG の出力先 |
+| `VR_AGENT_LOG` | — | 指定するとレイヤーのデバッグログをこのファイルへ出力（各行に壁時計タイムスタンプ付き） |
+| `VR_AGENT_DOMINANT_EYE` | `right` | `eye=dominant` 時に使う利き目（`left` / `right`） |
+| `VR_AGENT_NO_CA` | — | `1` で XR_EXT_conformance_automation（CA）の自動有効化を無効化し、非 CA フォールバック経路で動作（診断用） |
 
 ## 使い方
 
@@ -109,7 +112,7 @@ cd mcp && npm start
 | --- | --- |
 | 入力注入 | ✅ 全経路（全アクション種別・両手・頭部/コントローラー姿勢、`durationMs` 補間移動） |
 | キャプチャ: Vulkan | ✅ RGBA8/BGRA8/HDR、MSAA resolve、深度 |
-| キャプチャ: D3D11 / D3D12 | 🟡 8bit RGBA/BGRA 実装済み。MSAA / HDR / TYPELESS は明示エラー（コア必須の対応を進行中） |
+| キャプチャ: D3D11 / D3D12 | 🟡 8bit RGBA/BGRA（sRGB 含む。D3D12 は TYPELESS も可）実装済み。MSAA / HDR（と D3D11 の TYPELESS）は明示エラー（コア必須の残対応） |
 | 深度マップ | ➖ nice-to-have・Vulkan 専用（`XrCompositionLayerDepthInfoKHR` 提出フレームのみ） |
 
 > グラフィックスAPIの完全性（D3D11 / D3D12 / Vulkan）は「VR版Playwrightが全キーを打てる」ためのコア必須要件。いずれのバックエンドも未対応フォーマットでは「無言で壊れた画像」を返さず、必ず明示的にエラーを返す。
@@ -117,5 +120,15 @@ cd mcp && npm start
 ## テスト
 
 ```bash
-scripts/integration_test.sh Vulkan   # hello_xr 実アプリ + Meta XR Sim でエンジン非依存面を検証
+# hello_xr 実アプリ + Meta XR Sim でエンジン非依存面を検証（引数省略時は Vulkan）
+scripts/integration_test.sh [Vulkan|D3D11|D3D12]
+
+# 非 CA フォールバック経路（GAP-08）で同じ統合テストを通す
+VR_AGENT_NO_CA=1 scripts/integration_test.sh Vulkan
+
+# ランタイムを Monado に切替（xcopy 配備、scripts/setup_monado.sh で取得。CA なし＝フォールバック経路）
+VR_RUNTIME=monado scripts/integration_test.sh Vulkan
+
+# D3D11/D3D12 の実行検証は MSVC 版 hello_xr を使う（scripts/setup_helloxr_msvc.sh でビルド・配備）
+HELLO_XR_EXE=third_party/hello_xr_msvc/hello_xr.exe scripts/integration_test.sh D3D11
 ```

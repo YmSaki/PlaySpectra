@@ -10,7 +10,9 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GFX="${1:-Vulkan}"
-HELLO="${ROOT}/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe"
+# Default hello_xr is the MinGW build (Vulkan/GL only). For D3D11/D3D12 point HELLO_XR_EXE at the
+# MSVC build (third_party/hello_xr_msvc/hello_xr.exe), which has all graphics plugins compiled in.
+HELLO="${HELLO_XR_EXE:-${ROOT}/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe}"
 CLIENT="${ROOT}/scripts/integration_hello_xr.mjs"
 CAP_DIR="${TEMP:-/tmp}/vr_agent_integration"
 LOG="${CAP_DIR}/hello_xr.log"
@@ -18,18 +20,34 @@ mkdir -p "$CAP_DIR"
 
 # Windows-style paths: the native hello_xr.exe can't parse MSYS /c/... and would fall back to SteamVR.
 winpath() { command -v cygpath >/dev/null 2>&1 && cygpath -m "$1" || echo "$1"; }
-export XR_RUNTIME_JSON="$(winpath "${ROOT}/third_party/meta_xr_sim/PFiles/MetaXRSimulator/v201.0/meta_openxr_simulator.json")"
+# Runtime selection: VR_RUNTIME=metasim (default) | monado (Monado CI build, out-of-process service).
+RUNTIME="${VR_RUNTIME:-metasim}"
+if [ "$RUNTIME" = "monado" ]; then
+  export XR_RUNTIME_JSON="$(winpath "${ROOT}/third_party/monado/openxr_monado.json")"
+else
+  export XR_RUNTIME_JSON="$(winpath "${ROOT}/third_party/meta_xr_sim/PFiles/MetaXRSimulator/v201.0/meta_openxr_simulator.json")"
+fi
 export XR_API_LAYER_PATH="$(winpath "${ROOT}/layer/manifest")"
 export XR_ENABLE_API_LAYERS="XR_APILAYER_vr_agent"
+export VR_GFX_API="$GFX"    # tells the client which capture.api to expect
 export VR_AGENT_LOG="$(winpath "${CAP_DIR}/vr_agent_layer.log")"
 export VR_AGENT_CAPTURE_DIR="$(winpath "${CAP_DIR}")"
 : > "$VR_AGENT_LOG" 2>/dev/null || true
 
 echo "[integration] runtime=$XR_RUNTIME_JSON"
-echo "[integration] layer=$XR_API_LAYER_PATH  gfx=$GFX"
+echo "[integration] layer=$XR_API_LAYER_PATH  gfx=$GFX  vr_runtime=$RUNTIME"
 
 # Process hygiene: a live sibling hello_xr contending on the single SES makes runs flaky (see memory).
 taskkill //F //IM hello_xr.exe //IM MetaXRSimulator.exe //IM synth_env_server.exe >/dev/null 2>&1
+if [ "$RUNTIME" = "monado" ]; then
+  # Monado's Windows build is service-mode: openxr_monado.dll connects to monado-service over a
+  # named pipe derived from %TEMP%. Start a fresh service for this run (plain user process, no install).
+  taskkill //F //IM monado-service.exe >/dev/null 2>&1
+  sleep 1
+  "${ROOT}/third_party/monado/bin/monado-service.exe" > "${CAP_DIR}/monado_service.log" 2>&1 &
+  MONADO_SVC_PID=$!
+  sleep 3
+fi
 sleep 1
 
 # hello_xr quits when getchar() on stdin returns EOF; hold stdin open with a sleep so the session
@@ -83,5 +101,6 @@ fi
 echo "[integration] graceful teardown (xrDestroy* -> layer cleanup ran clean): $graceful"
 
 taskkill //F //IM hello_xr.exe //IM MetaXRSimulator.exe //IM synth_env_server.exe >/dev/null 2>&1
+[ "$RUNTIME" = "monado" ] && taskkill //F //IM monado-service.exe >/dev/null 2>&1
 echo "[integration] exit rc=$rc (captures + logs in ${CAP_DIR})"
 exit $rc

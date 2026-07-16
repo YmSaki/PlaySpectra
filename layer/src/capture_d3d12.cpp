@@ -7,6 +7,10 @@
 // aligned row pitch (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT), the queue is fence-waited, and the mapped
 // bytes are de-padded (RowPitch -> w*4), BGRA-swizzled if needed, and lodepng-encoded. It is one
 // backend behind capture.cpp's single dispatch, not a parallel capture system.
+// Multisampled sources take a ResolveSubresource into a reusable single-sample intermediate first
+// (RENDER_TARGET -> RESOLVE_SOURCE on the source, intermediate kept in RESOLVE_DEST between
+// captures), then the rect copy reads from that intermediate -- the D3D12 sibling of the Vulkan
+// GAP-03 / D3D11 R08 resolve.
 //
 // Recording MUST happen on a DIRECT command allocator/list: a COPY-type list cannot execute the
 // RENDER_TARGET->COPY_SOURCE resource-state transition, and the app queue we submit on is DIRECT
@@ -56,6 +60,63 @@ DXGI_FORMAT ResolveFootprintFormat(int64_t f) {
   return static_cast<DXGI_FORMAT>(f);
 }
 
+// Reusable single-sample intermediate for the MSAA resolve (sibling of capture_d3d11's
+// EnsureResolveTexture / capture_vulkan's EnsureResolveImage). ResolveSubresource resolves a WHOLE
+// subresource (no rect form), so this is sized to the full source texture and the requested rect is
+// copied out of it afterwards. Kept in RESOLVE_DEST between captures (each capture's command list
+// transitions it to COPY_SOURCE and back). Recreated on width/height/format change, released in
+// D3D12Free.
+ComPtr<ID3D12Resource> g_resolve_res;
+UINT64 g_resolve_w = 0;
+UINT g_resolve_h = 0;
+DXGI_FORMAT g_resolve_format = DXGI_FORMAT_UNKNOWN;
+
+// Ensure the resolve intermediate matches w x h x fmt (a fully-typed format -- resolve destinations
+// cannot be typeless), (re)creating it on change. Returns false on failure (hr for the error json).
+bool EnsureResolveResource(UINT64 w, UINT h, DXGI_FORMAT fmt, HRESULT* hrOut) {
+  *hrOut = S_OK;
+  if (g_resolve_res && g_resolve_w == w && g_resolve_h == h && g_resolve_format == fmt) {
+    return true;
+  }
+  g_resolve_res.Reset();
+  g_resolve_w = 0;
+  g_resolve_h = 0;
+  g_resolve_format = DXGI_FORMAT_UNKNOWN;
+
+  D3D12_HEAP_PROPERTIES heapProps = {};
+  heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+  heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+  heapProps.CreationNodeMask = 1;
+  heapProps.VisibleNodeMask = 1;
+
+  D3D12_RESOURCE_DESC rdesc = {};
+  rdesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  rdesc.Alignment = 0;
+  rdesc.Width = w;
+  rdesc.Height = h;
+  rdesc.DepthOrArraySize = 1;
+  rdesc.MipLevels = 1;
+  rdesc.Format = fmt;
+  rdesc.SampleDesc.Count = 1;  // resolve target is single-sample by definition
+  rdesc.SampleDesc.Quality = 0;
+  rdesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  rdesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+  HRESULT hr = g_d3d12_device->CreateCommittedResource(
+      &heapProps, D3D12_HEAP_FLAG_NONE, &rdesc, D3D12_RESOURCE_STATE_RESOLVE_DEST, nullptr,
+      IID_ID3D12Resource, reinterpret_cast<void**>(g_resolve_res.GetAddressOf()));
+  if (FAILED(hr)) {
+    *hrOut = hr;
+    g_resolve_res.Reset();
+    return false;
+  }
+  g_resolve_w = w;
+  g_resolve_h = h;
+  g_resolve_format = fmt;
+  return true;
+}
+
 }  // namespace
 
 void D3D12SetDevice(void* id3d12Device, void* id3d12Queue) {
@@ -64,6 +125,10 @@ void D3D12SetDevice(void* id3d12Device, void* id3d12Queue) {
 }
 
 void D3D12Free() {
+  g_resolve_res.Reset();
+  g_resolve_w = 0;
+  g_resolve_h = 0;
+  g_resolve_format = DXGI_FORMAT_UNKNOWN;
   g_d3d12_device = nullptr;
   g_d3d12_queue = nullptr;
 }
@@ -82,9 +147,9 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     return r;
   };
 
-  if (sampleCount > 1) {
-    return fail("D3D12 MSAA (sampleCount>1) resolve not implemented yet; core-required follow-on");
-  }
+  // MSAA sources are resolved into a single-sample intermediate before the rect copy (see the
+  // barrier/copy section below).
+  const bool msaa = sampleCount > 1;
   const bool rgba = DxgiIsRGBA8(dxgiFormat);
   const bool bgra = DxgiIsBGRA8(dxgiFormat);
   if (!rgba && !bgra) {
@@ -189,27 +254,11 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     return fail("CreateCommandList(DIRECT) failed hr=0x" + std::to_string(hr));
   }
 
-  // Barrier: RENDER_TARGET -> COPY_SOURCE (OpenXR color swapchain images are handed to the app in
-  // RENDER_TARGET state under XR_KHR_D3D12_enable). Transition only the subresource we copy.
-  D3D12_RESOURCE_BARRIER toCopy = {};
-  toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-  toCopy.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-  toCopy.Transition.pResource = tex;
-  toCopy.Transition.Subresource = subresource;
-  toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-  toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-  cmdList->ResourceBarrier(1, &toCopy);
-
-  // Copy the subrect into the readback buffer's placed footprint.
+  // Copy destination: the readback buffer's placed footprint. Source box is the requested rect.
   D3D12_TEXTURE_COPY_LOCATION dst = {};
   dst.pResource = readback.Get();
   dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
   dst.PlacedFootprint = footprint;
-
-  D3D12_TEXTURE_COPY_LOCATION src = {};
-  src.pResource = tex;
-  src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  src.SubresourceIndex = subresource;
 
   D3D12_BOX srcBox = {};
   srcBox.left = static_cast<UINT>(x);
@@ -218,13 +267,76 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   srcBox.right = static_cast<UINT>(x) + uw;
   srcBox.bottom = static_cast<UINT>(y) + uh;
   srcBox.back = 1;
-  cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, &srcBox);
 
-  // Barrier back: COPY_SOURCE -> RENDER_TARGET so we leave the image as the runtime expects.
-  D3D12_RESOURCE_BARRIER toRt = toCopy;
-  toRt.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-  toRt.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-  cmdList->ResourceBarrier(1, &toRt);
+  // Transition helper shapes: swapchain images are handed to the app in RENDER_TARGET state under
+  // XR_KHR_D3D12_enable, and we always leave them back in that state. Transition only the
+  // subresource we read.
+  D3D12_RESOURCE_BARRIER barrier = {};
+  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+  barrier.Transition.pResource = tex;
+  barrier.Transition.Subresource = subresource;
+
+  if (msaa) {
+    // ResolveSubresource has no rect form (whole-subresource only): resolve the full source
+    // subresource into the reusable single-sample intermediate, then rect-copy from THAT. The
+    // resolve format must be fully typed (ResolveFootprintFormat maps TYPELESS to its UNORM
+    // member). The intermediate lives in RESOLVE_DEST between captures; this list moves it to
+    // COPY_SOURCE for the copy and back at the end.
+    HRESULT rhr = S_OK;
+    if (!EnsureResolveResource(srcDesc.Width, srcDesc.Height, ResolveFootprintFormat(dxgiFormat),
+                               &rhr)) {
+      return fail("CreateCommittedResource(MSAA resolve intermediate) failed hr=0x" +
+                  std::to_string(rhr));
+    }
+
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    cmdList->ResourceBarrier(1, &barrier);
+
+    cmdList->ResolveSubresource(g_resolve_res.Get(), 0, tex, subresource,
+                                ResolveFootprintFormat(dxgiFormat));
+
+    D3D12_RESOURCE_BARRIER interToCopy = {};
+    interToCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    interToCopy.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    interToCopy.Transition.pResource = g_resolve_res.Get();
+    interToCopy.Transition.Subresource = 0;
+    interToCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    interToCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    cmdList->ResourceBarrier(1, &interToCopy);
+
+    D3D12_TEXTURE_COPY_LOCATION src = {};
+    src.pResource = g_resolve_res.Get();
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src.SubresourceIndex = 0;
+    cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, &srcBox);
+
+    // Leave both resources as their owners expect: source back to RENDER_TARGET, intermediate back
+    // to its RESOLVE_DEST resting state (so the cache reuse assumption holds next capture).
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    cmdList->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER interBack = interToCopy;
+    interBack.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    interBack.Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    cmdList->ResourceBarrier(1, &interBack);
+  } else {
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    cmdList->ResourceBarrier(1, &barrier);
+
+    D3D12_TEXTURE_COPY_LOCATION src = {};
+    src.pResource = tex;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src.SubresourceIndex = subresource;
+    cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, &srcBox);
+
+    // Barrier back: COPY_SOURCE -> RENDER_TARGET so we leave the image as the runtime expects.
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    cmdList->ResourceBarrier(1, &barrier);
+  }
 
   hr = cmdList->Close();
   if (FAILED(hr)) {
@@ -283,7 +395,12 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     return fail(std::string("lodepng encode failed: ") + lodepng_error_text(err));
   }
 
-  return BuildCaptureSuccessJson(path, eye, viewIndex, "D3D12", uw, uh, arrayIndex, dxgiFormat);
+  // sampleCount/msaaResolved mirror the Vulkan/D3D11 result shape.
+  nlohmann::json result =
+      BuildCaptureSuccessJson(path, eye, viewIndex, "D3D12", uw, uh, arrayIndex, dxgiFormat);
+  result["sampleCount"] = sampleCount;
+  result["msaaResolved"] = msaa;
+  return result;
 }
 
 }  // namespace vr_agent

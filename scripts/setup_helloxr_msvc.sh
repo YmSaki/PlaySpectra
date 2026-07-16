@@ -82,6 +82,52 @@ sub('D3D11_DSV_DIMENSION_TEXTURE2DMS',
 open(p, 'w', encoding='utf-8', newline='\n').write(s)
 EOF
 
+# Same treatment for the D3D12 plugin (R09). Its RTV/DSV creation is already MSAA-aware in stock
+# hello_xr; the remaining single-sample hardcodes are (a) no GetSupportedSwapchainSampleCount
+# override (base class returns recommended=1), (b) the depth buffer's SampleDesc, and (c) the PSO's
+# SampleDesc, which D3D12 requires to match the render target's sample count.
+GFX12="$SRC/src/tests/hello_xr/graphicsplugin_d3d12.cpp"
+python - "$GFX12" <<'EOF'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+
+def sub(marker, old, new):
+    global s
+    if marker in s:
+        return
+    assert s.count(old) == 1, 'anchor not found exactly once: ' + old[:60]
+    s = s.replace(old, new, 1)
+    print('patched:', marker)
+
+# (a) env-driven swapchain sample count override (base default returns recommended = 1).
+sub('HELLO_XR_SAMPLE_COUNT',
+    '    void UpdateOptions(const std::shared_ptr<Options>& options) override { m_clearColor = options->GetBackgroundClearColor(); }',
+    '    uint32_t GetSupportedSwapchainSampleCount(const XrViewConfigurationView&) override {\n'
+    '        const char* e = std::getenv("HELLO_XR_SAMPLE_COUNT");\n'
+    '        const int n = e ? std::atoi(e) : 1;\n'
+    '        return n > 1 ? static_cast<uint32_t>(n) : 1u;\n'
+    '    }\n\n'
+    '    void UpdateOptions(const std::shared_ptr<Options>& options) override { m_clearColor = options->GetBackgroundClearColor(); }')
+sub('#include <cstdlib>',
+    '#include "pch.h"',
+    '#include "pch.h"\n\n#include <cstdlib>')
+# (b) depth buffer sample count must match the color target's.
+sub('colorDesc.SampleDesc.Count;',
+    'depthDesc.SampleDesc.Count = 1;',
+    'depthDesc.SampleDesc.Count = colorDesc.SampleDesc.Count;')
+# (c) PSO SampleDesc must match the render target sample count (D3D12 validation requirement).
+sub('psoSampleCountEnv',
+    'pipelineStateDesc.SampleDesc = {1, 0};',
+    '{\n'
+    '            const char* psoSampleCountEnv = std::getenv("HELLO_XR_SAMPLE_COUNT");\n'
+    '            const int n = psoSampleCountEnv ? std::atoi(psoSampleCountEnv) : 1;\n'
+    '            pipelineStateDesc.SampleDesc = {n > 1 ? static_cast<UINT>(n) : 1u, 0};\n'
+    '        }')
+
+open(p, 'w', encoding='utf-8', newline='\n').write(s)
+EOF
+
 cmake -S "$SRC" -B "$BUILD" -G "Visual Studio 17 2022" -A x64 \
   -DBUILD_TESTS=ON -DBUILD_API_LAYERS=OFF -DBUILD_CONFORMANCE_TESTS=OFF
 cmake --build "$BUILD" --config Release --target hello_xr

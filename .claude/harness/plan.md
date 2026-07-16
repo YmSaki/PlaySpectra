@@ -1,42 +1,37 @@
-# Plan: R08 d3d11-msaa — sampleCount>1 を ResolveSubresource(解決→矩形コピー2段)で対応
-Updated: 2026-07-16T15:30:00Z
+# Plan: R09 d3d12-msaa — sampleCount>1 を RESOLVE 遷移+ResolveSubresource+中間キャッシュで対応
+Updated: 2026-07-16T16:40:00Z
 
 ## Definition of Done
 - [x] `cmake --build layer/build --target vr_agent_layer` がクリーンに通る(manifest 同期ログ確認)
-- [x] MSAA E2E: metasim=18/18 PASS(`sampleCount:4, msaaResolved:true`、distinctColors=6 非フラット)。monado=明示 SKIP(xrCreateSwapchain→XR_ERROR_VALIDATION_FAILURE 実測、rc=0、理由出力)
-- [x] 回帰: 既定(sampleCount=1)の D3D11 統合テスト 17/17 × {metasim, monado}
-- [x] 差分が capture_d3d11.cpp / setup_helloxr_msvc.sh / integration_hello_xr.mjs / integration_test.sh(+ハーネス文書)のみ(git diff --stat 実測4ファイル)。D3D12/Vulkan へ予防的同期なし。※integration_test.sh は Step 3 の SKIP 実装で追加(Findings 参照)
+- [x] MSAA E2E: metasim=18/18 PASS(`sampleCount:4, msaaResolved:true`、distinctColors=6 非フラット、graceful PASS)。monado=SKIP 行出力+rc=0 を実測(R08 機構が D3D12 で発火確認)
+- [x] 回帰: 既定(sampleCount=1)の D3D12 統合テスト 17/17 × {metasim, monado}
+- [x] 差分が capture_d3d12.cpp(+144/-27) / setup_helloxr_msvc.sh(+46)のみ(numstat 実測)。D3D11/Vulkan・テスト2ファイルに変更なし、keyed mutex 追加なし
 
 ## Approach
-approach gate: skipped (obvious) — backlog 記載の設計(Vulkan GAP-03 同型の再利用キャッシュ + 「全体解決→矩形コピー」2段)が唯一の妥当解。
-1行決定: (1) E2E は hello_xr への env 可変パッチ(`HELLO_XR_SAMPLE_COUNT`、既定1=挙動不変)で実現し、ランタイム拒否時は明示 SKIP。(2) 成功 JSON に `sampleCount`/`msaaResolved` を Vulkan 同形で付加する(既存フィールド不変・R15 の先行断片)。
+approach gate: skipped (obvious) — backlog 記載設計(RENDER_TARGET→RESOLVE_SOURCE 遷移+ResolveSubresource→単一サンプル中間(RESOLVE_DEST 常在、使用後に戻す)→COPY_SOURCE→既存 readback)が唯一の妥当解。R08 と同じく成功 JSON へ sampleCount/msaaResolved 付加。resolve の typed format は既存 ResolveFootprintFormat を流用(D3D12 は dxgiFormat 自体が TYPELESS の場合がある)。
 
 ## Rollback policy
-コード変更は WIP コミット単位で `git revert`。third_party/hello_xr_msvc は setup スクリプト再実行で再現(パッチは既定値1で現行挙動不変)。
+コード変更は WIP コミット単位で `git revert`。hello_xr は setup スクリプト再実行で再現(パッチ既定値=挙動不変)。
 
 ## Steps
-- [x] 1. **hello_xr sampleCount 可変化 + 受理 probe** — target: `scripts/setup_helloxr_msvc.sh`(graphicsplugin_d3d11.cpp への冪等パッチ: `GetSupportedSwapchainSampleCount` を env `HELLO_XR_SAMPLE_COUNT`(既定1)読みに) — done when: 再ビルド後、(a) env 未設定で従来どおり起動(samples=1 のスワップチェーンログ)、(b) `HELLO_XR_SAMPLE_COUNT=4` で layer ログの swapchain 作成行が `samples=4` を示す(受理) or xrCreateSwapchain 失敗が記録される(拒否→SKIP 方針確定)。両ランタイムで probe。
-- [x] 2. **capture_d3d11.cpp に MSAA resolve 実装** — target: `layer/src/capture_d3d11.cpp` — 内容: 拒否ガード撤去、`EnsureResolveTexture`(グローバル1枚キャッシュ: desc.Width×Height×Format 一致で再利用、不一致で作り直し、`D3D11Free()` で解放)、MSAA 時は keyed mutex 保持中に `ResolveSubresource(resolveTex, 0, tex, srcSub, desc.Format)` 発行→mutex 解放→resolveTex から矩形 `CopySubresourceRegion`、非 MSAA 経路は不変。成功 JSON に `sampleCount`/`msaaResolved` 付加。失敗経路は明示エラー JSON。 — done when: `cmake --build layer/build --target vr_agent_layer` 成功 + manifest 同期ログ確認。
-- [x] 3. **MSAA アサーションをテストへ追加** — target: `scripts/integration_hello_xr.mjs` — 内容: env `HELLO_XR_SAMPLE_COUNT`>1 のとき capture 結果 JSON の `sampleCount`(=env値)/`msaaResolved:true` を PASS 項目に追加(未設定時は従来どおり=項目自体出さない)。 — done when: `HELLO_XR_SAMPLE_COUNT=4 VR_GFX_API=d3d11 HELLO_XR_EXE=third_party/hello_xr_msvc/hello_xr.exe bash scripts/integration_test.sh` が両ランタイムで全 PASS(非フラット判定含む)。Step 1 で拒否だったランタイムは明示 SKIP 実装+理由出力。
-- [x] 4. **回帰確認** — done when: 既定 env(サンプル数指定なし)で D3D11 統合テスト 17/17 × {metasim, monado}、`git diff --stat` が対象3ファイル+ハーネス文書のみ。→ 実測: 17/17×2、差分4ファイル(SKIP実装分含む)。
+- [x] 1. **hello_xr D3D12 パッチ + 受理 probe** — target: `scripts/setup_helloxr_msvc.sh` — 内容: 既存 python ブロックへ D3D12 の3サブパッチ追記((1) GetSupportedSwapchainSampleCount env override 追加(クラス内、d3d11 と同式)、(2) depthDesc.SampleDesc.Count=1 → colorDesc 追従、(3) PSO SampleDesc={1,0} → env N。RTV/DSV 次元は stock 対応済みで触らない)。 — done when: 再ビルド+デプロイ後、`HELLO_XR_SAMPLE_COUNT=4` で metasim/monado の受理/拒否をレイヤログ(samples=4)+hello_xr ログで実測記録。**両方拒否なら plan へ戻る**(検証戦略再検討)。
+- [x] 2. **capture_d3d12.cpp に MSAA resolve 実装** — target: `layer/src/capture_d3d12.cpp` — 内容: 拒否ガード撤去、中間リソースキャッシュ(ComPtr グローバル+w/h/fmt キー、RESOLVE_DEST 常在、D3D12Free で解放)、MSAA 時のリスト記録を「src→RESOLVE_SOURCE / Resolve / 中間→COPY_SOURCE / 中間から CopyTextureRegion / src→RENDER_TARGET / 中間→RESOLVE_DEST」へ分岐(非 MSAA 経路・fence 構造は不変)、成功 JSON へ sampleCount/msaaResolved。失敗経路は既存 fail ヘルパー(hr 併記)。 — done when: `cmake --build layer/build --target vr_agent_layer` 成功+manifest 同期ログ。
+- [x] 3. **MSAA E2E + SKIP 動作確認** → metasim 18/18 PASS、monado SKIP 行+rc=0 実測。
+- [x] 4. **回帰確認** → 17/17 × {metasim, monado}、numstat=対象2ファイルのみ。
 
-Metacognition self-check: pass — コア必須(API完全性)の欠落解消であり CLAUDE.md の north star に直結。設計は実証済みパターン(GAP-03/M0)の移植で、短期ハックなし。E2E 不能時も「無言の素通し」でなく明示 SKIP に落とす設計。
+Metacognition self-check: pass — R08 で実証した設計・検証枠組みの D3D12 移植で、確立パターンの適用。probe 先行で「両ランタイム拒否」の場合に plan へ戻る脱出条件を明示(検証不能のまま出荷しない)。
 
 ## Resume pack
 - **全 Step(1-4)+全 DoD 完了** → h-review へ。
-- 実測サマリ(再導出禁止): metasim MSAA=18/18 PASS(sampleCount:4/msaaResolved:true/distinctColors=6)。monado MSAA=明示 SKIP(VALIDATION_FAILURE 実測、rc=0)。回帰 17/17×{metasim,monado}。差分4ファイル(capture_d3d11.cpp +104/-17, integration_hello_xr.mjs +11, integration_test.sh +17/-2, setup_helloxr_msvc.sh +53 — numstat 実測、レビュー指摘で訂正)。
-- レビュー対象コミット: step 1-4 の wip 4件(4fd7310〜)。contract=r08-d3d11-msaa(profile=runtime)。
-- Metacognition self-check: pass — GAP-03/M0 実証パターンの移植。失敗経路も mutex 解放+明示エラー JSON。SKIP は観測された拒否のみ変換し退行検知を保存。
+- 実測サマリ(再導出禁止): probe=metasim 受理/monado 拒否(VALIDATION_FAILURE)。metasim MSAA 18/18(sampleCount:4/msaaResolved:true)。monado SKIP 行+rc=0(R08 機構が D3D12 で発火)。回帰 17/17×{metasim,monado}。R09 差分= capture_d3d12.cpp(+144/-27)+setup_helloxr_msvc.sh(+46)。
+- レビュー対象: R09 の wip 2件(step 1, step 2)+plan 文書。contract=r09-d3d12-msaa(profile=runtime)。
+- Metacognition self-check: pass — R08 実証設計の同型移植。中間リソースの常在状態(RESOLVE_DEST)を遷移で復元しキャッシュ前提を保存。D3D12 に keyed mutex 等の予防的同期は足していない。
 
 ## Findings (h-work appends unplanned discoveries here)
-- hello_xr の D3D11 プラグインは RTV 次元 TEXTURE2D 固定+深度 SampleDesc.Count=1 固定で、MSAA スワップチェーンだと CreateRenderTargetView が E_INVALIDARG。env パッチだけでは不足 → 同一パッチ内で MSAA 条件分岐化(Step 1 の必要拡張として実施)。
-- ゾンビ hello_xr.exe(kill 不能、既知)が third_party/hello_xr_msvc/hello_xr.exe の上書きをロック → **実行中 exe のリネームは可能**なので hello_xr.exe.zombie へ退避して新 exe を配置(新回避策)。.zombie はプロセス消滅後に削除可。
-- monado の D3D11 コンポジタは MSAA スワップチェーンを受理しない(XR_ERROR_VALIDATION_FAILURE、v25.1.0-646)。Vulkan ベースの compositor への D3D11 MSAA 共有インポート非対応が濃厚。
-- SKIP 判定は .mjs では実装不能(アプリが xrCreateSwapchain で即死し client が接続不能) → integration_test.sh 側に実装(対象ファイル1つ追加、DoD 修正済み)。SKIP は「実際に観測された拒否」(HELLO_XR_SAMPLE_COUNT>1 かつログに xrCreateSwapchain+VALIDATION_FAILURE)のみ変換 — 将来ランタイムが受理すればフルアサーションが走る設計(lens 6: 退行検知を殺さない)。
-- 制御チャネルは瞬間 LISTEN する(即死前) → SKIP 判定は LISTEN 有無でなく rc!=0 + ログ grep で行う(monado 実測で ok=1→connect timeout→SKIP 変換を確認)。
+(なし — probe 想定どおり、plan からの逸脱なし)
 
 ## Review result (iteration 3)
-**Verdict: pass**(h-reviewer 委譲、runtime profile)
-- 再実行証跡: ビルド(touch 後の実コンパイル+manifest 同期) / MSAA metasim 18/18(MSAA 行 PASS、graceful PASS) / 回帰 metasim 17/17 / MSAA monado 明示 SKIP rc=0 / 回帰 monado 17/17 / PNG 目視正常 / レイヤログに resolve intermediate 実走行+回帰時は同行なし(非MSAA経路不変の機械確認)。
-- 判定点: keyed mutex 規律維持(S_OK 厳密比較、新失敗点の解放順・二重解放なし)。ResolveSubresource 引数合法(実測: metasim テクスチャは TYPELESS(27)+typed 引数29で clean 画像)。SKIP は偽発火経路なし・退行検知保存。setup パッチは stock で4マーカー不在+アンカー assert=冪等/初回適用とも保証。dod_checks 4件充足、non_goals 侵犯なし。
-- 非ブロッキング nit: (1) resume pack の numstat 転記ずれ +19/-2→+17/-2(本コミットで修正済み)。(2) EnsureResolveTexture 失敗 JSON に hr なし → R15(error-JSON統一)で拾う(backlog 追記)。
+**Verdict: pass**(h-reviewer 委譲、runtime profile、findings なし)
+- 再実行証跡: 実コンパイル+manifest 同期 / MSAA metasim 18/18×2回(sampleCount:4/msaaResolved:true、非フラット) / 回帰 metasim 17/17 / monado SKIP 行+rc=0 実測 / PNG 目視正常 / numstat 完全一致(+144/-27, +46) / 予防的同期の混入なし(grep) / パッチ3点の適用実体確認。
+- 状態遷移: 全経路で対称性+キャッシュ常在(RESOLVE_DEST)不変条件成立(EnsureResolveResource 失敗は barrier 記録前=安全、fence タイムアウトでも復元バリアは同一 submit 内)。
+- 参考メモ(対応不要判定): D3D12 env 既定のハード1は D3D11 stock と整合・テスト決定性で妥当。hr の 0x+10進表記はファイル既存慣習(R15 系の別件)。

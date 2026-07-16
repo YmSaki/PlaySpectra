@@ -13,8 +13,10 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -22,6 +24,7 @@
 
 #include "capture_backends.h"
 #include "capture_common.h"
+#include "layer_log.h"
 #include "lodepng.h"
 
 namespace vr_agent {
@@ -104,6 +107,23 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   D3D11_TEXTURE2D_DESC desc{};
   tex->GetDesc(&desc);
 
+  // TEMP DIAG (M0 step 1): one-time evidence for the flat-capture investigation -- shared-texture
+  // flags and keyed-mutex presence decide the fix (inv.md hypothesis 1). Capture runs serially on
+  // the app's xrEndFrame thread, so a plain static is race-free here.
+  static bool s_diag_done = false;
+  const bool diag_this_call = !s_diag_done;
+  if (diag_this_call) {
+    s_diag_done = true;
+    IDXGIKeyedMutex* km = nullptr;
+    const HRESULT qhr = tex->QueryInterface(IID_IDXGIKeyedMutex, reinterpret_cast<void**>(&km));
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "MiscFlags=0x%X BindFlags=0x%X Usage=%d keyedMutexQI=0x%08lX",
+                  desc.MiscFlags, desc.BindFlags, static_cast<int>(desc.Usage),
+                  static_cast<unsigned long>(qhr));
+    LayerLog("d3d11 capture diag:", buf);
+    if (km != nullptr) km->Release();
+  }
+
   // Defensive bounds check: an out-of-range D3D11_BOX is invalid and would copy garbage / be a no-op.
   // Better an honest error than a silently-broken image (CLAUDE.md).
   if (x < 0 || y < 0 || static_cast<UINT>(x + w) > desc.Width ||
@@ -174,6 +194,18 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
             {"api", "D3D11"},
             {"eye", eye},
             {"viewIndex", viewIndex}};
+  }
+
+  // TEMP DIAG (M0 step 1): first 16 mapped bytes -- distinguishes all-zero (never-synced read) from
+  // clear-color content (app wrote, we read the wrong thing).
+  if (diag_this_call) {
+    const unsigned char* p = static_cast<const unsigned char*>(mapped.pData);
+    char buf[160];
+    std::snprintf(buf, sizeof buf,
+                  "first16=%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X rowPitch=%u",
+                  p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
+                  p[13], p[14], p[15], static_cast<unsigned>(mapped.RowPitch));
+    LayerLog("d3d11 capture diag:", buf);
   }
 
   // Step 8: repack into tight w*4 RGBA rows (honoring RowPitch, which != w*4 in general), swizzling

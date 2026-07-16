@@ -387,3 +387,17 @@ D3D 系キャプチャの既知欠落(MSAA/HDR/TYPELESS)は全て解消、3バ�
 - 検証マトリクス最終形: 既定/MSAA/HDR/TYPELESS × metasim/monado × D3D11/D3D12/Vulkan(既定のみ) が
   env フラグ(HELLO_XR_SAMPLE_COUNT/HELLO_XR_HDR/HELLO_XR_TYPELESS)+ランタイム能力 SKIP で回せる。
 - **未処理 learnings: L60-L71(12件) → チェーン完走につき h-evolve 実行推奨**(前回判断どおり)。
+
+## 2026-07-17 — h-evolve 実行記録 (2回目)
+
+**L60〜L71 → processed (h-evolve 2026-07-17)**。12件を3資産へ蒸留(ユーザー承認 A+B+C、D は見送り):
+- `.claude/rules/setup-scripts.md` — (5) ランタイム能力 SKIP 設計 ← L60/L61/L64/L70、(6) 冪等マーカー実在確認+2連続実行基準 ← L71
+- `.claude/rules/native-win-interop.md` — 実行中 exe のリネーム退避デプロイ ← L62
+- `.claude/rules/review-checklist.md` — lens 1 へ「共有ソースの新依存は全ターゲット追従+テストターゲットを DoD に」 ← L67
+- 見送り(提案D): L66 の D3D12 常在状態イディオム(コード内コメントに既記載、ユーザー選択で不採用)。
+- 蒸留対象外と判定: L63/L65(hello_xr パッチ固有・スクリプト内コメントに既記載)、L68(setup スクリプト内
+  コメントに既記載)、L69(capture_d3d12 コード内コメントに既記載)、L70 は(5)に包含。
+- metrics 所見: 19ループ・rejections 平均0.37(直近4=0.50)。直近2件の rejection はいずれも実バグの正当検出
+  (R10 リンク切れ/R17 冪等性) — レビュー健全、ドリフト提案なし。plateau 0。
+- agent-memory: h-reviewer が R17 教訓を review-checklist-patch-idempotency として自律蒸留済み(検出側)。
+  本 h-evolve の setup-scripts (6) は書き手側の規則で相補 — 重複でなく役割分担、整理不要。

@@ -116,7 +116,9 @@ if(VR_AGENT_BUILD_TESTS)
 
   add_executable(vr_agent_test
     tests/test_capture_common.cpp
+    tests/test_pixel_convert.cpp
     tests/test_pose_animator.cpp
+    tests/test_xr_math.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
     src/pixel_convert.cpp

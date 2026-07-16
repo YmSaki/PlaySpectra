@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "active": true,
+  "active": false,
   "task": "R17 d3d11-typeless: D3D11 guard で 8bit TYPELESS を受理(同族 UNORM 解釈) — backlog Deferred(ユーザー承認済み、最終)",
-  "phase": "ship",
+  "phase": "done",
   "iteration": 4,
   "max_iterations": 30,
   "work_retry": 0,

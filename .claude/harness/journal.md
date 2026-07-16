@@ -373,3 +373,17 @@ MSAA 拒否と対照的)。回帰 17/17×4+MSAA 18/18×2+単体 14/14。レビ�
   選好リストへの追加ではフォーマットを強制できない(env 時early return が正解)。
 - L69: 16bit TYPELESS は UNORM/FLOAT の解釈が曖昧なため受理しない(8bit TYPELESS との非対称は原理的
   一貫: 8bit は族内でバイト配置同一、16bit はビット解釈が別物)。レビューでも妥当判定。
+
+## 2026-07-17 — R17 d3d11-typeless 出荷 (auto連鎖 4/4、Deferred 全消化)
+
+**成果**: D3D11 の 8bit TYPELESS 受理(squash 1件)。**R08→R09→R10→R17 のユーザー承認チェーン完走** —
+D3D 系キャプチャの既知欠落(MSAA/HDR/TYPELESS)は全て解消、3バックエンドのフォーマット規則が統一された。
+
+- L70: **metasim/monado とも D3D11 では TYPELESS スワップチェーンを列挙しない**(実測)。TYPELESS 受理は
+  他ランタイム・実アプリへの備え(D3D12 と同規則)であり、現環境の E2E は mjs 防御 SKIP が正路。
+- L71: **冪等マーカーは「挿入テキストに実在する部分文字列」であることを機械確認してから使う**。整列用
+  スペースの差でマーカー不一致→再実行 assert 死(初回成功のため自己検証をすり抜け、レビューが read-only
+  probe で検出)。受入基準「setup 2連続実行 rc=0+patched 0行」は今後の setup パッチ全部に使える。
+- 検証マトリクス最終形: 既定/MSAA/HDR/TYPELESS × metasim/monado × D3D11/D3D12/Vulkan(既定のみ) が
+  env フラグ(HELLO_XR_SAMPLE_COUNT/HELLO_XR_HDR/HELLO_XR_TYPELESS)+ランタイム能力 SKIP で回せる。
+- **未処理 learnings: L60-L71(12件) → チェーン完走につき h-evolve 実行推奨**(前回判断どおり)。

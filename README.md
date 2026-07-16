@@ -114,6 +114,7 @@ cd mcp && npm start
 | キャプチャ: Vulkan | ✅ RGBA8/BGRA8/HDR、MSAA resolve、深度 |
 | キャプチャ: D3D11 / D3D12 | 🟡 8bit RGBA/BGRA（sRGB 含む。D3D12 は TYPELESS も可）実装済み。MSAA / HDR（と D3D11 の TYPELESS）は明示エラー（コア必須の残対応） |
 | 深度マップ | ➖ nice-to-have・Vulkan 専用（`XrCompositionLayerDepthInfoKHR` 提出フレームのみ） |
+| OpenVR アプリ | ✅ [OpenComposite](https://gitlab.com/znixian/OpenOVR)（OpenVR→OpenXR 変換 DLL、per-app 差し替え）経由で観察・姿勢注入が動作（統合テスト 15 PASS / 1 SKIP）。SteamVR 不要。アプリは openvr **v1.8.19** 世代ヘッダでビルドすること（OpenComposite の実装上限 IVRSystem/IVRCompositor_022）。入力注入は OpenXR アクションレベルまで実証済みで、アプリ挙動への到達はゲームの入力読み方に依存（レガシー直読み系は見込みあり・IVRInput マニフェスト経由は未到達） |
 
 > グラフィックスAPIの完全性（D3D11 / D3D12 / Vulkan）は「VR版Playwrightが全キーを打てる」ためのコア必須要件。いずれのバックエンドも未対応フォーマットでは「無言で壊れた画像」を返さず、必ず明示的にエラーを返す。
 
@@ -131,4 +132,10 @@ VR_RUNTIME=monado scripts/integration_test.sh Vulkan
 
 # D3D11/D3D12 の実行検証は MSVC 版 hello_xr を使う（scripts/setup_helloxr_msvc.sh でビルド・配備）
 HELLO_XR_EXE=third_party/hello_xr_msvc/hello_xr.exe scripts/integration_test.sh D3D11
+
+# OpenVR 経路（hellovr_dx12 + OpenComposite + Monado）。事前に setup_monado.sh /
+# setup_opencomposite.sh / setup_hellovr.sh を1回ずつ実行しておく
+scripts/integration_openvr_test.sh
 ```
+
+> OpenComposite は GPLv3。third_party/ に取得するのみで、本リポジトリには含めず再配布もしない。

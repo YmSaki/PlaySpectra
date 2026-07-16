@@ -13,3 +13,4 @@
 {"ts":"2026-07-16T10:20:00Z","task_id":"m3-openvr-layer-smoke","phases":["inv","plan","work","review","ship"],"iterations":7,"max_iterations":30,"review_rejections":1,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
 {"ts":"2026-07-16T11:05:00Z","task_id":"m4-openvr-integration-test","phases":["inv","plan","work","review","ship"],"iterations":5,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
 {"ts":"2026-07-16T11:35:00Z","task_id":"m5-openvr-docs","phases":["inv","plan","work","review","ship"],"iterations":5,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
+{"ts":"2026-07-16T16:20:00Z","task_id":"r08-d3d11-msaa","phases":["inv","plan","work","review","ship"],"iterations":4,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}

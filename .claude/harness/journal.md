@@ -326,3 +326,22 @@ Note: bug-Fable A5 referenced `capture_d3d11.cpp` — that file does NOT exist (
 以後の ship policy: コミットは従来どおりループ内で実施、**push はユーザーの明示指示または `! git push` で行う**
 (保護ブランチガードにより自動 push は不可 — これは意図された防御層)。
 次タスク: backlog Deferred の R08→R09→R10→R17(ユーザー着手指示 2026-07-16 済み)。
+
+## 2026-07-17 — R08 d3d11-msaa 出荷 (auto連鎖 1/4)
+
+**成果**: D3D11 MSAA キャプチャ対応(コミット済み、squash 1件)。metasim MSAA 18/18 / monado 明示 SKIP /
+回帰 17/17×2。レビュー pass(nit 2件: numstat 転記→修正済み、hr 併記→R15 へ追記)。
+
+- L60: **Monado v25.1.0 の D3D11 コンポジタは MSAA スワップチェーンを受理しない**(xrCreateSwapchain →
+  XR_ERROR_VALIDATION_FAILURE、実測)。Vulkan compositor への D3D11 MSAA 共有インポート非対応が濃厚。
+  R09(D3D12)でも同挙動の可能性が高い — probe を先にやる。
+- L61: **ランタイム能力 SKIP は「観測された拒否のみ変換」で実装**(integration_test.sh: rc!=0 かつ env>1 かつ
+  ログに xrCreateSwapchain+VALIDATION_FAILURE)。静的な runtime×能力表を埋め込まない — 将来ランタイムが
+  受理すればフルアサーションが自動で走る(lens 6 の実装形)。
+- L62: **実行中 exe はリネームなら通る**(上書き cp は Device busy でも mv は成功) — kill 不能ゾンビが
+  third_party の exe をロックした際の新回避策(hello_xr.exe.zombie へ退避→新 exe 配置→ゾンビ消滅後に削除)。
+- L63: hello_xr の MSAA 盲点は sampleCount 定数だけでなく **RTV/DSV の次元と深度 SampleDesc も単一サンプル
+  固定**(E_INVALIDARG で実測検出)。R09 の d3d12 プラグインパッチでも同族の盲点を先に疑う
+  (graphicsplugin_d3d12.cpp の RTV/DSV/深度ヒープ)。
+- 判断記録: h-evolve は未処理 learnings 4件(L60-L63)だが、ユーザー明示指示の R08→R09→R10→R17 連鎖を
+  優先し**チェーン完走後に実施**(R09 以降で同族知見が増えるため蒸留効率も良い)。

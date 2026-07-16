@@ -25,6 +25,14 @@ namespace vr_agent {
 std::vector<unsigned char> RepackRows(const unsigned char* src, std::size_t rowPitch,
                                       std::uint32_t w, std::uint32_t h, bool bgra);
 
+// Decode a mapped R16G16B16A16_FLOAT readback (8 bytes/texel, rows `rowPitch` bytes apart) into a
+// tightly-packed w*h*4 8-bit RGBA buffer: RGB are sRGB-encoded from linear half-floats
+// (QuantizeSrgb), alpha is linearly quantized (QuantizeLinearUnit) -- the same fixed conversion as
+// the Vulkan HDR path (capture_vulkan.cpp), shared here for the D3D11/D3D12 backends (R10), which
+// unlike Vulkan's tight staging buffer have row padding to honor.
+std::vector<unsigned char> DecodeHdrRowsToSrgb(const unsigned char* src, std::size_t rowPitch,
+                                               std::uint32_t w, std::uint32_t h);
+
 // Encode a tight w*h*4 8-bit RGBA buffer to a PNG at `path` via lodepng. Returns the lodepng error
 // code (0 = success); callers build their own error JSON so per-backend error shapes stay unchanged.
 unsigned EncodeRgbaPng(const std::string& path, const std::vector<unsigned char>& pixels,

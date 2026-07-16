@@ -2,6 +2,7 @@
 #include "capture_common.h"
 #include <vector>
 #include <string>
+#include <cstring>
 
 using namespace vr_agent;
 using json = nlohmann::json;
@@ -76,4 +77,38 @@ TEST(CaptureCommonTest, BuildCaptureSuccessJson_FormatsCorrectly) {
     EXPECT_EQ(j["height"].get<uint32_t>(), 1080);
     EXPECT_EQ(j["arrayIndex"].get<uint32_t>(), 0);
     EXPECT_EQ(j["format"].get<int64_t>(), 87);
+}
+
+/*
+このテストは `DecodeHdrRowsToSrgb` (R10) が、行パディング(rowPitch > w*8)を含む
+R16G16B16A16_FLOAT バッファを正しく 8-bit RGBA へ decode するかを検査します。
+理由: 本関数の新規リスクはまさに行ピッチ処理(Vulkan のタイト詰めループとの唯一の差分)で、
+ピッチずれは「斜行した壊れ画像」を無言で生むため。値は sRGB 変換の丸めに依存しない
+端点(linear 0.0 -> 0, linear 1.0 -> 255)のみを使います(half: 0x0000 / 0x3C00)。
+*/
+TEST(CaptureCommonTest, DecodeHdrRowsToSrgb_HonorsRowPitchAndEndpoints) {
+    const uint32_t w = 2, h = 2;
+    const size_t rowPitch = w * 8 + 8;  // 8 bytes of padding per row
+    std::vector<unsigned char> src(rowPitch * h, 0xAB);  // sentinel padding
+
+    const uint16_t kOne = 0x3C00, kZero = 0x0000;
+    // texel = 4 half (R,G,B,A)
+    const uint16_t texels[2][2][4] = {
+        {{kOne, kZero, kZero, kOne},  {kZero, kOne, kZero, kZero}},
+        {{kZero, kZero, kOne, kOne},  {kOne, kOne, kOne, kOne}},
+    };
+    for (uint32_t r = 0; r < h; ++r)
+        for (uint32_t p = 0; p < w; ++p)
+            std::memcpy(src.data() + r * rowPitch + p * 8, texels[r][p], 8);
+
+    auto dst = DecodeHdrRowsToSrgb(src.data(), rowPitch, w, h);
+
+    ASSERT_EQ(dst.size(), static_cast<size_t>(w) * h * 4);
+    const std::vector<unsigned char> expected = {
+        255, 0,   0,   255,   // red, opaque
+        0,   255, 0,   0,     // green, transparent
+        0,   0,   255, 255,   // blue, opaque
+        255, 255, 255, 255,   // white, opaque
+    };
+    EXPECT_EQ(dst, expected);
 }

@@ -6,6 +6,7 @@
 #include <cstring>    // std::memcpy
 
 #include "lodepng.h"
+#include "pixel_convert.h"  // HalfToFloat / QuantizeSrgb / QuantizeLinearUnit (HDR decode)
 
 namespace vr_agent {
 
@@ -19,6 +20,24 @@ std::vector<unsigned char> RepackRows(const unsigned char* src, std::size_t rowP
     std::memcpy(dstRow, srcRow, rowBytes);
     if (bgra) {
       for (std::size_t p = 0; p + 3 < rowBytes; p += 4) std::swap(dstRow[p], dstRow[p + 2]);
+    }
+  }
+  return pixels;
+}
+
+std::vector<unsigned char> DecodeHdrRowsToSrgb(const unsigned char* src, std::size_t rowPitch,
+                                               std::uint32_t w, std::uint32_t h) {
+  std::vector<unsigned char> pixels(static_cast<std::size_t>(w) * h * 4);
+  for (std::uint32_t r = 0; r < h; ++r) {
+    const unsigned char* srcRow = src + static_cast<std::size_t>(r) * rowPitch;
+    unsigned char* dstRow = pixels.data() + static_cast<std::size_t>(r) * w * 4;
+    for (std::uint32_t px = 0; px < w; ++px) {
+      std::uint16_t half[4];
+      std::memcpy(half, srcRow + static_cast<std::size_t>(px) * 8, 8);  // R,G,B,A half-floats
+      dstRow[px * 4 + 0] = QuantizeSrgb(HalfToFloat(half[0]));
+      dstRow[px * 4 + 1] = QuantizeSrgb(HalfToFloat(half[1]));
+      dstRow[px * 4 + 2] = QuantizeSrgb(HalfToFloat(half[2]));
+      dstRow[px * 4 + 3] = QuantizeLinearUnit(HalfToFloat(half[3]));
     }
   }
   return pixels;

@@ -37,14 +37,16 @@ namespace {
 ID3D11Device* g_d3d11_device = nullptr;
 
 // D3D11 color-format handling mirrors the Vulkan path: we store bytes straight to an 8-bit RGBA PNG.
-// RGBA8 formats copy directly; BGRA8 formats get a B<->R swizzle. Anything else (HDR, typeless,
-// packed) is an explicit error -- never a silently-broken image (CLAUDE.md).
+// RGBA8 formats copy directly; BGRA8 formats get a B<->R swizzle; R16G16B16A16_FLOAT (HDR) is
+// decoded half-float -> sRGB via the shared DecodeHdrRowsToSrgb. Anything else (typeless, packed)
+// is an explicit error -- never a silently-broken image (CLAUDE.md).
 bool DxgiIsRGBA8(int64_t f) {
   return f == DXGI_FORMAT_R8G8B8A8_UNORM || f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 }
 bool DxgiIsBGRA8(int64_t f) {
   return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 }
+bool DxgiIsHDR16F(int64_t f) { return f == DXGI_FORMAT_R16G16B16A16_FLOAT; }
 
 // Reusable single-sample intermediate for the MSAA resolve (the D3D11 sibling of capture_vulkan's
 // EnsureResolveImage / GAP-03). ResolveSubresource always resolves a WHOLE subresource -- no rect
@@ -123,13 +125,15 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   // takes a ResolveSubresource into a single-sample intermediate first (see Step 6).
   const bool msaa = sampleCount > 1;
 
-  // Step 2: format guard. Only 8-bit RGBA/BGRA are encoded; BGRA needs a B<->R swizzle on row copy.
+  // Step 2: format guard. 8-bit RGBA copies straight, BGRA gets a B<->R swizzle, 16F HDR is
+  // half->sRGB decoded (Vulkan-identical fixed conversion).
   const bool rgba = DxgiIsRGBA8(dxgiFormat);
   const bool bgra = DxgiIsBGRA8(dxgiFormat);
-  if (!rgba && !bgra) {
+  const bool hdr = DxgiIsHDR16F(dxgiFormat);
+  if (!rgba && !bgra && !hdr) {
     return {{"ok", false},
             {"error", "unsupported D3D11 color format " + std::to_string(dxgiFormat) +
-                          " (only RGBA8/BGRA8 implemented; HDR/typeless/packed are a core-required follow-on)"},
+                          " (RGBA8/BGRA8/R16G16B16A16_FLOAT implemented; typeless/packed are a core-required follow-on)"},
             {"api", "D3D11"},
             {"eye", eye},
             {"viewIndex", viewIndex}};
@@ -272,8 +276,8 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     // subresource into the reusable intermediate, then rect-copy from THAT. Both commands that read
     // the shared texture are issued while the keyed mutex is held; the intermediate is
     // process-local, so the mutex is released before the rect copy. The resolve format is the
-    // typed OpenXR swapchain format (it already passed the RGBA8/BGRA8 guard, so it is never
-    // typeless -- legal even if desc.Format were a typeless family).
+    // typed OpenXR swapchain format (it already passed the Step 2 format guard, whose accepted
+    // formats are all typed -- legal even if desc.Format were a typeless family).
     if (!EnsureResolveTexture(desc.Width, desc.Height, desc.Format)) {
       if (keyedMutex != nullptr) {
         keyedMutex->ReleaseSync(0);
@@ -317,12 +321,16 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
             {"viewIndex", viewIndex}};
   }
 
-  // Step 8: repack into tight w*4 RGBA rows (honoring RowPitch, which != w*4 in general), swizzling
-  // BGRA->RGBA if needed. Shared with the other backends (capture_common.cpp).
+  // Step 8: produce the tight w*4 8-bit RGBA buffer (honoring RowPitch, which != w*4 in general).
+  // 8-bit sources repack (+ BGRA swizzle); 16F HDR decodes half->sRGB. Both shared helpers
+  // (capture_common.cpp).
   const uint32_t uw = static_cast<uint32_t>(w);
   const uint32_t uh = static_cast<uint32_t>(h);
   std::vector<unsigned char> pixels =
-      RepackRows(static_cast<const unsigned char*>(mapped.pData), mapped.RowPitch, uw, uh, bgra);
+      hdr ? DecodeHdrRowsToSrgb(static_cast<const unsigned char*>(mapped.pData), mapped.RowPitch,
+                                uw, uh)
+          : RepackRows(static_cast<const unsigned char*>(mapped.pData), mapped.RowPitch, uw, uh,
+                       bgra);
 
   // Step 9: unmap, then encode.
   ctx->Unmap(staging, 0);
@@ -343,11 +351,20 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
             {"viewIndex", viewIndex}};
   }
 
-  // Step 11: success. sampleCount/msaaResolved mirror the Vulkan result shape (capture_vulkan.cpp).
+  // Step 11: success. sampleCount/msaaResolved/tonemapped/colorConversion mirror the Vulkan result
+  // shape and wording (capture_vulkan.cpp) -- the PNG is always 8-bit, so an HDR source says so.
   nlohmann::json result =
       BuildCaptureSuccessJson(path, eye, viewIndex, "D3D11", uw, uh, arrayIndex, dxgiFormat);
   result["sampleCount"] = sampleCount;
   result["msaaResolved"] = msaa;
+  result["tonemapped"] = hdr;
+  if (hdr) {
+    result["sourceHdrFormat"] = dxgiFormat;
+    result["colorConversion"] =
+        "half-float linear -> sRGB OETF -> 8-bit (fixed operator, no exposure; values >1 clamp to white)";
+  } else {
+    result["colorConversion"] = "direct 8-bit (no tonemap)";
+  }
   return result;
 }
 

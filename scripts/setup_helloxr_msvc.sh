@@ -78,6 +78,20 @@ sub('D3D11_DSV_DIMENSION_TEXTURE2DMS',
     'CD3D11_DEPTH_STENCIL_VIEW_DESC depthStencilViewDesc(\n'
     '            colorDesc.SampleDesc.Count > 1 ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D,\n'
     '            DXGI_FORMAT_D32_FLOAT);')
+# (d) HELLO_XR_HDR=1: prefer R16G16B16A16_FLOAT when the runtime enumerates it (R10 HDR E2E).
+# NOTE stock find_first_of walks runtimeFormats in RUNTIME order, so merely adding 16F to the
+# supported list cannot force it -- an explicit early return is required.
+sub('HELLO_XR_HDR',
+    'int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {\n'
+    '        // List of supported color swapchain formats.',
+    'int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {\n'
+    '        const char* hdrEnv = std::getenv("HELLO_XR_HDR");\n'
+    '        if (hdrEnv && *hdrEnv && *hdrEnv != \'0\') {\n'
+    '            for (int64_t f : runtimeFormats) {\n'
+    '                if (f == DXGI_FORMAT_R16G16B16A16_FLOAT) return f;\n'
+    '            }\n'
+    '        }\n'
+    '        // List of supported color swapchain formats.')
 
 open(p, 'w', encoding='utf-8', newline='\n').write(s)
 EOF
@@ -124,6 +138,19 @@ sub('psoSampleCountEnv',
     '            const int n = psoSampleCountEnv ? std::atoi(psoSampleCountEnv) : 1;\n'
     '            pipelineStateDesc.SampleDesc = {n > 1 ? static_cast<UINT>(n) : 1u, 0};\n'
     '        }')
+# (d) HELLO_XR_HDR=1: prefer R16G16B16A16_FLOAT when the runtime enumerates it (R10 HDR E2E).
+# Same rationale as the D3D11 block: find_first_of walks in runtime order, so early-return is needed.
+sub('HELLO_XR_HDR',
+    'int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {\n'
+    '        // List of supported color swapchain formats.',
+    'int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {\n'
+    '        const char* hdrEnv = std::getenv("HELLO_XR_HDR");\n'
+    '        if (hdrEnv && *hdrEnv && *hdrEnv != \'0\') {\n'
+    '            for (int64_t f : runtimeFormats) {\n'
+    '                if (f == DXGI_FORMAT_R16G16B16A16_FLOAT) return f;\n'
+    '            }\n'
+    '        }\n'
+    '        // List of supported color swapchain formats.')
 
 open(p, 'w', encoding='utf-8', newline='\n').write(s)
 EOF

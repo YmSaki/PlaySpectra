@@ -244,6 +244,26 @@ async function main() {
           JSON.stringify({ sampleCount: shot.sampleCount, msaaResolved: shot.msaaResolved }));
   }
 
+  // (d3) HDR decode (R10): when the harness forces the 16F swapchain via HELLO_XR_HDR (patched
+  // hello_xr, see setup_helloxr_msvc.sh), the capture must have gone through the half->sRGB decode
+  // and say so. If the runtime does not enumerate R16G16B16A16_FLOAT, hello_xr falls back to an
+  // 8-bit format -- that is a runtime capability limit, not a layer defect, so it is an explicit
+  // SKIP (printed, not failed). Both current runtimes (metasim/monado) do enumerate 16F, so the
+  // SKIP branch is defensive for other runtimes. Not emitted at all when the env is unset.
+  const wantHdr = process.env.HELLO_XR_HDR === "1";
+  if (wantHdr) {
+    const DXGI_R16G16B16A16_FLOAT = 10;
+    if (shot.format === DXGI_R16G16B16A16_FLOAT) {
+      check("HDR capture: tonemapped == true with colorConversion recorded",
+            shot.tonemapped === true && typeof shot.colorConversion === "string" &&
+            shot.sourceHdrFormat === DXGI_R16G16B16A16_FLOAT,
+            JSON.stringify({ tonemapped: shot.tonemapped, colorConversion: shot.colorConversion }));
+    } else {
+      console.log(`  SKIP HDR assertions: runtime does not enumerate R16G16B16A16_FLOAT ` +
+                  `(hello_xr fell back to format ${shot.format})`);
+    }
+  }
+
   // (e) depth-request path degrades honestly. Meta sim submits no XrCompositionLayerDepthInfoKHR, so
   // this exercises the withDepth parse -> dispatch -> ResolveDepth honest {available:false} degrade
   // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is NOT

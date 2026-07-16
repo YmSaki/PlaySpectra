@@ -5,8 +5,9 @@
 // swapchain image (an ID3D12Resource) is transitioned RENDER_TARGET -> COPY_SOURCE, the requested
 // subrect is copied into a HEAP_TYPE_READBACK ID3D12Resource whose placed footprint has a 256-byte
 // aligned row pitch (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT), the queue is fence-waited, and the mapped
-// bytes are de-padded (RowPitch -> w*4), BGRA-swizzled if needed, and lodepng-encoded. It is one
-// backend behind capture.cpp's single dispatch, not a parallel capture system.
+// bytes are de-padded (RowPitch -> w*4), BGRA-swizzled or HDR-decoded (16F half->sRGB) if needed,
+// and lodepng-encoded. It is one backend behind capture.cpp's single dispatch, not a parallel
+// capture system.
 // Multisampled sources take a ResolveSubresource into a reusable single-sample intermediate first
 // (RENDER_TARGET -> RESOLVE_SOURCE on the source, intermediate kept in RESOLVE_DEST between
 // captures), then the rect copy reads from that intermediate -- the D3D12 sibling of the Vulkan
@@ -50,6 +51,10 @@ bool DxgiIsBGRA8(int64_t f) {
   return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB ||
          f == DXGI_FORMAT_B8G8R8A8_TYPELESS;
 }
+// 16-bit float HDR (decoded half->sRGB via the shared DecodeHdrRowsToSrgb). Deliberately excludes
+// R16G16B16A16_TYPELESS: unlike the 8-bit families a typeless 16-bit swapchain could be UNORM or
+// FLOAT and guessing the interpretation risks a silently-wrong image -- explicit error instead.
+bool DxgiIsHDR16F(int64_t f) { return f == DXGI_FORMAT_R16G16B16A16_FLOAT; }
 
 // A fully-typed DXGI format for the copyable footprint / copy destination. TYPELESS resources have an
 // undefined copyable layout, so resolve them to the matching UNORM member of the same (copy-compatible)
@@ -152,9 +157,10 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   const bool msaa = sampleCount > 1;
   const bool rgba = DxgiIsRGBA8(dxgiFormat);
   const bool bgra = DxgiIsBGRA8(dxgiFormat);
-  if (!rgba && !bgra) {
+  const bool hdr = DxgiIsHDR16F(dxgiFormat);
+  if (!rgba && !bgra && !hdr) {
     return fail("unsupported D3D12 color format " + std::to_string(dxgiFormat) +
-                " (only RGBA8/BGRA8 implemented; HDR is a core-required follow-on)");
+                " (RGBA8/BGRA8/R16G16B16A16_FLOAT implemented)");
   }
   if (g_d3d12_device == nullptr || g_d3d12_queue == nullptr) {
     return fail("no D3D12 device/queue captured (xrCreateSession binding missing?)");
@@ -384,8 +390,10 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     return fail("readback Map failed hr=0x" + std::to_string(hr));
   }
   const unsigned char* srcBytes = static_cast<const unsigned char*>(mapped) + footprint.Offset;
+  // 8-bit sources repack (+ BGRA swizzle); 16F HDR decodes half->sRGB (both in capture_common.cpp).
   std::vector<unsigned char> pixels =
-      RepackRows(srcBytes, static_cast<size_t>(footprint.Footprint.RowPitch), uw, uh, bgra);
+      hdr ? DecodeHdrRowsToSrgb(srcBytes, static_cast<size_t>(footprint.Footprint.RowPitch), uw, uh)
+          : RepackRows(srcBytes, static_cast<size_t>(footprint.Footprint.RowPitch), uw, uh, bgra);
   const D3D12_RANGE noWrite = {0, 0};  // CPU wrote nothing back to the buffer.
   readback->Unmap(0, &noWrite);
 
@@ -395,11 +403,20 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     return fail(std::string("lodepng encode failed: ") + lodepng_error_text(err));
   }
 
-  // sampleCount/msaaResolved mirror the Vulkan/D3D11 result shape.
+  // sampleCount/msaaResolved/tonemapped/colorConversion mirror the Vulkan/D3D11 result shape and
+  // wording -- the PNG is always 8-bit, so an HDR source says so.
   nlohmann::json result =
       BuildCaptureSuccessJson(path, eye, viewIndex, "D3D12", uw, uh, arrayIndex, dxgiFormat);
   result["sampleCount"] = sampleCount;
   result["msaaResolved"] = msaa;
+  result["tonemapped"] = hdr;
+  if (hdr) {
+    result["sourceHdrFormat"] = dxgiFormat;
+    result["colorConversion"] =
+        "half-float linear -> sRGB OETF -> 8-bit (fixed operator, no exposure; values >1 clamp to white)";
+  } else {
+    result["colorConversion"] = "direct 8-bit (no tonemap)";
+  }
   return result;
 }
 

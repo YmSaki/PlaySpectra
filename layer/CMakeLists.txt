@@ -119,6 +119,7 @@ if(VR_AGENT_BUILD_TESTS)
     tests/test_pose_animator.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
+    src/pixel_convert.cpp
     src/pose_animator.cpp
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )

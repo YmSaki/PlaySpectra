@@ -27,7 +27,7 @@
 - **[P1] R09 d3d12-msaa** — DIRECT リストで RENDER_TARGET→RESOLVE_SOURCE 遷移+ResolveSubresource→単一サンプル中間リソース(→COPY_SOURCE)→readback。中間リソースは再利用キャッシュ。effort M。
 - **[P1] R10 d3d-hdr** — R16G16B16A16_FLOAT を pixel_convert(HalfToFloat/QuantizeSrgb)共有で D3D11/D3D12 に half→sRGB decode 追加。結果 JSON の tonemapped/colorConversion フィールドも Vulkan と同形に。**depends R03(済)**。
 - **[P2] R17 d3d11-typeless** — D3D11 でも TYPELESS 受理。staging を desc.Format(=TYPELESS)のまま作って生バイトを読めば済む(D3D12 の ResolveFootprintFormat と同規則の同族 UNORM 解釈でも可)。R16 の allowTypeless=true に切り替えるだけの局所変更。**depends R16**。effort S。
-- **[P2] R15 error-json-unify** — エラー応答の api/eye/viewIndex を共通 fail ヘルパー(capture_common)で3バックエンド統一(Vulkan にも追加、D3D11 の10箇所手書きを置換)。エラー文言は不変だが出力が変わるため挙動変更扱い。成功 JSON の sampleCount/msaaResolved 等を統一するかは実施時に1行決める。
+- **[P2] R15 error-json-unify** — エラー応答の api/eye/viewIndex を共通 fail ヘルパー(capture_common)で3バックエンド統一(Vulkan にも追加、D3D11 の10箇所手書きを置換)。エラー文言は不変だが出力が変わるため挙動変更扱い。成功 JSON の sampleCount/msaaResolved 等を統一するかは実施時に1行決める。追記(R08 review nit): capture_d3d11 の EnsureResolveTexture 失敗 JSON に hr 併記も(兄弟エラーは全て hr 付き)。
 > これらは出力が変わるため、ユーザー承認まで自動着手しない。~~この環境で E2E 不可~~ → **2026-07-16 解消**:
 > MSVC 版 hello_xr(third_party/hello_xr_msvc、`HELLO_XR_EXE` で指定)により D3D11/D3D12 の E2E が可能になった。
 

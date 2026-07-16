@@ -233,6 +233,17 @@ async function main() {
           `distinctColors=${png.distinctColors} dominant=${(png.dominantFraction * 100).toFixed(1)}%`);
   }
 
+  // (d2) MSAA resolve (R08): when the harness forces a multisampled swapchain via
+  // HELLO_XR_SAMPLE_COUNT (patched hello_xr, see setup_helloxr_msvc.sh), the capture must have gone
+  // through the resolve path and report it -- a silent single-sample fallback would hide a broken
+  // resolve. Skipped (not emitted) when the env is unset: stock hello_xr is always single-sample.
+  const wantSamples = parseInt(process.env.HELLO_XR_SAMPLE_COUNT || "1", 10);
+  if (wantSamples > 1) {
+    check(`MSAA capture: sampleCount == ${wantSamples} and msaaResolved == true`,
+          shot.sampleCount === wantSamples && shot.msaaResolved === true,
+          JSON.stringify({ sampleCount: shot.sampleCount, msaaResolved: shot.msaaResolved }));
+  }
+
   // (e) depth-request path degrades honestly. Meta sim submits no XrCompositionLayerDepthInfoKHR, so
   // this exercises the withDepth parse -> dispatch -> ResolveDepth honest {available:false} degrade
   // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is NOT

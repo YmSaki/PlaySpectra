@@ -1,0 +1,25 @@
+{
+  "task_id": "r08-d3d11-msaa",
+  "dod_checks": [
+    "cmake --build layer/build --target vr_agent_layer succeeds cleanly",
+    "MSAA E2E: HELLO_XR_SAMPLE_COUNT=4 VR_GFX_API=d3d11 -> capture ok=true with sampleCount:4 msaaResolved:true and non-flat PNG on metasim and monado (runtime rejecting MSAA swapchains = explicit SKIP with probe evidence, not mixed into rc)",
+    "Regression: default (sampleCount=1) D3D11 integration test 17/17 on both metasim and monado",
+    "git diff confined to layer/src/capture_d3d11.cpp, scripts/setup_helloxr_msvc.sh, scripts/integration_hello_xr.mjs (+ harness docs); no preventive sync added to D3D12/Vulkan backends"
+  ],
+  "rubric_refs": [],
+  "non_goals": [
+    "R09 D3D12 MSAA (next task)",
+    "R10 D3D HDR / R17 D3D11 TYPELESS",
+    "R15 error-JSON unification (success-JSON fields added here are only the Vulkan-shaped sampleCount/msaaResolved pair)",
+    "depth-swapchain MSAA resolve (Vulkan parity: explicit error remains)",
+    "engine-specific plugins or preventive keyed-mutex sync in other backends"
+  ],
+  "risk_flags": [],
+  "review": { "profile": "runtime", "max_iterations": 3 },
+  "workflow": {
+    "phases": ["inv", "plan", "work", "review", "ship"],
+    "parallel_groups": []
+  },
+  "status": "approved",
+  "approval_reason": "No risk flags. Behavior change (MSAA capture goes from explicit error to working resolve) was explicitly user-approved in backlog.md Deferred header (2026-07-16: push completion unlocks R08->R09->R10->R17). Design follows the proven GAP-03/M0 patterns."
+}

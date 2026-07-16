@@ -5,10 +5,11 @@
 // xrEndFrame capture.cpp resolves the released swapchain image + subimage geometry under its mutex,
 // then hands us the raw ID3D11Texture2D* (as uint64_t) plus the DXGI format and rect. We acquire the
 // image's keyed mutex (runtime-shared textures gate reads on it), copy the requested rect into a
-// STAGING texture, map it, de-pad rows, swizzle BGRA->RGBA if needed, and encode an 8-bit RGBA PNG
-// via lodepng -- mirroring VulkanReadbackToPng's format handling / json result shape.
-// Unsupported formats and MSAA sources return an explicit error json, never a silently-broken image
-// (CLAUDE.md).
+// STAGING texture (multisampled sources get a ResolveSubresource into a reusable single-sample
+// intermediate first -- the D3D11 sibling of the Vulkan GAP-03 resolve), map it, de-pad rows,
+// swizzle BGRA->RGBA if needed, and encode an 8-bit RGBA PNG via lodepng -- mirroring
+// VulkanReadbackToPng's format handling / json result shape.
+// Unsupported formats return an explicit error json, never a silently-broken image (CLAUDE.md).
 
 #define XR_USE_GRAPHICS_API_D3D11
 
@@ -45,13 +46,72 @@ bool DxgiIsBGRA8(int64_t f) {
   return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 }
 
+// Reusable single-sample intermediate for the MSAA resolve (the D3D11 sibling of capture_vulkan's
+// EnsureResolveImage / GAP-03). ResolveSubresource always resolves a WHOLE subresource -- no rect
+// form exists -- so this is sized to the full swapchain texture and the requested rect is copied
+// out of it afterwards ("resolve, then rect-copy"). Cached across frames, recreated on
+// width/height/format change, released in D3D11Free.
+ID3D11Texture2D* g_resolve_tex = nullptr;
+UINT g_resolve_w = 0;
+UINT g_resolve_h = 0;
+DXGI_FORMAT g_resolve_format = DXGI_FORMAT_UNKNOWN;
+
+// Ensure the resolve intermediate matches w x h x fmt, (re)creating it on change. DEFAULT usage,
+// no bind flags (resolve destination + copy source need none). Returns false on failure.
+bool EnsureResolveTexture(UINT w, UINT h, DXGI_FORMAT fmt) {
+  if (g_resolve_tex != nullptr && g_resolve_w == w && g_resolve_h == h && g_resolve_format == fmt) {
+    return true;
+  }
+  if (g_resolve_tex != nullptr) {
+    g_resolve_tex->Release();
+    g_resolve_tex = nullptr;
+  }
+  g_resolve_w = 0;
+  g_resolve_h = 0;
+  g_resolve_format = DXGI_FORMAT_UNKNOWN;
+
+  D3D11_TEXTURE2D_DESC rdesc{};
+  rdesc.Width = w;
+  rdesc.Height = h;
+  rdesc.MipLevels = 1;
+  rdesc.ArraySize = 1;
+  rdesc.Format = fmt;
+  rdesc.SampleDesc.Count = 1;  // resolve target is single-sample by definition
+  rdesc.SampleDesc.Quality = 0;
+  rdesc.Usage = D3D11_USAGE_DEFAULT;
+  rdesc.BindFlags = 0;
+  rdesc.CPUAccessFlags = 0;
+  rdesc.MiscFlags = 0;
+  HRESULT hr = g_d3d11_device->CreateTexture2D(&rdesc, nullptr, &g_resolve_tex);
+  if (FAILED(hr) || g_resolve_tex == nullptr) {
+    g_resolve_tex = nullptr;
+    return false;
+  }
+  g_resolve_w = w;
+  g_resolve_h = h;
+  g_resolve_format = fmt;
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "resolve intermediate %ux%u fmt=%d", w, h, static_cast<int>(fmt));
+  LayerLog("d3d11 capture:", buf);
+  return true;
+}
+
 }  // namespace
 
 void D3D11SetDevice(void* id3d11Device) {
   g_d3d11_device = reinterpret_cast<ID3D11Device*>(id3d11Device);
 }
 
-void D3D11Free() { g_d3d11_device = nullptr; }
+void D3D11Free() {
+  if (g_resolve_tex != nullptr) {
+    g_resolve_tex->Release();
+    g_resolve_tex = nullptr;
+  }
+  g_resolve_w = 0;
+  g_resolve_h = 0;
+  g_resolve_format = DXGI_FORMAT_UNKNOWN;
+  g_d3d11_device = nullptr;
+}
 
 // Runs on the app (xrEndFrame) thread. Copies the subimage rect of `imageHandle` (an
 // ID3D11Texture2D*) into a STAGING texture and writes a PNG. Returns the result JSON (path on
@@ -59,15 +119,9 @@ void D3D11Free() { g_d3d11_device = nullptr; }
 nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint32_t sampleCount,
                                   int32_t x, int32_t y, int32_t w, int32_t h, uint32_t arrayIndex,
                                   const std::string& eye, int viewIndex) {
-  // Step 1: MSAA guard. CopySubresourceRegion cannot read a multisampled source (it needs a
-  // ResolveSubresource first), so refuse rather than emit a broken image. Guard BEFORE any copy.
-  if (sampleCount > 1) {
-    return {{"ok", false},
-            {"error", "D3D11 MSAA (sampleCount>1) resolve not implemented yet; core-required follow-on"},
-            {"api", "D3D11"},
-            {"eye", eye},
-            {"viewIndex", viewIndex}};
-  }
+  // Step 1: MSAA handling. CopySubresourceRegion cannot read a multisampled source; sampleCount>1
+  // takes a ResolveSubresource into a single-sample intermediate first (see Step 6).
+  const bool msaa = sampleCount > 1;
 
   // Step 2: format guard. Only 8-bit RGBA/BGRA are encoded; BGRA needs a B<->R swizzle on row copy.
   const bool rgba = DxgiIsRGBA8(dxgiFormat);
@@ -213,7 +267,36 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   box.right = static_cast<UINT>(x + w);
   box.bottom = static_cast<UINT>(y + h);
   box.back = 1;
-  ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, tex, srcSub, &box);
+  if (msaa) {
+    // ResolveSubresource has no rect form (whole-subresource only), so resolve the full source
+    // subresource into the reusable intermediate, then rect-copy from THAT. Both commands that read
+    // the shared texture are issued while the keyed mutex is held; the intermediate is
+    // process-local, so the mutex is released before the rect copy. The resolve format is the
+    // typed OpenXR swapchain format (it already passed the RGBA8/BGRA8 guard, so it is never
+    // typeless -- legal even if desc.Format were a typeless family).
+    if (!EnsureResolveTexture(desc.Width, desc.Height, desc.Format)) {
+      if (keyedMutex != nullptr) {
+        keyedMutex->ReleaseSync(0);
+        keyedMutex->Release();
+      }
+      ctx->Release();
+      staging->Release();
+      return {{"ok", false},
+              {"error", "CreateTexture2D(MSAA resolve intermediate) failed"},
+              {"api", "D3D11"},
+              {"eye", eye},
+              {"viewIndex", viewIndex}};
+    }
+    ctx->ResolveSubresource(g_resolve_tex, 0, tex, srcSub, static_cast<DXGI_FORMAT>(dxgiFormat));
+    if (keyedMutex != nullptr) {
+      keyedMutex->ReleaseSync(0);
+      keyedMutex->Release();
+      keyedMutex = nullptr;
+    }
+    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, g_resolve_tex, 0, &box);
+  } else {
+    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, tex, srcSub, &box);
+  }
 
   if (keyedMutex != nullptr) {
     keyedMutex->ReleaseSync(0);
@@ -260,8 +343,12 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
             {"viewIndex", viewIndex}};
   }
 
-  // Step 11: success.
-  return BuildCaptureSuccessJson(path, eye, viewIndex, "D3D11", uw, uh, arrayIndex, dxgiFormat);
+  // Step 11: success. sampleCount/msaaResolved mirror the Vulkan result shape (capture_vulkan.cpp).
+  nlohmann::json result =
+      BuildCaptureSuccessJson(path, eye, viewIndex, "D3D11", uw, uh, arrayIndex, dxgiFormat);
+  result["sampleCount"] = sampleCount;
+  result["msaaResolved"] = msaa;
+  return result;
 }
 
 }  // namespace vr_agent

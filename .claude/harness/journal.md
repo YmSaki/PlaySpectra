@@ -345,3 +345,18 @@ Note: bug-Fable A5 referenced `capture_d3d11.cpp` — that file does NOT exist (
   (graphicsplugin_d3d12.cpp の RTV/DSV/深度ヒープ)。
 - 判断記録: h-evolve は未処理 learnings 4件(L60-L63)だが、ユーザー明示指示の R08→R09→R10→R17 連鎖を
   優先し**チェーン完走後に実施**(R09 以降で同族知見が増えるため蒸留効率も良い)。
+
+## 2026-07-17 — R09 d3d12-msaa 出荷 (auto連鎖 2/4)
+
+**成果**: D3D12 MSAA キャプチャ対応(squash 1件)。metasim 18/18 / monado SKIP(D3D11 と同型拒否) /
+回帰 17/17×2。レビュー pass(findings なし)。
+
+- L64: **Monado の MSAA スワップチェーン拒否は D3D11/D3D12 共通**(いずれも xrCreateSwapchain →
+  XR_ERROR_VALIDATION_FAILURE、v25.1.0-646)。R08 の「観測された拒否のみ SKIP」機構がテスト無改修で
+  D3D12 にも効いた — ランタイム非依存の能力 SKIP 設計の妥当性を裏付け。
+- L65: hello_xr の D3D12 プラグインは RTV/DSV の MSAA 次元は stock 対応済みで、盲点は
+  「override 不在(recommended=1 継承)」「深度 SampleDesc」「**PSO の SampleDesc**(RT と一致必須、
+  D3D12 固有)」の3点だった。同族 API でも盲点の所在は別物 — L63 の「先に疑う」が有効だった。
+- L66: D3D12 の常在状態キャッシュ(RESOLVE_DEST)は「使用後に同一コマンドリスト内で復元」で不変条件を
+  保てる。エラー経路は「barrier 記録前に fail を返す」順序にすれば開いたリスト破棄でも安全
+  (レビューで全経路確認済み)。

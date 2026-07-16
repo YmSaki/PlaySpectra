@@ -1,9 +1,9 @@
 {
   "version": 1,
   "active": true,
-  "task": "R09 d3d12-msaa: sampleCount>1 を ResolveSubresource(遷移+解決→矩形readback)で対応 — backlog Deferred(ユーザー承認済み)",
-  "phase": "ship",
-  "iteration": 4,
+  "task": "",
+  "phase": "inv",
+  "iteration": 0,
   "max_iterations": 30,
   "work_retry": 0,
   "max_work_retry": 3,
@@ -11,10 +11,10 @@
   "max_review_rejections": 3,
   "review_files_history": [],
   "last_nudge_iteration": 3,
-  "auto_remaining": 3,
+  "auto_remaining": 2,
   "workflow": {
     "phases": ["inv", "plan", "work", "review", "ship"],
     "parallel_groups": []
   },
-  "updated_at": "2026-07-16T16:22:00Z"
+  "updated_at": "2026-07-16T17:02:00Z"
 }

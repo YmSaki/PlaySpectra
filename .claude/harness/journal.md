@@ -360,3 +360,16 @@ Note: bug-Fable A5 referenced `capture_d3d11.cpp` — that file does NOT exist (
 - L66: D3D12 の常在状態キャッシュ(RESOLVE_DEST)は「使用後に同一コマンドリスト内で復元」で不変条件を
   保てる。エラー経路は「barrier 記録前に fail を返す」順序にすれば開いたリスト破棄でも安全
   (レビューで全経路確認済み)。
+
+## 2026-07-17 — R10 d3d-hdr 出荷 (auto連鎖 3/4)
+
+**成果**: D3D11/D3D12 の 16F HDR decode(squash 1件)。HDR E2E 18/18×全4組合せ(monado も HDR は受理 —
+MSAA 拒否と対照的)。回帰 17/17×4+MSAA 18/18×2+単体 14/14。レビュー needs-fix→修正→pass。
+
+- L67: **共有ヘルパーに新しい依存を足したら、それを自前コンパイルする全ターゲット(vr_agent_test)の
+  ソース列も追従させる**。DoD が本体ビルドのみだとテストターゲットのリンク切れをすり抜ける —
+  レビューで検出(lens 1 の変種)。今後の DoD には「vr_agent_test も green」を含める。
+- L68: hello_xr の SelectColorSwapchainFormat は find_first_of で**ランタイム列挙順**に選ぶ —
+  選好リストへの追加ではフォーマットを強制できない(env 時early return が正解)。
+- L69: 16bit TYPELESS は UNORM/FLOAT の解釈が曖昧なため受理しない(8bit TYPELESS との非対称は原理的
+  一貫: 8bit は族内でバイト配置同一、16bit はビット解釈が別物)。レビューでも妥当判定。

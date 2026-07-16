@@ -15,3 +15,4 @@
 {"ts":"2026-07-16T11:35:00Z","task_id":"m5-openvr-docs","phases":["inv","plan","work","review","ship"],"iterations":5,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
 {"ts":"2026-07-16T16:20:00Z","task_id":"r08-d3d11-msaa","phases":["inv","plan","work","review","ship"],"iterations":4,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
 {"ts":"2026-07-16T17:00:00Z","task_id":"r09-d3d12-msaa","phases":["inv","plan","work","review","ship"],"iterations":4,"max_iterations":30,"review_rejections":0,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}
+{"ts":"2026-07-16T18:00:00Z","task_id":"r10-d3d-hdr","phases":["inv","plan","work","review","ship"],"iterations":6,"max_iterations":30,"review_rejections":1,"plateau_fired":false,"parallel_groups":0,"outcome":"done"}

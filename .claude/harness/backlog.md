@@ -23,7 +23,6 @@
 - **[P2] openvr-real-game-injection** — 実ゲーム(OpenXR or OpenVRレガシー直読み系)での入力注入到達検証。M4 の SKIP 事項(OC の IVRInput マニフェスト・ルーティングは legacy 合成で未到達)。ゲーム選定はユーザー判断。 — src: journal 2026-07-16 (M4/M5)
 
 ## Deferred — behavior-changing (⚠ 2026-07-16 ユーザー着手指示あり: 「push(A)の次にこれ(C)をやる」— push 完了後に R08→R09→R10→R17 の順で着手可)
-- **[P1] R10 d3d-hdr** — R16G16B16A16_FLOAT を pixel_convert(HalfToFloat/QuantizeSrgb)共有で D3D11/D3D12 に half→sRGB decode 追加。結果 JSON の tonemapped/colorConversion フィールドも Vulkan と同形に。**depends R03(済)**。
 - **[P2] R17 d3d11-typeless** — D3D11 でも TYPELESS 受理。staging を desc.Format(=TYPELESS)のまま作って生バイトを読めば済む(D3D12 の ResolveFootprintFormat と同規則の同族 UNORM 解釈でも可)。R16 の allowTypeless=true に切り替えるだけの局所変更。**depends R16**。effort S。
 - **[P2] R15 error-json-unify** — エラー応答の api/eye/viewIndex を共通 fail ヘルパー(capture_common)で3バックエンド統一(Vulkan にも追加、D3D11 の10箇所手書きを置換)。エラー文言は不変だが出力が変わるため挙動変更扱い。成功 JSON の sampleCount/msaaResolved 等を統一するかは実施時に1行決める。追記(R08 review nit): capture_d3d11 の EnsureResolveTexture 失敗 JSON に hr 併記も(兄弟エラーは全て hr 付き)。
 > これらは出力が変わるため、ユーザー承認まで自動着手しない。~~この環境で E2E 不可~~ → **2026-07-16 解消**:
@@ -32,6 +31,7 @@
 ## Doing
 
 ## Done
+- **[P1] R10 d3d-hdr** — 16F half→sRGB decode を capture_common 共有(DecodeHdrRowsToSrgb+単体テスト)で D3D11/D3D12 へ。JSON は Vulkan 同形・同文言。16bit TYPELESS は明示エラー維持。HDR E2E 18/18×4組合せ・回帰17/17×4・MSAA 18/18×2・単体14/14。レビュー needs-fix(vr_agent_test 依存漏れ)→修正→pass。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L67-L69)
 - **[P1] R09 d3d12-msaa** — D3D12 MSAA を RESOLVE 遷移+RESOLVE_DEST 常在中間キャッシュで対応。hello_xr D3D12 パッチ3点(env override/深度 SampleDesc/PSO SampleDesc)。monado は D3D11 と同型拒否=SKIP。metasim 18/18・回帰17/17×2・レビュー pass(findings なし)。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L64-L66)
 - **[P1] R08 d3d11-msaa** — D3D11 MSAA を ResolveSubresource 2段構成+再利用キャッシュで対応。hello_xr へ HELLO_XR_SAMPLE_COUNT パッチ(RTV/DSV MSAA 追従込み)、MSAA アサーション+ランタイム能力 SKIP(monado は VALIDATION_FAILURE で拒否=SKIP)。metasim 18/18・回帰17/17×2・レビュー pass。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L60-L63)
 - **[P3] m5-openvr-docs** — README+メモリ反映(事実照合レビュー pass)。**OpenVRマイルストーン M0〜M5 完了**。 → resolved c4c3f33。 — src: journal 2026-07-16 (M5)

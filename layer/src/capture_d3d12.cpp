@@ -29,6 +29,7 @@
 
 #include "capture_backends.h"
 #include "capture_common.h"
+#include "dxgi_formats.h"
 #include "lodepng.h"
 
 namespace vr_agent {
@@ -40,30 +41,6 @@ using Microsoft::WRL::ComPtr;
 // only borrow them between xrCreateSession and xrDestroySession. queue is the app's DIRECT queue.
 ID3D12Device* g_d3d12_device = nullptr;
 ID3D12CommandQueue* g_d3d12_queue = nullptr;
-
-// 8-bit-per-channel RGBA-order formats (channel bytes already in R,G,B,A order in memory).
-bool DxgiIsRGBA8(int64_t f) {
-  return f == DXGI_FORMAT_R8G8B8A8_UNORM || f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
-         f == DXGI_FORMAT_R8G8B8A8_TYPELESS;
-}
-// 8-bit-per-channel BGRA-order formats (need B<->R swizzle to get RGBA for PNG).
-bool DxgiIsBGRA8(int64_t f) {
-  return f == DXGI_FORMAT_B8G8R8A8_UNORM || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB ||
-         f == DXGI_FORMAT_B8G8R8A8_TYPELESS;
-}
-// 16-bit float HDR (decoded half->sRGB via the shared DecodeHdrRowsToSrgb). Deliberately excludes
-// R16G16B16A16_TYPELESS: unlike the 8-bit families a typeless 16-bit swapchain could be UNORM or
-// FLOAT and guessing the interpretation risks a silently-wrong image -- explicit error instead.
-bool DxgiIsHDR16F(int64_t f) { return f == DXGI_FORMAT_R16G16B16A16_FLOAT; }
-
-// A fully-typed DXGI format for the copyable footprint / copy destination. TYPELESS resources have an
-// undefined copyable layout, so resolve them to the matching UNORM member of the same (copy-compatible)
-// format family. SRGB carries the same byte layout and copies fine, so it is left as-is.
-DXGI_FORMAT ResolveFootprintFormat(int64_t f) {
-  if (f == DXGI_FORMAT_R8G8B8A8_TYPELESS) return DXGI_FORMAT_R8G8B8A8_UNORM;
-  if (f == DXGI_FORMAT_B8G8R8A8_TYPELESS) return DXGI_FORMAT_B8G8R8A8_UNORM;
-  return static_cast<DXGI_FORMAT>(f);
-}
 
 // Reusable single-sample intermediate for the MSAA resolve (sibling of capture_d3d11's
 // EnsureResolveTexture / capture_vulkan's EnsureResolveImage). ResolveSubresource resolves a WHOLE
@@ -199,7 +176,7 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   rectDesc.Height = uh;
   rectDesc.DepthOrArraySize = 1;
   rectDesc.MipLevels = 1;
-  rectDesc.Format = ResolveFootprintFormat(dxgiFormat);
+  rectDesc.Format = DxgiResolveTyped(dxgiFormat);
   rectDesc.SampleDesc.Count = 1;
   rectDesc.SampleDesc.Quality = 0;
   rectDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -286,11 +263,11 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   if (msaa) {
     // ResolveSubresource has no rect form (whole-subresource only): resolve the full source
     // subresource into the reusable single-sample intermediate, then rect-copy from THAT. The
-    // resolve format must be fully typed (ResolveFootprintFormat maps TYPELESS to its UNORM
+    // resolve format must be fully typed (DxgiResolveTyped maps TYPELESS to its UNORM
     // member). The intermediate lives in RESOLVE_DEST between captures; this list moves it to
     // COPY_SOURCE for the copy and back at the end.
     HRESULT rhr = S_OK;
-    if (!EnsureResolveResource(srcDesc.Width, srcDesc.Height, ResolveFootprintFormat(dxgiFormat),
+    if (!EnsureResolveResource(srcDesc.Width, srcDesc.Height, DxgiResolveTyped(dxgiFormat),
                                &rhr)) {
       return fail("CreateCommittedResource(MSAA resolve intermediate) failed hr=0x" +
                   std::to_string(rhr));
@@ -301,7 +278,7 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
     cmdList->ResourceBarrier(1, &barrier);
 
     cmdList->ResolveSubresource(g_resolve_res.Get(), 0, tex, subresource,
-                                ResolveFootprintFormat(dxgiFormat));
+                                DxgiResolveTyped(dxgiFormat));
 
     D3D12_RESOURCE_BARRIER interToCopy = {};
     interToCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

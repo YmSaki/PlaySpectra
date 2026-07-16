@@ -29,9 +29,10 @@ FetchContent_MakeAvailable(openxr_sdk)
 FetchContent_Declare(
   lodepng
   GIT_REPOSITORY https://github.com/lvandeve/lodepng.git
-  GIT_TAG        master
+  GIT_TAG        ed6fe5825c6a4fbb7f58ab35a4231c7543cd452a
+  SOURCE_SUBDIR  _none
 )
-FetchContent_Populate(lodepng)
+FetchContent_MakeAvailable(lodepng)
 
 FetchContent_Declare(
   nlohmann_json

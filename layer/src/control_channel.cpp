@@ -8,12 +8,12 @@
 
 #include "control_channel.h"
 #include "capture.h"
+#include "xr_math.h"           // NormalizeQuat
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <atomic>
-#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <mutex>
@@ -68,15 +68,6 @@ std::vector<HapticEvent> g_haptic_log;  // under g_state_mutex; capped to kHapti
 constexpr size_t kHapticLogMax = 64;
 
 void LogCC(const std::string& msg) { LayerLog("control_channel", msg.c_str()); }
-
-// Normalize a quaternion in place. Values arriving over JSON carry no unit-length guarantee, and a
-// non-unit quaternion both violates the XrPosef spec and makes the layer's rotation math scale by
-// |q|^2 (distorting the very IPD the head-rebase preserves). Degenerate (zero) -> identity.
-void NormalizeQuat(float& x, float& y, float& z, float& w) {
-  float n = std::sqrt(x * x + y * y + z * z + w * w);
-  if (n < 1e-8f) { x = y = z = 0.0f; w = 1.0f; return; }
-  x /= n; y /= n; z /= n; w /= n;
-}
 
 // Compose "/user/hand/<hand>" from a "left"/"right" field.
 std::string TopLevelFromHand(const std::string& hand) { return "/user/hand/" + hand; }

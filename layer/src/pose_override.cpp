@@ -13,6 +13,7 @@
 
 #include "action_registry.h"   // ActionMutex() + the grip/aim registry containers (cluster F, shared)
 #include "control_channel.h"   // HeadPose / StickyPose + ControlChannelGetStickyPoses
+#include "xr_math.h"           // QMul / QConj / QRot / VAdd / VSub
 #include "layer_dispatch.h"    // Dispatch() (raw next xrLocateSpace / xrCreateReferenceSpace)
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
@@ -39,21 +40,6 @@ std::set<XrSpace> g_view_spaces;  // reference spaces of type VIEW (from xrCreat
 // All reference spaces -> their type, so the `view` command can name the app's view-locate space
 // (LOCAL / STAGE / ...). Guarded by g_view_spaces_mutex; populated/erased alongside g_view_spaces.
 std::map<XrSpace, XrReferenceSpaceType> g_ref_space_types;
-
-XrQuaternionf QMul(const XrQuaternionf& a, const XrQuaternionf& b) {
-  return XrQuaternionf{a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-                       a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-                       a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-                       a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
-}
-XrQuaternionf QConj(const XrQuaternionf& q) { return XrQuaternionf{-q.x, -q.y, -q.z, q.w}; }
-XrVector3f QRot(const XrQuaternionf& q, const XrVector3f& v) {
-  XrQuaternionf p{v.x, v.y, v.z, 0.0f};
-  XrQuaternionf r = QMul(QMul(q, p), QConj(q));  // unit-quat rotation: q * (v,0) * q*
-  return XrVector3f{r.x, r.y, r.z};
-}
-XrVector3f VAdd(const XrVector3f& a, const XrVector3f& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-XrVector3f VSub(const XrVector3f& a, const XrVector3f& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 
 // Injected poses (head, controller grip) are defined in LOCAL (control_channel.h). An app may
 // locate in a different world space (e.g. STAGE), so re-express `poseLocal` in `targetSpace` by

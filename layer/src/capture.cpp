@@ -377,6 +377,57 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
     g_last_frame = snap;
   }
 
+  // --- Recording path (periodic capture, independent of one-shot screenshots) ---
+  {
+    std::lock_guard<std::mutex> recLock(g_rec_mutex);
+    if (g_recording && snap.hadProjection && (snap.frameCount % g_rec_interval == 0)) {
+      try {
+        int idx = EyeToIndex(g_rec_eye, snap.viewCount);
+        if (idx >= 0 && idx < static_cast<int>(snap.views.size())) {
+          const auto& view = snap.views[idx];
+          std::lock_guard<std::mutex> mlock(g_mutex);
+          auto it = g_swapchains.find(view.swapchain);
+          if (it != g_swapchains.end() && it->second.lastReleasedIndex < it->second.images.size()) {
+            uint64_t rawHandle = it->second.images[it->second.lastReleasedIndex];
+            int64_t format = it->second.format;
+            uint32_t sampleCount = it->second.sampleCount;
+            struct Backend {
+              GfxApi api;
+              json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t,
+                               uint32_t, const std::string&, int);
+            };
+            static const Backend kBe[] = {
+                {GfxApi::Vulkan, VulkanReadbackToPng},
+                {GfxApi::D3D11, D3D11ReadbackToPng},
+                {GfxApi::D3D12, D3D12ReadbackToPng},
+            };
+            for (const Backend& b : kBe) {
+              if (b.api == g_api) {
+                char fname[64];
+                std::snprintf(fname, sizeof(fname), "/rec_%04llu.png",
+                              static_cast<unsigned long long>(g_rec_seq));
+                std::string recPath = g_rec_dir + fname;
+                json r = b.readback(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                    view.arrayIndex, g_rec_eye, idx);
+                if (r.value("ok", false)) {
+                  std::string srcPath = r.value("path", "");
+                  if (!srcPath.empty()) {
+                    rename(srcPath.c_str(), recPath.c_str());
+                    g_rec_entries.push_back({recPath, snap.frameCount, RecTimestamp()});
+                    g_rec_seq++;
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+      } catch (...) {
+        Log("recording frame capture failed (exception swallowed)");
+      }
+    }
+  }
+
   // Fulfil a pending screenshot request, if any.
   std::unique_lock<std::mutex> rlock(g_req_mutex);
   if (!g_req_pending) return;

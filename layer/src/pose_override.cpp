@@ -12,7 +12,7 @@
 #include <openxr/openxr.h>
 
 #include "action_registry.h"   // ActionMutex() + the grip/aim registry containers (cluster F, shared)
-#include "control_channel.h"   // HeadPose / StickyPose + ControlChannelGetStickyPoses
+#include "layer_state.h"       // HeadPose / StickyPose + LayerStateGetStickyPoses
 #include "xr_math.h"           // QMul / QConj / QRot / VAdd / VSub
 #include "layer_dispatch.h"    // Dispatch() (raw next xrLocateSpace / xrCreateReferenceSpace)
 #include "layer_log.h"         // LayerLog
@@ -291,7 +291,7 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   // Widen the existing single sticky-pose read to accept the first injected pose whose hand is a
   // candidate. Single candidate -> exact per-hand match (unchanged). Ambiguous both-hands candidate ->
   // the injected pose is the natural tiebreak (whichever hand you injected wins).
-  std::vector<vr_agent::StickyPose> poses = vr_agent::ControlChannelGetStickyPoses();
+  std::vector<vr_agent::StickyPose> poses = vr_agent::LayerStateGetStickyPoses();
   XrPosef gripLocal{};
   bool have = false;
   std::string matchedHand;

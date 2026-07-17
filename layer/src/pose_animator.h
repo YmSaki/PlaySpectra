@@ -33,7 +33,7 @@
 
 #include <openxr/openxr.h>
 
-#include "control_channel.h"  // StickyPose / HeadPose (the animation targets)
+#include "layer_state.h"  // StickyPose / HeadPose (the animation targets)
 
 namespace vr_agent {
 

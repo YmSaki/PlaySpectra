@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "control_channel.h"   // ControlChannelGetHead / ControlChannelSetViews / HeadPose / ViewInfo
+#include "layer_state.h"       // LayerStateGetHead / LayerStateSetViews / HeadPose / ViewInfo
 #include "layer_dispatch.h"    // Dispatch() / CurrentSession()
 #include "pose_animator.h"     // AnimatorEvalHead / AnimatorNoteDisplayTime (durationMs glide)
 #include "pose_override.h"     // pose math + VIEW tracking + velocity/next-chain helpers
@@ -53,7 +53,7 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
       // Head override is a PULL-model interception: unlike controller poses (which are pushed to the
       // runtime via xrSetInputDeviceLocationEXT on every xrSyncActions), the head is applied by
       // reading g_head here at locate time and rewriting the runtime's answer -- no per-sync re-apply.
-      if (vr_agent::ControlChannelGetHead(h)) {
+      if (vr_agent::LayerStateGetHead(h)) {
         h = EvalHead(h, viewLocateInfo ? viewLocateInfo->displayTime
                                        : vr_agent::AnimatorLastDisplayTime());
         const XrViewStateFlags need =
@@ -96,7 +96,7 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
           }
           const std::string space =
               viewLocateInfo ? DescribeRefSpace(viewLocateInfo->space) : std::string("unknown");
-          vr_agent::ControlChannelSetViews(infos, space);
+          vr_agent::LayerStateSetViews(infos, space);
         }
       }
     }
@@ -134,7 +134,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
       bool overrode = false;
       if (IsViewSpace(space)) {
         vr_agent::HeadPose h;
-        if (!IsViewSpace(baseSpace) && vr_agent::ControlChannelGetHead(h)) {
+        if (!IsViewSpace(baseSpace) && vr_agent::LayerStateGetHead(h)) {
           h = EvalHead(h, time);
           const vr_agent::HeadPose hInBase = TransformHeadToSpace(CurrentSession(), h, baseSpace, time);
           overrode = ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
@@ -170,7 +170,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
     XrResult r = next(session, locateInfo, locations);
     if (XR_SUCCEEDED(r) && locateInfo && locateInfo->spaces && locations && locations->locations) {
       vr_agent::HeadPose h;
-      const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::ControlChannelGetHead(h);
+      const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::LayerStateGetHead(h);
       if (headActive) h = EvalHead(h, locateInfo->time);
       const vr_agent::HeadPose hInBase =
           headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;

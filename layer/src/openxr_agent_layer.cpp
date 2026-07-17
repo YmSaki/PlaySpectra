@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "control_channel.h"
+#include "layer_state.h"
 #include "hooks_action.h"
 #include "hooks_capture.h"
 #include "hooks_locate.h"
@@ -164,7 +165,7 @@ void PublishRuntimeName() {
   if (!get_props) return;
   XrInstanceProperties props{XR_TYPE_INSTANCE_PROPERTIES};
   if (get_props(CurrentInstance(), &props) == XR_SUCCESS) {
-    vr_agent::ControlChannelSetRuntimeName(props.runtimeName);
+    vr_agent::LayerStateSetRuntimeName(props.runtimeName);
     Log("runtime", props.runtimeName);
   }
 }
@@ -226,9 +227,9 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
       // GAP-07: resolve the whole next-layer table now, against THIS instance's chain. Rebuilt on
       // every create so a second instance never inherits the previous runtime's stale pointers.
       RebuildLayerDispatch();
-      vr_agent::ControlChannelSetInstance(true);
-      vr_agent::ControlChannelSetSession(false);
-      vr_agent::ControlChannelSetConformanceAutomation(ca_supported);
+      vr_agent::LayerStateSetInstance(true);
+      vr_agent::LayerStateSetSession(false);
+      vr_agent::LayerStateSetConformanceAutomation(ca_supported);
       PublishRuntimeName();
       vr_agent::ControlChannelStart();
       Log("instance created; control channel started");

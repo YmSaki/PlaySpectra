@@ -9,7 +9,8 @@
 
 #include "action_registry.h"   // ActionMutex() / Registry* / ActionReg
 #include "capture.h"           // CaptureOnDestroySession
-#include "control_channel.h"   // ControlChannel* (session/instance flags, haptic record, stop)
+#include "control_channel.h"   // ControlChannelStop
+#include "layer_state.h"       // LayerState* (session/instance flags, haptic record)
 #include "input_inject.h"      // CA + GAP-08 non-CA fallback entry points
 #include "layer_dispatch.h"    // Dispatch() / instance-session state / CaEnabled() / PathToStr()
 #include "layer_log.h"         // LayerLog
@@ -68,7 +69,7 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         FallbackClearSessionScoped();    // [G] GAP-08: sync state + pending IP event (per-session)
       }
       SetCurrentSession(XR_NULL_HANDLE);
-      vr_agent::ControlChannelSetSession(false);
+      vr_agent::LayerStateSetSession(false);
       vr_agent::CaptureOnDestroySession(session);
     }
     return next ? next(session) : XR_ERROR_FUNCTION_UNSUPPORTED;
@@ -210,7 +211,7 @@ XrResult XRAPI_CALL Hook_xrApplyHapticFeedback(XrSession session, const XrHaptic
       std::string sp = PathToStr(hapticActionInfo->subactionPath);
       if (!sp.empty()) hand = sp;
     }
-    vr_agent::ControlChannelRecordHaptic(hand, amplitude);
+    vr_agent::LayerStateRecordHaptic(hand, amplitude);
     Log("xrApplyHapticFeedback (app buzzed the controller -- grab detected)");
     PFN_xrApplyHapticFeedback next = Dispatch().applyHapticFeedback;
     return next ? next(session, hapticActionInfo, hapticFeedback) : XR_SUCCESS;
@@ -229,8 +230,8 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
       FallbackClearInstanceScoped();  // [G] GAP-08: fallback state keyed by (now-invalid) actions
     }
     vr_agent::ControlChannelStop();
-    vr_agent::ControlChannelSetInstance(false);
-    vr_agent::ControlChannelSetSession(false);
+    vr_agent::LayerStateSetInstance(false);
+    vr_agent::LayerStateSetSession(false);
     // XrTime values are runtime-scoped: drop the cached display time + glide state so a fresh
     // instance never compares its times against this dead runtime's. Leaf mutex; no lock held here.
     vr_agent::AnimatorReset();

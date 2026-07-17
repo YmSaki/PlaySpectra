@@ -14,7 +14,7 @@
 
 #include <string>
 
-#include "control_channel.h"  // HeadPose (injected head pose the override consumes)
+#include "layer_state.h"  // HeadPose (injected head pose the override consumes)
 
 namespace vr_agent {
 

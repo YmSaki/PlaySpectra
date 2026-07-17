@@ -3,7 +3,7 @@
 #include "hooks_capture.h"
 
 #include "capture.h"           // CaptureOn* frame/swapchain/session notifications
-#include "control_channel.h"   // ControlChannelSetSession
+#include "layer_state.h"       // LayerStateSetSession
 #include "layer_dispatch.h"    // Dispatch() / SetCurrentSession()
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorNoteDisplayTime (durationMs glide time base)
@@ -25,7 +25,7 @@ XrResult XRAPI_CALL Hook_xrCreateSession(XrInstance instance, const XrSessionCre
     XrResult r = next(instance, createInfo, session);
     if (XR_SUCCEEDED(r) && session) {
       SetCurrentSession(*session);
-      vr_agent::ControlChannelSetSession(true);
+      vr_agent::LayerStateSetSession(true);
       vr_agent::CaptureOnCreateSession(createInfo, *session);
       Log("session created");
     }

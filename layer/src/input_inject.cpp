@@ -12,7 +12,7 @@
 #include <openxr/openxr.h>
 
 #include "action_registry.h"   // ActionMutex() + RegistryActions() (cluster F container, shared) + BindingReg
-#include "control_channel.h"   // PendingInput / StickyPose / InputType + drain/sticky queries
+#include "layer_state.h"
 #include "layer_dispatch.h"    // Dispatch() / CaEnabled() / ToPath() (runtime-backed)
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
@@ -29,8 +29,8 @@ void Log(const char* msg, const char* detail = nullptr) { LayerLog(msg, detail);
 // Drain queued MCP input commands and apply them via conformance automation. Runs on the app
 // thread from inside the xrSyncActions hook, so the runtime latches the new state on this sync.
 void ApplyPendingInputs(XrSession session) {
-  std::vector<vr_agent::PendingInput> batch = vr_agent::ControlChannelDrainInputs();
-  std::vector<vr_agent::StickyPose> poses = vr_agent::ControlChannelGetStickyPoses();
+  std::vector<vr_agent::PendingInput> batch = vr_agent::LayerStateDrainInputs();
+  std::vector<vr_agent::StickyPose> poses = vr_agent::LayerStateGetStickyPoses();
   if (batch.empty() && poses.empty()) return;
   if (!CaEnabled()) {
     Log("input dropped: conformance_automation not enabled on this runtime");
@@ -141,7 +141,7 @@ std::vector<XrAction> ActionsBoundTo(const std::string& sourceBindingPath) {
 // refresh the active-action-set set, and recompute changedSinceLastSync/lastChangeTime. Controller
 // poses are NOT handled here -- ApplyPoseOverride is the authoritative pose source in both CA and non-CA.
 void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
-  std::vector<vr_agent::PendingInput> batch = vr_agent::ControlChannelDrainInputs();
+  std::vector<vr_agent::PendingInput> batch = vr_agent::LayerStateDrainInputs();
 
   // Resolve each injection's subactionPath BEFORE taking g_action_mutex: ToPath calls the runtime
   // (xrStringToPath), and the established rule (GAP-06) is to never call the runtime while holding

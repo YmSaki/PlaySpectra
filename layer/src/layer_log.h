@@ -2,8 +2,6 @@
 // translation units that use it stop re-declaring the same extern by hand (the old "implicit ABI").
 #pragma once
 
-#include <string>
-
 namespace vr_agent {
 
 // Append a line to the layer log (path from VR_AGENT_LOG, else %TEMP%\vr_agent_layer.log). Implemented

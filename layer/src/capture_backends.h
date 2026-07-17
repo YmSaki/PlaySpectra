@@ -4,9 +4,8 @@
 // hand the app -- Vulkan, D3D11, D3D12 (XrGraphicsBinding{Vulkan,D3D11,D3D12}KHR). This is one
 // dispatch mechanism with a pluggable backend per API, NOT a parallel capture system: capture.cpp
 // resolves the released swapchain image + subimage geometry under its mutex, then calls the matching
-// backend below. Each backend lives in its own translation unit (capture_d3d11.cpp / capture_d3d12.cpp)
-// so the GPU-specific code stays isolated and reviewable; Vulkan stays inline in capture.cpp because it
-// also owns MSAA-resolve / HDR handling on the shared readback path.
+// backend below. Each backend lives in its own translation unit (capture_vulkan.cpp /
+// capture_d3d11.cpp / capture_d3d12.cpp) so the GPU-specific code stays isolated and reviewable.
 //
 // The interface is deliberately FLAT (primitive args only): no capture.cpp-internal type
 // (EndFrameSnapshot::View, SwapchainInfo, g_swapchains) crosses the TU boundary. The raw image handle

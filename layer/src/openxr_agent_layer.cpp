@@ -3,20 +3,15 @@
 // Exports only xrNegotiateLoaderApiLayerInterface -- the loader chains us in via
 // nextGetInstanceProcAddr, we never link against openxr_loader ourselves.
 //
-// Walking skeleton (tasks #6 + #7-lite): the layer runs a localhost TCP NDJSON control channel
-// (control_channel.cpp) that the MCP server drives. Input mutations are applied on the app's own
-// thread inside the xrSyncActions hook via XR_EXT_conformance_automation -- which the layer
-// transparently enables at instance creation so the runtime handles isActive / interaction-profile
-// binding / sync latching for us. xrApplyHapticFeedback is hooked purely to observe "the app buzzed
-// the controller" (hello_xr vibrates when grab > 0.9), giving an end-to-end signal without capture.
+// The layer runs a localhost TCP NDJSON control channel (control_channel.cpp) that the MCP server
+// drives. Input mutations are applied on the app's own thread inside the xrSyncActions hook via
+// XR_EXT_conformance_automation (or the non-CA fallback when CA is unavailable). Frame capture
+// covers all three OpenXR graphics bindings (Vulkan/D3D11/D3D12) including MSAA resolve, HDR
+// decode, and TYPELESS format handling. Head/VIEW override and controller pose override give the
+// MCP server full control of the observed viewpoint and input state.
 //
-// Implemented since the skeleton: frame capture (xrCreateSession graphics binding + swapchain +
-// xrEndFrame, VULKAN readback -- capture.cpp; D3D11/D3D12 still return an explicit "not implemented"
-// error, core-required follow-ups); head/VIEW override (xrLocateViews + xrLocateSpace(VIEW)); and
-// controller pose override (xrLocateSpace on grip action spaces) since the Meta sim ignores CA
-// orientation. The layer is the authoritative pose source at locate time; CA handles buttons/analog.
-// TODO(#7-full): per-instance dispatch state -- this still keeps a single global instance/session and
-//           each hook latches its next-pointer in a function static (see the 4-agent review notes).
+// Single XrInstance by design: the layer keeps one global instance/session (see
+// layer_dispatch.cpp). This is adequate for the headless single-app use case (VR-Playwright).
 
 #include <openxr/openxr.h>
 #include <openxr/openxr_loader_negotiation.h>

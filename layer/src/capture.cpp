@@ -1,11 +1,9 @@
 // VR-MCP frame capture.
 //
-// Increment A: OpenXR-side tracking + xrEndFrame projection parsing + capture-request handoff.
-// Increment B (this pass): the Vulkan GPU pixel readback + PNG encode. At xrEndFrame, the resolved
-// projection subimage's last-released VkImage is copied into a host-visible staging buffer and
-// encoded to a PNG via lodepng; vr_screenshot returns the file path. D3D11/D3D12 backends are
-// core-required follow-ons (CLAUDE.md) and currently return an explicit "not implemented" error
-// rather than a silently-broken image.
+// OpenXR-side tracking + xrEndFrame projection parsing + capture-request handoff. At xrEndFrame,
+// the resolved projection subimage's last-released image is dispatched to the graphics-API-specific
+// backend (capture_vulkan.cpp / capture_d3d11.cpp / capture_d3d12.cpp) for GPU readback + PNG
+// encode. All three OpenXR graphics bindings are supported.
 
 #define XR_USE_GRAPHICS_API_VULKAN
 #define XR_USE_GRAPHICS_API_D3D11

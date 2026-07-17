@@ -334,6 +334,24 @@ json Handle_view(const json&) {
   };
 }
 
+json Handle_start_recording(const json& req) {
+  const uint32_t interval = req.value("intervalFrames", 30u);
+  const std::string eye = req.value("eye", std::string("dominant"));
+  try {
+    return json::parse(CaptureStartRecording(interval, eye));
+  } catch (...) {
+    return json{{"ok", false}, {"error", "start_recording failed"}};
+  }
+}
+
+json Handle_stop_recording(const json&) {
+  try {
+    return json::parse(CaptureStopRecording());
+  } catch (...) {
+    return json{{"ok", false}, {"error", "stop_recording failed"}};
+  }
+}
+
 // Parse a single request line and return the JSON reply. Never throws (a malformed/mis-typed
 // request must produce an error reply, NEVER an exception -- an exception here would unwind through
 // the socket thread and std::terminate the whole VR app, i.e. the tool would crash the app it
@@ -359,6 +377,8 @@ json HandleRequest(const std::string& line) {
         {"head_clear", Handle_head_clear}, {"haptics", Handle_haptics},
         {"actions", Handle_actions},       {"reset", Handle_reset},
         {"active", Handle_active},         {"view", Handle_view},
+        {"start_recording", Handle_start_recording},
+        {"stop_recording", Handle_stop_recording},
     };
     for (const auto& h : kHandlers) {
       if (cmd == h.name) return h.fn(req);

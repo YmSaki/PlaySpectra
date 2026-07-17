@@ -46,4 +46,10 @@ std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs, bool
 // Snapshot of tracked state for vr_status / diagnostics.
 std::string CaptureStatusJson();
 
+// Recording mode: periodic frame capture to a PNG sequence + manifest.
+// start returns the session directory path; stop returns a JSON manifest of all captured frames.
+std::string CaptureStartRecording(uint32_t intervalFrames, const std::string& eye);
+std::string CaptureStopRecording();
+bool CaptureIsRecording();
+
 }  // namespace vr_agent

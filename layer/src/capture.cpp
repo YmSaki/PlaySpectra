@@ -13,6 +13,7 @@
 
 #include <windows.h>  // LoadLibraryA / GetProcAddress -- the layer loads Vulkan entry points at
                       // runtime and never links libvulkan (established design).
+#include <direct.h>   // _mkdir (recording session directory)
 
 #include <vulkan/vulkan.h>
 #include <d3d11.h>
@@ -28,6 +29,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <ctime>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
@@ -95,6 +98,28 @@ std::string g_req_eye;
 bool g_req_with_depth = false;
 bool g_req_done = false;
 std::string g_req_result;
+
+// --- recording mode (periodic capture) ---
+std::mutex g_rec_mutex;
+bool g_recording = false;
+uint32_t g_rec_interval = 30;
+std::string g_rec_eye;
+std::string g_rec_dir;
+uint64_t g_rec_seq = 0;
+struct RecEntry { std::string path; uint64_t frameNumber; std::string timestamp; };
+std::vector<RecEntry> g_rec_entries;
+
+std::string RecTimestamp() {
+  auto now = std::chrono::system_clock::now();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  std::time_t t = std::chrono::system_clock::to_time_t(now);
+  struct tm tm_buf;
+  localtime_s(&tm_buf, &t);
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
+                tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec, static_cast<int>(ms.count()));
+  return std::string(buf);
+}
 
 int DominantEyeIndex() {
   if (const char* e = std::getenv("VR_AGENT_DOMINANT_EYE")) {
@@ -353,6 +378,65 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
     g_last_frame = snap;
   }
 
+  // --- Recording path (periodic capture, independent of one-shot screenshots) ---
+  {
+    std::lock_guard<std::mutex> recLock(g_rec_mutex);
+    if (g_recording && snap.hadProjection && (snap.frameCount % g_rec_interval == 0)) {
+      try {
+        int idx = EyeToIndex(g_rec_eye, snap.viewCount);
+        if (idx >= 0 && idx < static_cast<int>(snap.views.size())) {
+          const auto& view = snap.views[idx];
+          uint64_t rawHandle = 0;
+          int64_t format = 0;
+          uint32_t sampleCount = 1;
+          GfxApi api = GfxApi::Unknown;
+          bool haveImage = false;
+          {
+            std::lock_guard<std::mutex> mlock(g_mutex);
+            auto it = g_swapchains.find(view.swapchain);
+            if (it != g_swapchains.end() && it->second.lastReleasedIndex < it->second.images.size()) {
+              rawHandle = it->second.images[it->second.lastReleasedIndex];
+              format = it->second.format;
+              sampleCount = it->second.sampleCount;
+              api = g_api;
+              haveImage = true;
+            }
+          }
+          if (haveImage) {
+            static const struct { GfxApi api;
+              json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t,
+                               uint32_t, const std::string&, int);
+            } kBe[] = {
+                {GfxApi::Vulkan, VulkanReadbackToPng},
+                {GfxApi::D3D11, D3D11ReadbackToPng},
+                {GfxApi::D3D12, D3D12ReadbackToPng},
+            };
+            for (const auto& b : kBe) {
+              if (b.api == api) {
+                char fname[64];
+                std::snprintf(fname, sizeof(fname), "/rec_%04llu.png",
+                              static_cast<unsigned long long>(g_rec_seq));
+                std::string recPath = g_rec_dir + fname;
+                json r = b.readback(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                    view.arrayIndex, g_rec_eye, idx);
+                if (r.value("ok", false)) {
+                  std::string srcPath = r.value("path", "");
+                  if (!srcPath.empty() && rename(srcPath.c_str(), recPath.c_str()) == 0) {
+                    g_rec_entries.push_back({recPath, snap.frameCount, RecTimestamp()});
+                    g_rec_seq++;
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+      } catch (...) {
+        Log("recording frame capture failed (exception swallowed)");
+      }
+    }
+  }
+
   // Fulfil a pending screenshot request, if any.
   std::unique_lock<std::mutex> rlock(g_req_mutex);
   if (!g_req_pending) return;
@@ -494,6 +578,59 @@ std::string CaptureStatusJson() {
               {"lastFrameViewCount", g_last_frame.viewCount},
               {"framesObserved", g_last_frame.frameCount}}
       .dump();
+}
+
+std::string CaptureStartRecording(uint32_t intervalFrames, const std::string& eye) {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  if (g_recording) {
+    return json{{"ok", false}, {"error", "recording already in progress"}}.dump();
+  }
+  auto now = std::chrono::system_clock::now();
+  auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  g_rec_dir = CaptureOutputDir() + "/recording_" + std::to_string(epoch_ms);
+  _mkdir(g_rec_dir.c_str());
+  g_rec_interval = intervalFrames > 0 ? intervalFrames : 30;
+  g_rec_eye = eye.empty() ? "dominant" : eye;
+  g_rec_seq = 0;
+  g_rec_entries.clear();
+  g_recording = true;
+  Log("recording started: dir=" + g_rec_dir + " interval=" + std::to_string(g_rec_interval) +
+      " eye=" + g_rec_eye);
+  return json{{"ok", true}, {"recording", true}, {"dir", g_rec_dir},
+              {"intervalFrames", g_rec_interval}, {"eye", g_rec_eye}}.dump();
+}
+
+std::string CaptureStopRecording() {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  if (!g_recording) {
+    return json{{"ok", false}, {"error", "no recording in progress"}}.dump();
+  }
+  g_recording = false;
+  json manifest = json::array();
+  for (const RecEntry& e : g_rec_entries) {
+    manifest.push_back({{"path", e.path}, {"frame", e.frameNumber}, {"timestamp", e.timestamp}});
+  }
+  std::string manifestPath = g_rec_dir + "/manifest.json";
+  try {
+    json manifestDoc = {{"frames", manifest}, {"count", g_rec_entries.size()},
+                         {"dir", g_rec_dir}, {"intervalFrames", g_rec_interval}, {"eye", g_rec_eye}};
+    FILE* f = fopen(manifestPath.c_str(), "w");
+    if (f) {
+      std::string s = manifestDoc.dump(2);
+      fwrite(s.data(), 1, s.size(), f);
+      fclose(f);
+    }
+  } catch (...) {}
+  uint64_t count = g_rec_entries.size();
+  g_rec_entries.clear();
+  Log("recording stopped: " + std::to_string(count) + " frames captured");
+  return json{{"ok", true}, {"recording", false}, {"dir", g_rec_dir},
+              {"manifestPath", manifestPath}, {"framesCaptured", count}}.dump();
+}
+
+bool CaptureIsRecording() {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  return g_recording;
 }
 
 }  // namespace vr_agent

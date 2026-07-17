@@ -289,6 +289,22 @@ async function main() {
         dshot.ok === true && dshot.depth != null && typeof dshot.depth.available === "boolean",
         JSON.stringify({ ok: dshot.ok, depthAvailable: dshot.depth?.available, note: dshot.depth?.note }));
 
+  // (f) recording mode: start -> wait for frames -> stop -> verify manifest has entries
+  const recStart = await rpc({ cmd: "start_recording", intervalFrames: 10, eye: "dominant" });
+  check("recording start ok", recStart.ok === true && recStart.recording === true,
+        JSON.stringify({ ok: recStart.ok, recording: recStart.recording, dir: recStart.dir }));
+  if (recStart.ok) {
+    await sleep(3000);
+    const recStop = await rpc({ cmd: "stop_recording" });
+    check("recording stop ok with frames captured",
+          recStop.ok === true && recStop.framesCaptured > 0,
+          `framesCaptured=${recStop.framesCaptured} dir=${recStop.dir}`);
+    if (recStop.manifestPath) {
+      const manifestExists = fs.existsSync(recStop.manifestPath);
+      check("recording manifest.json exists", manifestExists, `path=${recStop.manifestPath}`);
+    }
+  }
+
   console.log(`\n[integration] PASS=${pass} FAIL=${fail}`);
   sock.end();
   process.exit(fail > 0 ? 2 : 0);

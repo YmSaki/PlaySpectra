@@ -13,6 +13,7 @@
 
 #include <windows.h>  // LoadLibraryA / GetProcAddress -- the layer loads Vulkan entry points at
                       // runtime and never links libvulkan (established design).
+#include <direct.h>   // _mkdir (recording session directory)
 
 #include <vulkan/vulkan.h>
 #include <d3d11.h>
@@ -28,6 +29,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <ctime>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
@@ -95,6 +97,28 @@ std::string g_req_eye;
 bool g_req_with_depth = false;
 bool g_req_done = false;
 std::string g_req_result;
+
+// --- recording mode (periodic capture) ---
+std::mutex g_rec_mutex;
+bool g_recording = false;
+uint32_t g_rec_interval = 30;
+std::string g_rec_eye;
+std::string g_rec_dir;
+uint64_t g_rec_seq = 0;
+struct RecEntry { std::string path; uint64_t frameNumber; std::string timestamp; };
+std::vector<RecEntry> g_rec_entries;
+
+std::string RecTimestamp() {
+  auto now = std::chrono::system_clock::now();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  std::time_t t = std::chrono::system_clock::to_time_t(now);
+  struct tm tm_buf;
+  localtime_s(&tm_buf, &t);
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
+                tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec, static_cast<int>(ms.count()));
+  return std::string(buf);
+}
 
 int DominantEyeIndex() {
   if (const char* e = std::getenv("VR_AGENT_DOMINANT_EYE")) {
@@ -494,6 +518,59 @@ std::string CaptureStatusJson() {
               {"lastFrameViewCount", g_last_frame.viewCount},
               {"framesObserved", g_last_frame.frameCount}}
       .dump();
+}
+
+std::string CaptureStartRecording(uint32_t intervalFrames, const std::string& eye) {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  if (g_recording) {
+    return json{{"ok", false}, {"error", "recording already in progress"}}.dump();
+  }
+  auto now = std::chrono::system_clock::now();
+  auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  g_rec_dir = CaptureOutputDir() + "/recording_" + std::to_string(epoch_ms);
+  _mkdir(g_rec_dir.c_str());
+  g_rec_interval = intervalFrames > 0 ? intervalFrames : 30;
+  g_rec_eye = eye.empty() ? "dominant" : eye;
+  g_rec_seq = 0;
+  g_rec_entries.clear();
+  g_recording = true;
+  Log("recording started: dir=" + g_rec_dir + " interval=" + std::to_string(g_rec_interval) +
+      " eye=" + g_rec_eye);
+  return json{{"ok", true}, {"recording", true}, {"dir", g_rec_dir},
+              {"intervalFrames", g_rec_interval}, {"eye", g_rec_eye}}.dump();
+}
+
+std::string CaptureStopRecording() {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  if (!g_recording) {
+    return json{{"ok", false}, {"error", "no recording in progress"}}.dump();
+  }
+  g_recording = false;
+  json manifest = json::array();
+  for (const RecEntry& e : g_rec_entries) {
+    manifest.push_back({{"path", e.path}, {"frame", e.frameNumber}, {"timestamp", e.timestamp}});
+  }
+  std::string manifestPath = g_rec_dir + "/manifest.json";
+  try {
+    json manifestDoc = {{"frames", manifest}, {"count", g_rec_entries.size()},
+                         {"dir", g_rec_dir}, {"intervalFrames", g_rec_interval}, {"eye", g_rec_eye}};
+    FILE* f = fopen(manifestPath.c_str(), "w");
+    if (f) {
+      std::string s = manifestDoc.dump(2);
+      fwrite(s.data(), 1, s.size(), f);
+      fclose(f);
+    }
+  } catch (...) {}
+  uint64_t count = g_rec_entries.size();
+  g_rec_entries.clear();
+  Log("recording stopped: " + std::to_string(count) + " frames captured");
+  return json{{"ok", true}, {"recording", false}, {"dir", g_rec_dir},
+              {"manifestPath", manifestPath}, {"framesCaptured", count}}.dump();
+}
+
+bool CaptureIsRecording() {
+  std::lock_guard<std::mutex> lock(g_rec_mutex);
+  return g_recording;
 }
 
 }  // namespace vr_agent

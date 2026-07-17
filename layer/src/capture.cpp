@@ -22,6 +22,7 @@
 
 #include "capture.h"
 #include "capture_backends.h"
+#include "capture_common.h"
 #include "lodepng.h"
 
 #include <atomic>
@@ -117,23 +118,6 @@ std::string RecTimestamp() {
   std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
                 tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec, static_cast<int>(ms.count()));
   return std::string(buf);
-}
-
-int DominantEyeIndex() {
-  if (const char* e = std::getenv("VR_AGENT_DOMINANT_EYE")) {
-    if (std::string(e) == "left") return 0;
-  }
-  return 1;  // default: right eye
-}
-
-int EyeToIndex(const std::string& eye, uint32_t viewCount) {
-  int idx = 1;
-  if (eye == "left") idx = 0;
-  else if (eye == "right") idx = 1;
-  else idx = DominantEyeIndex();  // "dominant" or unknown
-  if (viewCount == 0) return 0;
-  if (idx >= static_cast<int>(viewCount)) idx = static_cast<int>(viewCount) - 1;
-  return idx;
 }
 
 GfxApi DetectGraphicsApi(const void* next) {

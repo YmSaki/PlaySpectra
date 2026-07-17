@@ -117,6 +117,7 @@ if(VR_AGENT_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   add_executable(vr_agent_test
+    tests/test_action_helpers.cpp
     tests/test_capture_common.cpp
     tests/test_pixel_convert.cpp
     tests/test_pose_animator.cpp

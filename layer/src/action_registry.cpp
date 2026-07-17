@@ -75,14 +75,6 @@ std::map<XrActionSet, ActionSetReg>& RegistryActionSets() { return g_action_sets
 std::map<XrAction, ActionReg>& RegistryActions() { return g_actions; }
 std::set<XrActionSet>& RegistryAttachedActionSets() { return g_attached_action_sets; }
 
-// GAP-06 helper: extract the top-level hand path ("/user/hand/left") from a full binding path
-// ("/user/hand/left/input/grip/pose"). Returns "" if the path is not under /user/hand/*.
-std::string HandTopFromBindingPath(const std::string& path) {
-  if (path.compare(0, 11, "/user/hand/") != 0) return "";
-  size_t slash = path.find('/', 11);  // end of the hand segment
-  return slash == std::string::npos ? path : path.substr(0, slash);
-}
-
 // GAP-06 helper: infer which hand(s) a pose action targets from its recorded binding paths. Used only
 // for action spaces created with a null subactionPath (handTop == ""), where the hand must be resolved
 // lazily at locate time (bindings are only guaranteed present by then). Returns 0, 1, or 2 distinct

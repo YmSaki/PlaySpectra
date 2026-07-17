@@ -46,4 +46,9 @@ nlohmann::json BuildCaptureSuccessJson(const std::string& path, const std::strin
                                        std::uint32_t height, std::uint32_t arrayIndex,
                                        std::int64_t format);
 
+// Resolve "left"/"right"/"dominant" to a 0-based eye index, clamped to [0, viewCount-1].
+// DominantEyeIndex checks VR_AGENT_DOMINANT_EYE env (default right=1).
+int DominantEyeIndex();
+int EyeToIndex(const std::string& eye, uint32_t viewCount);
+
 }  // namespace vr_agent

@@ -103,9 +103,16 @@ void RegistryClearSessionScoped();               // xrDestroySession: action spa
                                                  //   cache + attachment (session-scoped registry state)
 void RegistryClearInstanceScoped();              // xrDestroyInstance: action sets + actions + attachment
 
-// GAP-06 hand inference. PRECONDITION for InferHandTops: caller holds ActionMutex() (pure registry
-// read of g_actions). HandTopFromBindingPath is a pure string helper (no state / no lock).
-std::string HandTopFromBindingPath(const std::string& path);
+// GAP-06 hand inference: extract the top-level hand path ("/user/hand/left") from a full binding
+// path ("/user/hand/left/input/grip/pose"). Returns "" if the path is not under /user/hand/*.
+// Pure string helper (no state / no lock) — inline for testability without linking action_registry.
+inline std::string HandTopFromBindingPath(const std::string& path) {
+  if (path.compare(0, 11, "/user/hand/") != 0) return "";
+  size_t slash = path.find('/', 11);
+  return slash == std::string::npos ? path : path.substr(0, slash);
+}
+
+// PRECONDITION for InferHandTops: caller holds ActionMutex() (pure registry read of g_actions).
 std::vector<std::string> InferHandTops(XrAction action);
 
 // `actions` discovery dump for the control channel's socket thread. Locks ActionMutex() internally.

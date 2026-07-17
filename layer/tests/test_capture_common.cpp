@@ -112,3 +112,12 @@ TEST(CaptureCommonTest, DecodeHdrRowsToSrgb_HonorsRowPitchAndEndpoints) {
     };
     EXPECT_EQ(dst, expected);
 }
+
+TEST(EyeToIndexTest, Left) { EXPECT_EQ(EyeToIndex("left", 2), 0); }
+TEST(EyeToIndexTest, Right) { EXPECT_EQ(EyeToIndex("right", 2), 1); }
+TEST(EyeToIndexTest, DominantDefaultsRight) { EXPECT_EQ(EyeToIndex("dominant", 2), 1); }
+TEST(EyeToIndexTest, UnknownDefaultsDominant) { EXPECT_EQ(EyeToIndex("center", 2), 1); }
+TEST(EyeToIndexTest, ViewCountZero) { EXPECT_EQ(EyeToIndex("left", 0), 0); }
+TEST(EyeToIndexTest, ClampToViewCount) { EXPECT_EQ(EyeToIndex("right", 1), 0); }
+TEST(EyeToIndexTest, MonoViewLeftReturnsZero) { EXPECT_EQ(EyeToIndex("left", 1), 0); }
+TEST(DominantEyeIndexTest, DefaultIsRight) { EXPECT_EQ(DominantEyeIndex(), 1); }

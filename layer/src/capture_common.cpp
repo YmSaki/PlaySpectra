@@ -3,6 +3,7 @@
 #include "capture_common.h"
 
 #include <algorithm>  // std::swap
+#include <cstdlib>    // std::getenv (DominantEyeIndex)
 #include <cstring>    // std::memcpy
 
 #include "lodepng.h"
@@ -61,6 +62,23 @@ nlohmann::json BuildCaptureSuccessJson(const std::string& path, const std::strin
           {"height", height},
           {"arrayIndex", arrayIndex},
           {"format", format}};
+}
+
+int DominantEyeIndex() {
+  if (const char* e = std::getenv("VR_AGENT_DOMINANT_EYE")) {
+    if (std::string(e) == "left") return 0;
+  }
+  return 1;
+}
+
+int EyeToIndex(const std::string& eye, uint32_t viewCount) {
+  int idx = 1;
+  if (eye == "left") idx = 0;
+  else if (eye == "right") idx = 1;
+  else idx = DominantEyeIndex();
+  if (viewCount == 0) return 0;
+  if (idx >= static_cast<int>(viewCount)) idx = static_cast<int>(viewCount) - 1;
+  return idx;
 }
 
 }  // namespace vr_agent

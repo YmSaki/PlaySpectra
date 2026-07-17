@@ -99,7 +99,7 @@ json Handle_input(const json& req) {
   } else {
     return json{{"ok", false}, {"error", "type must be 'float', 'bool', or 'vec2'"}};
   }
-  LayerStateEnqueueInput(p);
+  LayerStateEnqueueInput(std::move(p));
   return json{{"ok", true}, {"queued", "input"}};
 }
 
@@ -212,7 +212,7 @@ json Handle_active(const json& req) {
   p.top_level = TopLevelFromHand(hand);
   p.profile = req.value("profile", std::string("/interaction_profiles/oculus/touch_controller"));
   p.b = req.value("active", true);
-  LayerStateEnqueueInput(p);
+  LayerStateEnqueueInput(std::move(p));
   return json{{"ok", true}, {"queued", "active"}};
 }
 

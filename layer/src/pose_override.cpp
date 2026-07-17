@@ -41,7 +41,7 @@ std::set<XrSpace> g_view_spaces;  // reference spaces of type VIEW (from xrCreat
 // (LOCAL / STAGE / ...). Guarded by g_view_spaces_mutex; populated/erased alongside g_view_spaces.
 std::map<XrSpace, XrReferenceSpaceType> g_ref_space_types;
 
-// Injected poses (head, controller grip) are defined in LOCAL (control_channel.h). An app may
+// Injected poses (head, controller grip) are defined in LOCAL (layer_state.h). An app may
 // locate in a different world space (e.g. STAGE), so re-express `poseLocal` in `targetSpace` by
 // composing it with LOCAL's pose in that space (via the layer's own LOCAL reference space). If the
 // transform can't be obtained (no LOCAL space / locate fails / untracked), returns poseLocal as-is

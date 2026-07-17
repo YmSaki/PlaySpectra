@@ -51,13 +51,18 @@ server.registerTool(
 
     let videoPath: string | null = null;
     try {
-      const { execSync } = await import("node:child_process");
+      const { execFile } = await import("node:child_process");
       const fps = Math.max(1, Math.round(72 / (reply.intervalFrames ?? 30)));
       const out = `${reply.dir}/recording.mp4`;
-      execSync(
-        `ffmpeg -y -framerate ${fps} -i "${reply.dir}/rec_%04d.png" -c:v libx264 -pix_fmt yuv420p "${out}"`,
-        { timeout: 60000, stdio: "pipe" },
-      );
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          "ffmpeg",
+          ["-y", "-framerate", String(fps), "-i", `${reply.dir}/rec_%04d.png`,
+           "-c:v", "libx264", "-pix_fmt", "yuv420p", out],
+          { timeout: 60000 },
+          (err) => (err ? reject(err) : resolve()),
+        );
+      });
       videoPath = out;
     } catch {
       // ffmpeg not available or encoding failed — graceful degradation

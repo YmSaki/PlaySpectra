@@ -43,9 +43,9 @@ std::atomic<uint64_t> g_target_seq{0};
 
 }  // namespace
 
-void LayerStateEnqueueInput(const PendingInput& input) {
+void LayerStateEnqueueInput(PendingInput input) {
   std::lock_guard<std::mutex> lock(g_queue_mutex);
-  g_queue.push_back(input);
+  g_queue.push_back(std::move(input));
 }
 
 std::vector<PendingInput> LayerStateDrainInputs() {

@@ -27,7 +27,7 @@ server.registerTool(
       "format). `eye` selects left / right / dominant (default dominant = right); the layer copies " +
       "that eye's projection subimage at the next xrEndFrame. `eye:'both'` returns the left AND right " +
       "images — NOTE they are captured on SEPARATE frames (not a simultaneous stereo pair), so on a " +
-      "moving scene they differ by motion, not just parallax. (Vulkan today; D3D11/D3D12 pending.) " +
+      "moving scene they differ by motion, not just parallax. " +
       "`withDepth:true` also returns a 16-bit grayscale depth map (nearest=black, far=white) plus " +
       "depthMeta (nearZ/farZ/reversedZ/minView/maxView/encoding) IF the app submits depth via " +
       "XrCompositionLayerDepthInfoKHR; many apps do not, in which case depth.available is false.",

@@ -1,20 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { send, textResult, sleep } from "../client.js";
-import { orientationFrom, lookQuat, type Vec3 } from "../math.js";
-
-async function resolveFrom(
-  f: { fx?: number; fy?: number; fz?: number },
-): Promise<{ ok: true; pos: Vec3 } | { ok: false; error: string }> {
-  if (f.fx !== undefined || f.fy !== undefined || f.fz !== undefined) {
-    return { ok: true, pos: { x: f.fx ?? 0, y: f.fy ?? 0, z: f.fz ?? 0 } };
-  }
-  const cur = await send({ cmd: "head_get" });
-  if (!cur.ok) return { ok: false, error: cur.error ?? "control channel error" };
-  if (!cur.active)
-    return { ok: false, error: "no known position; pass fx/fy/fz or set one first with vr_set_hmd" };
-  return { ok: true, pos: { x: cur.x, y: cur.y, z: cur.z } };
-}
+import { orientationFrom, lookQuat } from "../math.js";
+import { resolveFrom } from "./pose.js";
 
 export function registerHeadTools(server: McpServer) {
 
@@ -95,7 +83,7 @@ server.registerTool(
   async ({ tx, ty, tz, fx, fy, fz }) => {
     // Same single-source-of-truth / no-silent-warp contract as vr_point_at & vr_move: use the layer's
     // current head position, or explicit fx/fy/fz, else error (pass fx:0,fy:0,fz:0 to look from origin).
-    const from = await resolveFrom({ fx, fy, fz });
+    const from = await resolveFrom({ cmd: "head_get" }, { fx, fy, fz }, "vr_set_hmd");
     if (!from.ok) return textResult({ ok: false, error: from.error });
     const q = lookQuat(from.pos, { x: tx, y: ty, z: tz });
     if (!q) return textResult({ ok: false, error: "target coincides with head position" });

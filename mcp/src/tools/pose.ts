@@ -5,7 +5,7 @@ import { orientationFrom, lookQuat, type Vec3 } from "../math.js";
 
 // Resolve a "from" position for the aim tools: explicit fx/fy/fz wins; else the target's current
 // injected override (queried from the layer); else an error (we can't aim from an unknown position).
-async function resolveFrom(
+export async function resolveFrom(
   getCmd: Record<string, unknown>,
   f: { fx?: number; fy?: number; fz?: number },
   setterHint: string,

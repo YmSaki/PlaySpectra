@@ -179,6 +179,28 @@ json ResolveDepth(const EndFrameSnapshot::View& view) {
                                   view.maxDepth, view.nearZ, view.farZ);
 }
 
+// Dispatch table over the graphics-API backends. All three readback fns share the flat signature
+// (capture_backends.h); only depth differs -- Vulkan reads real depth, D3D says N/A.
+struct Backend {
+  GfxApi api;
+  json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t, uint32_t,
+                   const std::string&, int);
+  bool depthSupported;
+};
+
+static const Backend kBackends[] = {
+    {GfxApi::Vulkan, VulkanReadbackToPng, true},
+    {GfxApi::D3D11, D3D11ReadbackToPng, false},
+    {GfxApi::D3D12, D3D12ReadbackToPng, false},
+};
+
+const Backend* FindBackend(GfxApi api) {
+  for (const Backend& b : kBackends) {
+    if (b.api == api) return &b;
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 const char* GfxApiName(GfxApi api) {
@@ -362,10 +384,21 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
 
   // --- Recording path (periodic capture, independent of one-shot screenshots) ---
   {
-    std::lock_guard<std::mutex> recLock(g_rec_mutex);
-    if (g_recording && snap.hadProjection && (snap.frameCount % g_rec_interval == 0)) {
+    // Short lock: snapshot config (no seq claim yet — seq is claimed after successful readback to
+    // keep rec_%04d.png numbering dense; gaps would truncate ffmpeg's image2 demuxer).
+    std::string recEye, recDir;
+    bool shouldCapture = false;
+    {
+      std::lock_guard<std::mutex> recLock(g_rec_mutex);
+      if (g_recording && snap.hadProjection && (snap.frameCount % g_rec_interval == 0)) {
+        recEye = g_rec_eye;
+        recDir = g_rec_dir;
+        shouldCapture = true;
+      }
+    }
+    if (shouldCapture) {
       try {
-        int idx = EyeToIndex(g_rec_eye, snap.viewCount);
+        int idx = EyeToIndex(recEye, snap.viewCount);
         if (idx >= 0 && idx < static_cast<int>(snap.views.size())) {
           const auto& view = snap.views[idx];
           uint64_t rawHandle = 0;
@@ -385,30 +418,27 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
             }
           }
           if (haveImage) {
-            static const struct { GfxApi api;
-              json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t,
-                               uint32_t, const std::string&, int);
-            } kBe[] = {
-                {GfxApi::Vulkan, VulkanReadbackToPng},
-                {GfxApi::D3D11, D3D11ReadbackToPng},
-                {GfxApi::D3D12, D3D12ReadbackToPng},
-            };
-            for (const auto& b : kBe) {
-              if (b.api == api) {
-                char fname[64];
-                std::snprintf(fname, sizeof(fname), "/rec_%04llu.png",
-                              static_cast<unsigned long long>(g_rec_seq));
-                std::string recPath = g_rec_dir + fname;
-                json r = b.readback(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
-                                    view.arrayIndex, g_rec_eye, idx);
-                if (r.value("ok", false)) {
-                  std::string srcPath = r.value("path", "");
-                  if (!srcPath.empty() && rename(srcPath.c_str(), recPath.c_str()) == 0) {
-                    g_rec_entries.push_back({recPath, snap.frameCount, RecTimestamp()});
-                    g_rec_seq++;
+            const Backend* be = FindBackend(api);
+            if (be) {
+              json r = be->readback(rawHandle, format, sampleCount, view.x, view.y, view.w, view.h,
+                                    view.arrayIndex, recEye, idx);
+              if (r.value("ok", false)) {
+                std::string srcPath = r.value("path", "");
+                if (!srcPath.empty()) {
+                  // Short lock: claim seq + rename + append — only if same session (g_rec_dir match
+                  // guards against a stop+start cycle that started a new session during readback).
+                  std::lock_guard<std::mutex> recLock(g_rec_mutex);
+                  if (g_recording && g_rec_dir == recDir) {
+                    char fname[64];
+                    std::snprintf(fname, sizeof(fname), "/rec_%04llu.png",
+                                  static_cast<unsigned long long>(g_rec_seq));
+                    std::string recPath = g_rec_dir + fname;
+                    if (rename(srcPath.c_str(), recPath.c_str()) == 0) {
+                      g_rec_entries.push_back({std::move(recPath), snap.frameCount, RecTimestamp()});
+                      g_rec_seq++;
+                    }
                   }
                 }
-                break;
               }
             }
           }
@@ -466,26 +496,7 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo) {
         const json kDepthVulkanOnly = {{"available", false},
                                        {"note", "depth capture implemented for the Vulkan backend only"}};
 
-        // One dispatch table over the graphics-API backends. All three readback fns share the flat
-        // signature (capture_backends.h); only depth differs -- Vulkan reads real depth, D3D says N/A.
-        struct Backend {
-          GfxApi api;
-          json (*readback)(uint64_t, int64_t, uint32_t, int32_t, int32_t, int32_t, int32_t, uint32_t,
-                           const std::string&, int);
-          bool depthSupported;
-        };
-        static const Backend kBackends[] = {
-            {GfxApi::Vulkan, VulkanReadbackToPng, true},
-            {GfxApi::D3D11, D3D11ReadbackToPng, false},
-            {GfxApi::D3D12, D3D12ReadbackToPng, false},
-        };
-        const Backend* be = nullptr;
-        for (const Backend& b : kBackends) {
-          if (b.api == g_api) {
-            be = &b;
-            break;
-          }
-        }
+        const Backend* be = FindBackend(g_api);
         if (be != nullptr) {
           if (!haveImage) {
             result = {{"ok", false}, {"error", "no tracked released image for this swapchain"}};
@@ -607,7 +618,8 @@ std::string CaptureStopRecording() {
   g_rec_entries.clear();
   Log("recording stopped: " + std::to_string(count) + " frames captured");
   return json{{"ok", true}, {"recording", false}, {"dir", g_rec_dir},
-              {"manifestPath", manifestPath}, {"framesCaptured", count}}.dump();
+              {"manifestPath", manifestPath}, {"framesCaptured", count},
+              {"intervalFrames", g_rec_interval}}.dump();
 }
 
 bool CaptureIsRecording() {

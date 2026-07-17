@@ -10,7 +10,7 @@ DEST="${ROOT}/third_party/monado"
 ZIP="${TEMP:-/tmp}/monado_win_ci.zip"
 
 echo "[setup_monado] downloading windows job artifact for ref=${REF} ..."
-curl -sL -o "$ZIP" \
+curl -fSL -o "$ZIP" \
   "https://gitlab.freedesktop.org/api/v4/projects/2685/jobs/artifacts/${REF}/download?job=windows"
 
 python - "$ZIP" "$DEST" <<'EOF'

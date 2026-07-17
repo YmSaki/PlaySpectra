@@ -24,12 +24,29 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENVR_TAG="${OPENVR_TAG:-v1.8.19}"   # OC-compatible interface era; see note above
 SRC="${TEMP:-/tmp}/vr_agent_openvr_${OPENVR_TAG}"   # short path (FTK1011); tag in path = no stale-clone ambiguity
 DEST="${ROOT}/third_party/hellovr/bin"
-MSBUILD="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe"
+# Find MSBuild across VS editions (first match wins)
+MSBUILD=""
+_VS_EDITIONS=(BuildTools Community Enterprise Professional)
+for _ed in "${_VS_EDITIONS[@]}"; do
+  _candidate="/c/Program Files (x86)/Microsoft Visual Studio/2022/${_ed}/MSBuild/Current/Bin/amd64/MSBuild.exe"
+  if [ -f "$_candidate" ]; then
+    MSBUILD="$_candidate"
+    break
+  fi
+done
+if [ -z "$MSBUILD" ]; then
+  echo "ERROR: MSBuild.exe not found. Tried these paths:"
+  for _ed in "${_VS_EDITIONS[@]}"; do
+    echo "  /c/Program Files (x86)/Microsoft Visual Studio/2022/${_ed}/MSBuild/Current/Bin/amd64/MSBuild.exe"
+  done
+  echo "Install Visual Studio 2022 BuildTools (or Community/Enterprise/Professional) with the C++ workload."
+  exit 1
+fi
 
 [ -f "${ROOT}/third_party/monado/bin/SDL2.dll" ] || { echo "run scripts/setup_monado.sh first"; exit 1; }
 [ -f "${ROOT}/third_party/opencomposite/openvr_api.dll" ] || { echo "run scripts/setup_opencomposite.sh first"; exit 1; }
 
-[ -d "$SRC" ] || git clone --depth 1 --branch "$OPENVR_TAG" https://github.com/ValveSoftware/openvr "$SRC"
+[ -d "$SRC/.git" ] || git clone --depth 1 --branch "$OPENVR_TAG" https://github.com/ValveSoftware/openvr "$SRC"
 
 # vcxproj ships Win32-only; generate an x64 twin (idempotent overwrite).
 python - "$SRC/samples/hellovr_dx12/hellovr_dx12.vcxproj" <<'EOF'

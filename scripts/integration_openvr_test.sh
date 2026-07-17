@@ -49,13 +49,13 @@ fi
 
 # Graceful-teardown gate: WM_CLOSE (taskkill without /F) lets hellovr run its own shutdown ->
 # VR_Shutdown -> OpenComposite xrDestroyInstance -> layer cleanup markers (same grep as the
-# hello_xr suite). If the markers never appear, report SKIP (fallback force-kill) -- explicit,
-# never silent.
+# hello_xr suite). If the markers never appear, report FAIL (was SKIP when unproven; now
+# demonstrated to PASS reliably, so failure is a regression).
 graceful="skipped (asserts did not pass)"
 if [ "$ok" = "1" ] && [ "$rc" = "0" ]; then
   LOG_G="$(echo "${CAP_DIR}/vr_agent_layer.log" | tr '\\' '/')"
   taskkill //IM hellovr_dx12.exe >/dev/null 2>&1
-  graceful="SKIP (WM_CLOSE did not reach clean xrDestroyInstance within 20s; force-kill fallback)"
+  graceful="FAIL (WM_CLOSE did not reach clean xrDestroyInstance within 20s; force-kill fallback)"
   for i in $(seq 1 20); do
     if grep -q "xrDestroyInstance -- stopping control channel" "$LOG_G" 2>/dev/null \
        && grep -q "control_channel: accept loop exited" "$LOG_G" 2>/dev/null; then
@@ -63,6 +63,7 @@ if [ "$ok" = "1" ] && [ "$rc" = "0" ]; then
     fi
     sleep 1
   done
+  if [[ "$graceful" == FAIL* ]]; then rc=1; fi
 fi
 echo "[openvr-integration] graceful teardown: $graceful"
 

@@ -155,8 +155,8 @@ async function main() {
   check("frame loop reached (framesObserved > 0)", (cap.framesObserved || 0) > 0,
         `frames=${cap.framesObserved} proj=${cap.lastFrameHadProjection}`);
   const scs = cap.swapchains || [];
-  check("two per-eye swapchains with sane dims", scs.length >= 2 && scs[0].width > 0 && scs[0].height > 0,
-        JSON.stringify(scs.map((s) => `${s.width}x${s.height} fmt=${s.format}`)));
+  check("two per-eye swapchains with sane dims", scs.length >= 2 && scs[0].width > 0 && scs[0].height > 0 && scs[1].width > 0 && scs[1].height > 0,
+        JSON.stringify(scs.map((s) => `${s.width}x${s.height} fmt=${s.format}`)) + ` eye0=${scs[0]?.width}x${scs[0]?.height} eye1=${scs[1]?.width}x${scs[1]?.height}`);
 
   // (b) OpenComposite's legacy-input translation is what the layer must see (M3 recording).
   const act = await rpc({ cmd: "actions" });

@@ -20,7 +20,7 @@ URL="https://znix.xyz/OpenComposite/download.php?arch=x64&branch=openxr"
 
 mkdir -p "$DEST"
 echo "[setup_opencomposite] downloading x64 openxr-branch openvr_api.dll ..."
-curl -sL -o "${DEST}/openvr_api.dll" "$URL"
+curl -fSL -o "${DEST}/openvr_api.dll" "$URL"
 
 # Mechanical sanity check: PE header, COFF machine field must be 0x8664 (x64). Catches HTML error
 # pages and wrong-arch downloads before M2 ever loads the DLL into a process.

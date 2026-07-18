@@ -1,4 +1,4 @@
-// VR-MCP frame capture: track swapchains + graphics binding, and at xrEndFrame copy the dominant
+// PlaySpectra frame capture: track swapchains + graphics binding, and at xrEndFrame copy the dominant
 // eye's projection subimage to a PNG. See capture.cpp.
 //
 // CORE COMPLETENESS (CLAUDE.md): color capture must cover ALL OpenXR graphics bindings a runtime
@@ -17,7 +17,7 @@
 
 #include <openxr/openxr.h>
 
-namespace vr_agent {
+namespace playspectra {
 
 enum class GfxApi { Unknown, Vulkan, D3D11, D3D12 };
 
@@ -52,4 +52,4 @@ std::string CaptureStartRecording(uint32_t intervalFrames, const std::string& ey
 std::string CaptureStopRecording();
 bool CaptureIsRecording();
 
-}  // namespace vr_agent
+}  // namespace playspectra

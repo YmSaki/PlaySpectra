@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "action_registry.h"
 
-using vr_agent::HandTopFromBindingPath;
+using playspectra::HandTopFromBindingPath;
 
 TEST(HandTopFromBindingPath, LeftHand) {
   EXPECT_EQ(HandTopFromBindingPath("/user/hand/left/input/grip/pose"), "/user/hand/left");

@@ -1,4 +1,4 @@
-// Vulkan color/depth-readback backend for VR-MCP frame capture. See capture_backends.h for the
+// Vulkan color/depth-readback backend for PlaySpectra frame capture. See capture_backends.h for the
 // interface contract; this is the reference implementation the D3D11/D3D12 backends mirror.
 //
 // This backend is one leaf behind capture.cpp's single dispatch (not a parallel capture system): at
@@ -33,7 +33,7 @@
 
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 
 using json = nlohmann::json;
 
@@ -894,4 +894,4 @@ json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t format, uint32_t sam
   return {{"available", true}, {"depthPath", path}, {"depthMeta", meta}};
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

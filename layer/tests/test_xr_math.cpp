@@ -3,7 +3,7 @@
 
 #include <cmath>
 
-using namespace vr_agent;
+using namespace playspectra;
 
 static constexpr float kEps = 1e-6f;
 

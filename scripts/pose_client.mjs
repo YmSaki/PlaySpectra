@@ -1,4 +1,4 @@
-// "前ならえ" (arms-forward) pose demo client for the vr_agent control channel.
+// "前ならえ" (arms-forward) pose demo client for the playspectra control channel.
 // Marks both controllers active, sets a sticky grip pose per hand (arms extended forward in the
 // layer's LOCAL space), holds it while re-affirming `active`, then captures screenshots.
 //
@@ -9,7 +9,7 @@
 // Usage: node scripts/pose_client.mjs [port]
 import net from "node:net";
 
-const PORT = Number(process.argv[2] ?? process.env.VR_AGENT_PORT ?? "52700");
+const PORT = Number(process.argv[2] ?? process.env.PLAYSPECTRA_PORT ?? "52700");
 const HOST = "127.0.0.1";
 const X = Number(process.env.POSE_X ?? "0.2");
 const Y = Number(process.env.POSE_Y ?? "-0.2");

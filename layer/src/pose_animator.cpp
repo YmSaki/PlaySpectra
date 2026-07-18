@@ -9,7 +9,7 @@
 #include <mutex>
 #include <string>
 
-namespace vr_agent {
+namespace playspectra {
 
 namespace {
 
@@ -160,4 +160,4 @@ void AnimatorReset() {
   g_last_display_time = 0;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

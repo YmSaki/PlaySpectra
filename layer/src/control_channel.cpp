@@ -1,7 +1,7 @@
-// VR-MCP control channel implementation. See control_channel.h.
+// PlaySpectra control channel implementation. See control_channel.h.
 //
-// A single background thread runs a blocking accept loop on 127.0.0.1:VR_AGENT_PORT (default
-// 52700, override via env VR_AGENT_PORT). It handles one MCP client at a time, reading
+// A single background thread runs a blocking accept loop on 127.0.0.1:PLAYSPECTRA_PORT (default
+// 52700, override via env PLAYSPECTRA_PORT). It handles one MCP client at a time, reading
 // newline-delimited JSON requests and writing one JSON reply line per request. Input-mutating
 // commands are pushed onto layer_state for the layer to drain on the app thread; `status` is
 // answered inline from published state.
@@ -24,7 +24,7 @@
 #include "action_registry.h"
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 using json = nlohmann::json;
@@ -390,7 +390,7 @@ void AcceptLoop(unsigned short port) {
 }
 
 unsigned short ResolvePort() {
-  if (const char* env = std::getenv("VR_AGENT_PORT")) {
+  if (const char* env = std::getenv("PLAYSPECTRA_PORT")) {
     int p = std::atoi(env);
     if (p > 0 && p < 65536) return static_cast<unsigned short>(p);
   }
@@ -420,4 +420,4 @@ void ControlChannelStop() {
   if (g_thread.joinable()) g_thread.join();
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

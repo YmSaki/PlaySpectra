@@ -1,5 +1,5 @@
 // Action discovery registry + shared action mutex implementation. Moved verbatim from
-// openxr_agent_layer.cpp (refactor phase 4); behaviour is unchanged (same data, same algorithms,
+// layer_entry.cpp (refactor phase 4); behaviour is unchanged (same data, same algorithms,
 // same lock discipline -- see action_registry.h for the shared-mutex invariants).
 #include "action_registry.h"
 
@@ -16,7 +16,7 @@
 
 #include "layer_dispatch.h"  // PathToStr (runtime-backed path stringification)
 
-namespace vr_agent {
+namespace playspectra {
 
 namespace {
 
@@ -206,4 +206,4 @@ std::string BuildActionsJson() {
   return out.dump();
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

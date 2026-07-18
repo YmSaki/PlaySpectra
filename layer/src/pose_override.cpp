@@ -1,5 +1,5 @@
 // Head/VIEW-space override + controller grip/aim pose override implementation. Moved verbatim from
-// openxr_agent_layer.cpp (refactor phase 5); behaviour is unchanged (same math, same VIEW-space
+// layer_entry.cpp (refactor phase 5); behaviour is unchanged (same math, same VIEW-space
 // tracking, same LOCAL reference space, same lock discipline -- see pose_override.h for the invariants).
 #include "pose_override.h"
 
@@ -18,7 +18,7 @@
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
 
-namespace vr_agent {
+namespace playspectra {
 
 namespace {
 
@@ -291,11 +291,11 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   // Widen the existing single sticky-pose read to accept the first injected pose whose hand is a
   // candidate. Single candidate -> exact per-hand match (unchanged). Ambiguous both-hands candidate ->
   // the injected pose is the natural tiebreak (whichever hand you injected wins).
-  std::vector<vr_agent::StickyPose> poses = vr_agent::LayerStateGetStickyPoses();
+  std::vector<playspectra::StickyPose> poses = playspectra::LayerStateGetStickyPoses();
   XrPosef gripLocal{};
   bool have = false;
   std::string matchedHand;
-  for (const vr_agent::StickyPose& sp : poses) {
+  for (const playspectra::StickyPose& sp : poses) {
     bool isCandidate = false;
     for (const std::string& c : candidates) if (c == sp.top_level) { isCandidate = true; break; }
     if (!isCandidate) continue;
@@ -312,7 +312,7 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
   if (candidates.size() > 1) {  // ambiguous both-hands: log once if both hands were injected
     int injected = 0;
     for (const std::string& c : candidates)
-      for (const vr_agent::StickyPose& sp : poses) if (sp.top_level == c) { ++injected; break; }
+      for (const playspectra::StickyPose& sp : poses) if (sp.top_level == c) { ++injected; break; }
     if (injected > 1) {
       if (!g_warned_pose_both_hands) {
         g_warned_pose_both_hands = true;
@@ -413,4 +413,4 @@ void PoseOverrideResetWarnings() {
   g_warned_pose_transform = false;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

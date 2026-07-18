@@ -1,5 +1,5 @@
 // Standalone walking-skeleton test client: speaks the raw NDJSON control protocol to the
-// vr_agent layer (no MCP layer involved), to validate control channel + conformance-automation
+// playspectra layer (no MCP layer involved), to validate control channel + conformance-automation
 // input injection. Connects with retry, marks the right controller active, drives squeeze/value
 // to 1.0 for a few seconds, and prints the layer's status (including the haptic count, which
 // rises when hello_xr reacts to the injected grab).
@@ -8,7 +8,7 @@
 import net from "node:net";
 
 const DURATION_MS = Number(process.argv[2] ?? "6000");
-const PORT = Number(process.argv[3] ?? process.env.VR_AGENT_PORT ?? "52700");
+const PORT = Number(process.argv[3] ?? process.env.PLAYSPECTRA_PORT ?? "52700");
 const HOST = "127.0.0.1";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

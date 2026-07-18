@@ -7,7 +7,7 @@ import { registerPoseTools } from "./tools/pose.js";
 import { registerHeadTools } from "./tools/head.js";
 import { registerRecordingTools } from "./tools/recording.js";
 
-const server = new McpServer({ name: "vr-mcp", version: "0.1.0" });
+const server = new McpServer({ name: "playspectra", version: "0.1.0" });
 
 registerObserveTools(server);
 registerInputTools(server);

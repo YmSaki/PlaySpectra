@@ -1,5 +1,5 @@
 // Integration assertions for the OpenVR path: hellovr_dx12 (OpenVR app) -> OpenComposite
-// (openvr_api.dll drop-in, translates to OpenXR) -> vr_agent layer -> Monado.
+// (openvr_api.dll drop-in, translates to OpenXR) -> playspectra layer -> Monado.
 //
 // Asserts the engine-independent surfaces measured in M3 (.claude/openvr-milestone-plan.md M3):
 //   (a) session/frame loop through the layer: api=D3D12 (OpenComposite's client choice for this
@@ -16,7 +16,7 @@ import net from "node:net";
 import fs from "node:fs";
 import zlib from "node:zlib";
 
-const PORT = Number(process.argv[2] ?? process.env.VR_AGENT_PORT ?? "52700");
+const PORT = Number(process.argv[2] ?? process.env.PLAYSPECTRA_PORT ?? "52700");
 const HOST = "127.0.0.1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

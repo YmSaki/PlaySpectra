@@ -1,4 +1,4 @@
-// VR-MCP frame capture.
+// PlaySpectra frame capture.
 //
 // OpenXR-side tracking + xrEndFrame projection parsing + capture-request handoff. At xrEndFrame,
 // the resolved projection subimage's last-released image is dispatched to the graphics-API-specific
@@ -44,7 +44,7 @@
 
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 using json = nlohmann::json;
@@ -134,7 +134,7 @@ GfxApi DetectGraphicsApi(const void* next) {
 }
 
 std::string CaptureOutputDir() {
-  if (const char* d = std::getenv("VR_AGENT_CAPTURE_DIR")) {
+  if (const char* d = std::getenv("PLAYSPECTRA_CAPTURE_DIR")) {
     if (d[0]) return std::string(d);
   }
   if (const char* t = std::getenv("TEMP")) {
@@ -627,4 +627,4 @@ bool CaptureIsRecording() {
   return g_recording;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

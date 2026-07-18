@@ -4,7 +4,7 @@
 #include <cmath>
 #include <limits>
 
-using namespace vr_agent;
+using namespace playspectra;
 
 // --- HalfToFloat (cases from capture_vulkan.cpp HalfFloatSelfTest + extras) ---
 

@@ -1,0 +1,10 @@
+{
+  "file_format_version": "1.0.0",
+  "api_layer": {
+    "name": "XR_APILAYER_playspectra",
+    "library_path": "./playspectra_layer.dll",
+    "api_version": "1.0",
+    "implementation_version": "1",
+    "description": "PlaySpectra input injection and frame capture API layer for headless VR app testing"
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GAP-10 integration test: drive the vr_agent layer against a real OpenXR app (hello_xr) under the
+# GAP-10 integration test: drive the playspectra layer against a real OpenXR app (hello_xr) under the
 # Meta XR Simulator, and assert the engine-independent surfaces (profile/binding interception, view
 # override, sync-semantics round-trip, non-degenerate capture) via integration_hello_xr.mjs.
 #
@@ -14,7 +14,7 @@ GFX="${1:-Vulkan}"
 # MSVC build (third_party/hello_xr_msvc/hello_xr.exe), which has all graphics plugins compiled in.
 HELLO="${HELLO_XR_EXE:-${ROOT}/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe}"
 CLIENT="${ROOT}/scripts/integration_hello_xr.mjs"
-CAP_DIR="${TEMP:-/tmp}/vr_agent_integration"
+CAP_DIR="${TEMP:-/tmp}/playspectra_integration"
 LOG="${CAP_DIR}/hello_xr.log"
 mkdir -p "$CAP_DIR"
 
@@ -28,11 +28,11 @@ else
   export XR_RUNTIME_JSON="$(winpath "${ROOT}/third_party/meta_xr_sim/PFiles/MetaXRSimulator/v201.0/meta_openxr_simulator.json")"
 fi
 export XR_API_LAYER_PATH="$(winpath "${ROOT}/layer/manifest")"
-export XR_ENABLE_API_LAYERS="XR_APILAYER_vr_agent"
+export XR_ENABLE_API_LAYERS="XR_APILAYER_playspectra"
 export VR_GFX_API="$GFX"    # tells the client which capture.api to expect
-export VR_AGENT_LOG="$(winpath "${CAP_DIR}/vr_agent_layer.log")"
-export VR_AGENT_CAPTURE_DIR="$(winpath "${CAP_DIR}")"
-: > "$VR_AGENT_LOG" 2>/dev/null || true
+export PLAYSPECTRA_LOG="$(winpath "${CAP_DIR}/playspectra_layer.log")"
+export PLAYSPECTRA_CAPTURE_DIR="$(winpath "${CAP_DIR}")"
+: > "$PLAYSPECTRA_LOG" 2>/dev/null || true
 
 echo "[integration] runtime=$XR_RUNTIME_JSON"
 echo "[integration] layer=$XR_API_LAYER_PATH  gfx=$GFX  vr_runtime=$RUNTIME"
@@ -100,7 +100,7 @@ fi
 # for every "Destroy* -> Clear function" conversion in the refactor (phases 4-6).
 graceful="$graceful_default"
 if [ "$ok" = "1" ] && [ "$rc" = "0" ] && [ "$msaa_skip" = "0" ]; then
-  LOG_G="$(echo "${CAP_DIR}/vr_agent_layer.log" | tr '\\' '/')"   # forward slashes for MSYS grep
+  LOG_G="$(echo "${CAP_DIR}/playspectra_layer.log" | tr '\\' '/')"   # forward slashes for MSYS grep
   FEED_PID="$(cat "$CAP_DIR/feed.pid" 2>/dev/null)"
   [ -n "$FEED_PID" ] && kill "$FEED_PID" >/dev/null 2>&1
   graceful="FAIL (layer did not reach clean xrDestroyInstance within 20s -- cleanup hung or crashed)"

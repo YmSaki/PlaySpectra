@@ -1,4 +1,4 @@
-// Layer dispatch table + single-instance state. Extracted from openxr_agent_layer.cpp (refactor
+// Layer dispatch table + single-instance state. Extracted from layer_entry.cpp (refactor
 // phase 3) so the hooks read the next-layer entry points and the current instance/session/CA flag
 // through a small API instead of touching file-scope globals directly. The globals themselves live
 // TU-private in layer_dispatch.cpp; behaviour (resolution, lock discipline, single-instance model)
@@ -9,7 +9,7 @@
 
 #include <string>
 
-namespace vr_agent {
+namespace playspectra {
 
 // All next-layer entry points, resolved once per instance from the current chain. Members are read
 // on the app thread between a successful create and destroy (the window in which the runtime calls
@@ -90,4 +90,4 @@ void SetNextGetInstanceProcAddr(PFN_xrGetInstanceProcAddr pfn);
 XrPath ToPath(const std::string& s);
 std::string PathToStr(XrPath p);
 
-}  // namespace vr_agent
+}  // namespace playspectra

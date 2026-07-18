@@ -1,4 +1,4 @@
-// D3D12 color-readback backend for VR-MCP frame capture. See capture_backends.h for the interface
+// D3D12 color-readback backend for PlaySpectra frame capture. See capture_backends.h for the interface
 // contract and capture.cpp's VulkanReadbackToPng for the reference implementation pattern.
 //
 // This backend does the same job the Vulkan inline path does, in D3D12 terms: the released color
@@ -32,7 +32,7 @@
 #include "dxgi_formats.h"
 #include "lodepng.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 using Microsoft::WRL::ComPtr;
@@ -397,4 +397,4 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   return result;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

@@ -9,7 +9,7 @@
 #include "lodepng.h"
 #include "pixel_convert.h"  // HalfToFloat / QuantizeSrgb / QuantizeLinearUnit (HDR decode)
 
-namespace vr_agent {
+namespace playspectra {
 
 std::vector<unsigned char> RepackRows(const unsigned char* src, std::size_t rowPitch,
                                       std::uint32_t w, std::uint32_t h, bool bgra) {
@@ -65,7 +65,7 @@ nlohmann::json BuildCaptureSuccessJson(const std::string& path, const std::strin
 }
 
 int DominantEyeIndex() {
-  if (const char* e = std::getenv("VR_AGENT_DOMINANT_EYE")) {
+  if (const char* e = std::getenv("PLAYSPECTRA_DOMINANT_EYE")) {
     if (std::string(e) == "left") return 0;
   }
   return 1;
@@ -81,4 +81,4 @@ int EyeToIndex(const std::string& eye, uint32_t viewCount) {
   return idx;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

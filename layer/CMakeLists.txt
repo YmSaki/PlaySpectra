@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(vr_agent_layer CXX)
+project(playspectra_layer CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,7 +13,7 @@ include(FetchContent)
 # OpenXR-SDK-Source include(CTest)s, which would otherwise cache BUILD_TESTING=ON and register the
 # SDK's own loader_test into our ctest run (it is never built here, so it reports Not Run). Seed the
 # cache OFF first so that option() is a no-op there. Our tests have their own knob:
-# VR_AGENT_BUILD_TESTS, below.
+# PLAYSPECTRA_BUILD_TESTS, below.
 set(BUILD_TESTING OFF CACHE BOOL "Build the fetched dependencies' testing trees")
 
 # OpenXR-SDK: headers only (the layer talks to the loader via xrNegotiateLoaderApiLayerInterface,
@@ -41,8 +41,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-add_library(vr_agent_layer SHARED
-  src/openxr_agent_layer.cpp
+add_library(playspectra_layer SHARED
+  src/layer_entry.cpp
   src/hooks_action.cpp
   src/hooks_capture.cpp
   src/hooks_locate.cpp
@@ -63,12 +63,12 @@ add_library(vr_agent_layer SHARED
   ${lodepng_SOURCE_DIR}/lodepng.cpp
 )
 
-target_include_directories(vr_agent_layer PRIVATE
+target_include_directories(playspectra_layer PRIVATE
   ${lodepng_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/Vulkan-Headers/include
 )
 
-target_link_libraries(vr_agent_layer PRIVATE
+target_link_libraries(playspectra_layer PRIVATE
   OpenXR::headers
   nlohmann_json::nlohmann_json
   d3d11
@@ -81,31 +81,31 @@ target_link_libraries(vr_agent_layer PRIVATE
 # Exceptions must never cross the exported C ABI (xrNegotiateLoaderApiLayerInterface and the
 # hooked xr* functions) -- wrap those function bodies in try/catch and translate to XrResult.
 if(MINGW)
-  target_link_options(vr_agent_layer PRIVATE -static-libgcc -static-libstdc++ -static)
+  target_link_options(playspectra_layer PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
-target_compile_definitions(vr_agent_layer PRIVATE VR_AGENT_LAYER_EXPORTS)
+target_compile_definitions(playspectra_layer PRIVATE PLAYSPECTRA_LAYER_EXPORTS)
 
-set_target_properties(vr_agent_layer PROPERTIES
-  OUTPUT_NAME "vr_agent_layer"
+set_target_properties(playspectra_layer PROPERTIES
+  OUTPUT_NAME "playspectra_layer"
   PREFIX ""
 )
 
-# The manifest (manifest/XrApiLayer_vr_agent.json) points the OpenXR loader at
-# ./vr_agent_layer.dll NEXT TO the manifest -- keep that copy in sync with every build, otherwise
+# The manifest (manifest/XrApiLayer_playspectra.json) points the OpenXR loader at
+# ./playspectra_layer.dll NEXT TO the manifest -- keep that copy in sync with every build, otherwise
 # integration runs silently load a stale layer (this bit us: a green build, an old DLL under test).
-add_custom_command(TARGET vr_agent_layer POST_BUILD
+add_custom_command(TARGET playspectra_layer POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          $<TARGET_FILE:vr_agent_layer>
-          ${CMAKE_CURRENT_SOURCE_DIR}/manifest/vr_agent_layer.dll
-  COMMENT "Syncing vr_agent_layer.dll next to the loader manifest"
+          $<TARGET_FILE:playspectra_layer>
+          ${CMAKE_CURRENT_SOURCE_DIR}/manifest/playspectra_layer.dll
+  COMMENT "Syncing playspectra_layer.dll next to the loader manifest"
 )
 
-# --- Host-run unit tests (opt in with -DVR_AGENT_BUILD_TESTS=ON) ---
+# --- Host-run unit tests (opt in with -DPLAYSPECTRA_BUILD_TESTS=ON) ---
 # Off by default so a plain `cmake ..` never network-fetches googletest. Kept separate from
 # BUILD_TESTING (see the seed near the top) so enabling ours does not also drag in the SDK's tests.
-option(VR_AGENT_BUILD_TESTS "Build the host-run unit tests" OFF)
-if(VR_AGENT_BUILD_TESTS)
+option(PLAYSPECTRA_BUILD_TESTS "Build the host-run unit tests" OFF)
+if(PLAYSPECTRA_BUILD_TESTS)
   enable_testing()
   FetchContent_Declare(
     googletest
@@ -116,7 +116,7 @@ if(VR_AGENT_BUILD_TESTS)
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
 
-  add_executable(vr_agent_test
+  add_executable(playspectra_test
     tests/test_action_helpers.cpp
     tests/test_capture_common.cpp
     tests/test_pixel_convert.cpp
@@ -129,21 +129,21 @@ if(VR_AGENT_BUILD_TESTS)
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )
 
-  target_include_directories(vr_agent_test PRIVATE
+  target_include_directories(playspectra_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${lodepng_SOURCE_DIR}
   )
 
-  target_link_libraries(vr_agent_test PRIVATE
+  target_link_libraries(playspectra_test PRIVATE
     gtest_main
     nlohmann_json::nlohmann_json
     OpenXR::headers
   )
 
   if(MINGW)
-    target_link_options(vr_agent_test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(playspectra_test PRIVATE -static-libgcc -static-libstdc++ -static)
   endif()
 
   include(GoogleTest)
-  gtest_discover_tests(vr_agent_test)
+  gtest_discover_tests(playspectra_test)
 endif()

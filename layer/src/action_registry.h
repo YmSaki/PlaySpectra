@@ -1,4 +1,4 @@
-// Action discovery registry + the shared action mutex. Extracted from openxr_agent_layer.cpp
+// Action discovery registry + the shared action mutex. Extracted from layer_entry.cpp
 // (refactor phase 4) so the observational action-system registry (action sets / actions / bound
 // interaction-profile paths / action spaces / grip+aim classification / GAP-06 inference /
 // BuildActionsJson) lives in one translation unit. The registry globals and g_action_mutex are
@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace vr_agent {
+namespace playspectra {
 
 // ---------------------------------------------------------------------------------------------
 // Registry record types (observational only; strings captured at record time on the app thread).
@@ -40,9 +40,9 @@ struct ActionReg {
 // A SINGLE mutex guards THREE clusters that were kept together on purpose:
 //   [F] this registry (action sets / actions / bindings / action spaces / grip+aim sets /
 //       grip->aim offset cache);
-//   [E] the pose override (openxr_agent_layer.cpp: ResolveGripToAimOffset / ApplyPoseOverride) --
+//   [E] the pose override (layer_entry.cpp: ResolveGripToAimOffset / ApplyPoseOverride) --
 //       reads the registry containers to map an action space to a hand and classify grip vs aim;
-//   [G] the non-CA input fallback (openxr_agent_layer.cpp: ApplyFallbackSync / AggregateFallback /
+//   [G] the non-CA input fallback (layer_entry.cpp: ApplyFallbackSync / AggregateFallback /
 //       the GetActionState* readers) -- reverse-looks-up g_actions, so a SEPARATE lock would invert
 //       the acquisition order relative to [F].
 // Because [E] and [G] reach into [F]'s containers under this one lock, splitting it (finer grain,
@@ -54,7 +54,7 @@ struct ActionReg {
 //      for any of them (would reintroduce the GAP-08 inversion).
 //   2. Never call a RUNTIME entry point (ToPath -> xrStringToPath, etc.) while holding this mutex.
 //      Two-phase rule: resolve paths BEFORE taking the lock, then take the lock (see
-//      openxr_agent_layer.cpp ApplyFallbackSync, and ResolveGripToAimOffset which releases the lock
+//      layer_entry.cpp ApplyFallbackSync, and ResolveGripToAimOffset which releases the lock
 //      before its raw xrLocateSpace). Historical exception preserved verbatim (move-only): the
 //      binding-record loop stringifies binding paths (PathToStr) inside RegistryRecordBindings while
 //      the caller holds the lock, exactly as the original xrSuggestInteractionProfileBindings hook
@@ -118,4 +118,4 @@ std::vector<std::string> InferHandTops(XrAction action);
 // `actions` discovery dump for the control channel's socket thread. Locks ActionMutex() internally.
 std::string BuildActionsJson();
 
-}  // namespace vr_agent
+}  // namespace playspectra

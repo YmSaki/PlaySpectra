@@ -2,13 +2,13 @@
 //
 // Extracted move-only (R03) from capture_vulkan.cpp's anonymous namespace so they become
 // unit-testable (R11) and shareable across capture backends (e.g. the D3D HDR decode, R10). Behaviour
-// is unchanged; only the linkage moved from internal (anonymous namespace) to external (vr_agent::).
+// is unchanged; only the linkage moved from internal (anonymous namespace) to external (playspectra::).
 
 #pragma once
 
 #include <cstdint>
 
-namespace vr_agent {
+namespace playspectra {
 
 // IEEE half-float (binary16) -> float. Handles zero, subnormals, inf and NaN (exponent bias 15->127).
 float HalfToFloat(std::uint16_t hbits);
@@ -26,4 +26,4 @@ unsigned char QuantizeLinearUnit(float a);
 // infinite far plane (farZ == +inf).
 float LinearizeViewDepth(float z, float nearZ, float farZ);
 
-}  // namespace vr_agent
+}  // namespace playspectra

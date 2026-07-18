@@ -1,5 +1,5 @@
-#ifndef VR_AGENT_DXGI_FORMATS_H
-#define VR_AGENT_DXGI_FORMATS_H
+#ifndef PLAYSPECTRA_DXGI_FORMATS_H
+#define PLAYSPECTRA_DXGI_FORMATS_H
 
 #include <dxgiformat.h>
 
@@ -28,4 +28,4 @@ inline DXGI_FORMAT DxgiResolveTyped(int64_t f) {
   return static_cast<DXGI_FORMAT>(f);
 }
 
-#endif  // VR_AGENT_DXGI_FORMATS_H
+#endif  // PLAYSPECTRA_DXGI_FORMATS_H

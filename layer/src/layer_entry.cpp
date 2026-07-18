@@ -1,4 +1,4 @@
-// VR-MCP OpenXR API layer.
+// PlaySpectra OpenXR API layer.
 //
 // Exports only xrNegotiateLoaderApiLayerInterface -- the loader chains us in via
 // nextGetInstanceProcAddr, we never link against openxr_loader ourselves.
@@ -30,21 +30,21 @@
 
 namespace {
 
-void Log(const char* msg, const char* detail = nullptr) { vr_agent::LayerLog(msg, detail); }
+void Log(const char* msg, const char* detail = nullptr) { playspectra::LayerLog(msg, detail); }
 
 // The layer's dispatch table and single-instance state (instance / CA flag / next-gipa) live
 // TU-private in layer_dispatch.cpp; these using-declarations pull the accessors the remaining
-// dispatch/lifecycle code (VrAgentGetInstanceProcAddr / VrAgentCreateApiLayerInstance /
+// dispatch/lifecycle code (PlaySpectraGetInstanceProcAddr / PlaySpectraCreateApiLayerInstance /
 // PublishRuntimeName) uses into the anonymous namespace so it keeps calling them unqualified. The
 // per-cluster accessors (action_registry / pose_override / input_inject) moved out with their hooks
 // to hooks_*.cpp, so only these dispatch accessors remain here.
-using vr_agent::CurrentInstance;
-using vr_agent::Dispatch;
-using vr_agent::NextGetInstanceProcAddr;
-using vr_agent::RebuildLayerDispatch;
-using vr_agent::SetCaEnabled;
-using vr_agent::SetCurrentInstance;
-using vr_agent::SetNextGetInstanceProcAddr;
+using playspectra::CurrentInstance;
+using playspectra::Dispatch;
+using playspectra::NextGetInstanceProcAddr;
+using playspectra::RebuildLayerDispatch;
+using playspectra::SetCaEnabled;
+using playspectra::SetCurrentInstance;
+using playspectra::SetNextGetInstanceProcAddr;
 
 // ---------------------------------------------------------------------------------------------
 // Hooked functions.
@@ -66,7 +66,7 @@ using vr_agent::SetNextGetInstanceProcAddr;
 // ---------------------------------------------------------------------------------------------
 // Dispatch.
 // ---------------------------------------------------------------------------------------------
-XrResult XRAPI_CALL VrAgentGetInstanceProcAddr(XrInstance instance, const char* name,
+XrResult XRAPI_CALL PlaySpectraGetInstanceProcAddr(XrInstance instance, const char* name,
                                                 PFN_xrVoidFunction* function) {
   try {
     if (name == nullptr || function == nullptr) return XR_ERROR_VALIDATION_FAILURE;
@@ -165,12 +165,12 @@ void PublishRuntimeName() {
   if (!get_props) return;
   XrInstanceProperties props{XR_TYPE_INSTANCE_PROPERTIES};
   if (get_props(CurrentInstance(), &props) == XR_SUCCESS) {
-    vr_agent::LayerStateSetRuntimeName(props.runtimeName);
+    playspectra::LayerStateSetRuntimeName(props.runtimeName);
     Log("runtime", props.runtimeName);
   }
 }
 
-XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* info,
+XrResult XRAPI_CALL PlaySpectraCreateApiLayerInstance(const XrInstanceCreateInfo* info,
                                                    const XrApiLayerCreateInfo* apiLayerInfo,
                                                    XrInstance* instance) {
   try {
@@ -195,9 +195,9 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
     // Transparently enable XR_EXT_conformance_automation so we can inject input through the
     // runtime. Only do so if the runtime actually supports it -- enabling an unsupported
     // extension would make xrCreateInstance fail and break the app.
-    // Escape hatch: VR_AGENT_NO_CA=1 disables the injection (diagnostic / runtimes where enabling
+    // Escape hatch: PLAYSPECTRA_DISABLE_CA=1 disables the injection (diagnostic / runtimes where enabling
     // CA changes session lifecycle behaviour).
-    const bool ca_disabled = std::getenv("VR_AGENT_NO_CA") != nullptr;
+    const bool ca_disabled = std::getenv("PLAYSPECTRA_DISABLE_CA") != nullptr;
     const bool ca_supported =
         !ca_disabled &&
         RuntimeSupportsExtension(next_gipa, XR_EXT_CONFORMANCE_AUTOMATION_EXTENSION_NAME);
@@ -227,11 +227,11 @@ XrResult XRAPI_CALL VrAgentCreateApiLayerInstance(const XrInstanceCreateInfo* in
       // GAP-07: resolve the whole next-layer table now, against THIS instance's chain. Rebuilt on
       // every create so a second instance never inherits the previous runtime's stale pointers.
       RebuildLayerDispatch();
-      vr_agent::LayerStateSetInstance(true);
-      vr_agent::LayerStateSetSession(false);
-      vr_agent::LayerStateSetConformanceAutomation(ca_supported);
+      playspectra::LayerStateSetInstance(true);
+      playspectra::LayerStateSetSession(false);
+      playspectra::LayerStateSetConformanceAutomation(ca_supported);
       PublishRuntimeName();
-      vr_agent::ControlChannelStart();
+      playspectra::ControlChannelStart();
       Log("instance created; control channel started");
     } else {
       Log("instance creation failed");
@@ -253,7 +253,7 @@ extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerIn
         loaderInfo->structSize != sizeof(XrNegotiateLoaderInfo)) {
       return XR_ERROR_INITIALIZATION_FAILED;
     }
-    if (apiLayerName != nullptr && std::strcmp(apiLayerName, "XR_APILAYER_vr_agent") != 0) {
+    if (apiLayerName != nullptr && std::strcmp(apiLayerName, "XR_APILAYER_playspectra") != 0) {
       return XR_ERROR_INITIALIZATION_FAILED;
     }
     if (loaderInfo->minInterfaceVersion > XR_CURRENT_LOADER_API_LAYER_VERSION ||
@@ -273,8 +273,8 @@ extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerIn
 
     apiLayerRequest->layerInterfaceVersion = XR_CURRENT_LOADER_API_LAYER_VERSION;
     apiLayerRequest->layerApiVersion = XR_CURRENT_API_VERSION;
-    apiLayerRequest->getInstanceProcAddr = VrAgentGetInstanceProcAddr;
-    apiLayerRequest->createApiLayerInstance = VrAgentCreateApiLayerInstance;
+    apiLayerRequest->getInstanceProcAddr = PlaySpectraGetInstanceProcAddr;
+    apiLayerRequest->createApiLayerInstance = PlaySpectraCreateApiLayerInstance;
 
     Log("xrNegotiateLoaderApiLayerInterface OK");
     return XR_SUCCESS;

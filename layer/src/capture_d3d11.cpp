@@ -1,4 +1,4 @@
-// D3D11 color-readback backend for VR-MCP frame capture. See capture_backends.h for the interface
+// D3D11 color-readback backend for PlaySpectra frame capture. See capture_backends.h for the interface
 // contract and capture.cpp's VulkanReadbackToPng for the reference implementation pattern.
 //
 // This backend is one leaf behind capture.cpp's single dispatch (not a parallel capture system): at
@@ -30,7 +30,7 @@
 #include "layer_log.h"
 #include "lodepng.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 // App-owned device from XrGraphicsBindingD3D11KHR. Not ref-held (the app owns its lifetime); we only
@@ -364,4 +364,4 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   return result;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

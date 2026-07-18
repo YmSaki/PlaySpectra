@@ -1,4 +1,4 @@
-// Head/VIEW-space override + controller grip/aim pose override. Extracted from openxr_agent_layer.cpp
+// Head/VIEW-space override + controller grip/aim pose override. Extracted from layer_entry.cpp
 // (refactor phase 5) so the layer's authoritative pose path -- the injected head pose (xrLocateViews /
 // xrLocateSpace(VIEW)) and the injected controller grip/aim pose (xrLocateSpace / xrLocateSpaces on
 // action spaces) -- lives in one translation unit. This is the "coordinate system of injected input":
@@ -6,7 +6,7 @@
 // space the app locates in. The quaternion/vector math (GAP-04 grip->aim offset, GAP-05 velocity
 // zeroing, GAP-06 null-subactionPath hand inference, IPD-preserving head rebase), the VIEW-space
 // tracking, the LOCAL reference space, and the log-once guards are all TU-private in pose_override.cpp;
-// this header publishes only what the (thin, remaining) hooks in openxr_agent_layer.cpp call.
+// this header publishes only what the (thin, remaining) hooks in layer_entry.cpp call.
 // Behaviour -- data, algorithms, lock discipline -- is unchanged; this is a move only.
 #pragma once
 
@@ -16,7 +16,7 @@
 
 #include "layer_state.h"  // HeadPose (injected head pose the override consumes)
 
-namespace vr_agent {
+namespace playspectra {
 
 // ---------------------------------------------------------------------------------------------
 // LOCK / SAFETY DISCIPLINE (unchanged from the original; read before touching these functions).
@@ -46,7 +46,7 @@ namespace vr_agent {
 // Create (lazily, from a live session) the layer's own LOCAL reference space to express injected
 // poses in -- the same space hello_xr and typical apps use as their app space. Session-scoped:
 // cleared in PoseOverrideClearSessionScoped(). Returns XR_NULL_HANDLE if the runtime can't provide
-// it. PUBLIC because cluster C's ApplyPendingInputs (still in openxr_agent_layer.cpp) injects sticky
+// it. PUBLIC because cluster C's ApplyPendingInputs (still in layer_entry.cpp) injects sticky
 // controller poses in this same LOCAL space via xrSetInputDeviceLocationEXT.
 XrSpace EnsureLocalSpace(XrSession session);
 
@@ -86,4 +86,4 @@ void* FindInNextChain(void* next, XrStructureType type);
 void PoseOverrideClearSessionScoped();
 void PoseOverrideResetWarnings();
 
-}  // namespace vr_agent
+}  // namespace playspectra

@@ -1,5 +1,5 @@
 // Layer dispatch table + single-instance state implementation. Moved verbatim from
-// openxr_agent_layer.cpp (refactor phase 3); behaviour is unchanged (same resolution, same lock
+// layer_entry.cpp (refactor phase 3); behaviour is unchanged (same resolution, same lock
 // discipline, same single-instance model).
 #include "layer_dispatch.h"
 
@@ -8,7 +8,7 @@
 
 #include <openxr/openxr.h>
 
-namespace vr_agent {
+namespace playspectra {
 
 namespace {
 
@@ -135,4 +135,4 @@ std::string PathToStr(XrPath p) {
   return s;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

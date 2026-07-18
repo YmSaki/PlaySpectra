@@ -1,4 +1,4 @@
-// Frame-capture hook cluster implementation. Moved verbatim from openxr_agent_layer.cpp (refactor
+// Frame-capture hook cluster implementation. Moved verbatim from layer_entry.cpp (refactor
 // R04); behaviour is unchanged (same passthrough + capture.cpp notifications). See hooks_capture.h.
 #include "hooks_capture.h"
 
@@ -8,12 +8,12 @@
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorNoteDisplayTime (durationMs glide time base)
 
-using vr_agent::Dispatch;
-using vr_agent::SetCurrentSession;
+using playspectra::Dispatch;
+using playspectra::SetCurrentSession;
 
 namespace {
 
-void Log(const char* msg, const char* detail = nullptr) { vr_agent::LayerLog(msg, detail); }
+void Log(const char* msg, const char* detail = nullptr) { playspectra::LayerLog(msg, detail); }
 
 }  // namespace
 
@@ -25,8 +25,8 @@ XrResult XRAPI_CALL Hook_xrCreateSession(XrInstance instance, const XrSessionCre
     XrResult r = next(instance, createInfo, session);
     if (XR_SUCCEEDED(r) && session) {
       SetCurrentSession(*session);
-      vr_agent::LayerStateSetSession(true);
-      vr_agent::CaptureOnCreateSession(createInfo, *session);
+      playspectra::LayerStateSetSession(true);
+      playspectra::CaptureOnCreateSession(createInfo, *session);
       Log("session created");
     }
     return r;
@@ -41,7 +41,7 @@ XrResult XRAPI_CALL Hook_xrCreateSwapchain(XrSession session, const XrSwapchainC
     PFN_xrCreateSwapchain next = Dispatch().createSwapchain;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, createInfo, swapchain);
-    if (XR_SUCCEEDED(r) && swapchain) vr_agent::CaptureOnCreateSwapchain(createInfo, *swapchain);
+    if (XR_SUCCEEDED(r) && swapchain) playspectra::CaptureOnCreateSwapchain(createInfo, *swapchain);
     return r;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -51,7 +51,7 @@ XrResult XRAPI_CALL Hook_xrCreateSwapchain(XrSession session, const XrSwapchainC
 XrResult XRAPI_CALL Hook_xrDestroySwapchain(XrSwapchain swapchain) {
   try {
     PFN_xrDestroySwapchain next = Dispatch().destroySwapchain;
-    vr_agent::CaptureOnDestroySwapchain(swapchain);
+    playspectra::CaptureOnDestroySwapchain(swapchain);
     return next ? next(swapchain) : XR_ERROR_FUNCTION_UNSUPPORTED;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -67,7 +67,7 @@ XrResult XRAPI_CALL Hook_xrEnumerateSwapchainImages(XrSwapchain swapchain, uint3
     XrResult r = next(swapchain, imageCapacityInput, imageCountOutput, images);
     // Record only on the populating call (images non-null and something returned).
     if (XR_SUCCEEDED(r) && images && imageCountOutput && *imageCountOutput > 0)
-      vr_agent::CaptureOnEnumerateImages(swapchain, *imageCountOutput, images);
+      playspectra::CaptureOnEnumerateImages(swapchain, *imageCountOutput, images);
     return r;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -81,7 +81,7 @@ XrResult XRAPI_CALL Hook_xrAcquireSwapchainImage(XrSwapchain swapchain,
     PFN_xrAcquireSwapchainImage next = Dispatch().acquireSwapchainImage;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(swapchain, acquireInfo, index);
-    if (XR_SUCCEEDED(r) && index) vr_agent::CaptureOnAcquireImage(swapchain, *index);
+    if (XR_SUCCEEDED(r) && index) playspectra::CaptureOnAcquireImage(swapchain, *index);
     return r;
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -93,7 +93,7 @@ XrResult XRAPI_CALL Hook_xrReleaseSwapchainImage(XrSwapchain swapchain,
   try {
     PFN_xrReleaseSwapchainImage next = Dispatch().releaseSwapchainImage;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
-    vr_agent::CaptureOnReleaseImage(swapchain);
+    playspectra::CaptureOnReleaseImage(swapchain);
     return next(swapchain, releaseInfo);
   } catch (...) {
     return XR_ERROR_RUNTIME_FAILURE;
@@ -103,8 +103,8 @@ XrResult XRAPI_CALL Hook_xrReleaseSwapchainImage(XrSwapchain swapchain,
 XrResult XRAPI_CALL Hook_xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) {
   try {
     // Feed the animator's time base (the other intercepted stream is xrLocateViews).
-    if (frameEndInfo) vr_agent::AnimatorNoteDisplayTime(frameEndInfo->displayTime);
-    vr_agent::CaptureOnEndFrame(frameEndInfo);
+    if (frameEndInfo) playspectra::AnimatorNoteDisplayTime(frameEndInfo->displayTime);
+    playspectra::CaptureOnEndFrame(frameEndInfo);
     PFN_xrEndFrame next = Dispatch().endFrame;
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     return next(session, frameEndInfo);

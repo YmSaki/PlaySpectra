@@ -35,7 +35,7 @@
 
 #include "layer_state.h"  // StickyPose / HeadPose (the animation targets)
 
-namespace vr_agent {
+namespace playspectra {
 
 // Result of evaluating an animated target at one instant. linVel/angVel are the glide's closed-form
 // derivative (constant over a linear glide) -- the receptacle for the OPTIONAL §5.2 "real velocity"
@@ -63,4 +63,4 @@ EvaluatedPose AnimatorEvalHead(const HeadPose& target, XrTime now);
 // runtime-scoped, so a fresh instance must not compare its times against a dead runtime's.
 void AnimatorReset();
 
-}  // namespace vr_agent
+}  // namespace playspectra

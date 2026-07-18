@@ -1,4 +1,4 @@
-// Input injection (CA + non-CA fallback) implementation. Moved verbatim from openxr_agent_layer.cpp
+// Input injection (CA + non-CA fallback) implementation. Moved verbatim from layer_entry.cpp
 // (refactor phase 6); behaviour is unchanged (same data, same algorithms, same lock discipline -- see
 // input_inject.h for the GAP-08 fallback description and the ActionMutex()/two-phase invariants).
 #include "input_inject.h"
@@ -18,7 +18,7 @@
 #include "pose_animator.h"     // AnimatorEvalController (durationMs glide evaluation)
 #include "pose_override.h"     // EnsureLocalSpace (inject sticky poses in the layer's LOCAL space)
 
-namespace vr_agent {
+namespace playspectra {
 
 namespace {
 
@@ -29,38 +29,38 @@ void Log(const char* msg, const char* detail = nullptr) { LayerLog(msg, detail);
 // Drain queued MCP input commands and apply them via conformance automation. Runs on the app
 // thread from inside the xrSyncActions hook, so the runtime latches the new state on this sync.
 void ApplyPendingInputs(XrSession session) {
-  std::vector<vr_agent::PendingInput> batch = vr_agent::LayerStateDrainInputs();
-  std::vector<vr_agent::StickyPose> poses = vr_agent::LayerStateGetStickyPoses();
+  std::vector<playspectra::PendingInput> batch = playspectra::LayerStateDrainInputs();
+  std::vector<playspectra::StickyPose> poses = playspectra::LayerStateGetStickyPoses();
   if (batch.empty() && poses.empty()) return;
   if (!CaEnabled()) {
     Log("input dropped: conformance_automation not enabled on this runtime");
     return;
   }
 
-  for (const vr_agent::PendingInput& p : batch) {
+  for (const playspectra::PendingInput& p : batch) {
     const XrPath top = ToPath(p.top_level);
     switch (p.type) {
-      case vr_agent::InputType::Float:
+      case playspectra::InputType::Float:
         if (Dispatch().setInputDeviceStateFloat) {
           XrResult r = Dispatch().setInputDeviceStateFloat(session, top, ToPath(p.source), p.f);
           Log("setInputDeviceStateFloat", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
-      case vr_agent::InputType::Bool:
+      case playspectra::InputType::Bool:
         if (Dispatch().setInputDeviceStateBool) {
           XrResult r =
               Dispatch().setInputDeviceStateBool(session, top, ToPath(p.source), p.b ? XR_TRUE : XR_FALSE);
           Log("setInputDeviceStateBool", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
-      case vr_agent::InputType::Vector2f:
+      case playspectra::InputType::Vector2f:
         if (Dispatch().setInputDeviceStateVector2f) {
           XrVector2f v{p.x, p.y};
           XrResult r = Dispatch().setInputDeviceStateVector2f(session, top, ToPath(p.source), v);
           Log("setInputDeviceStateVector2f", (p.source + (XR_SUCCEEDED(r) ? " ok" : " FAIL")).c_str());
         }
         break;
-      case vr_agent::InputType::Active:
+      case playspectra::InputType::Active:
         if (Dispatch().setInputDeviceActive) {
           XrResult r =
               Dispatch().setInputDeviceActive(session, ToPath(p.profile), top, p.b ? XR_TRUE : XR_FALSE);
@@ -80,7 +80,7 @@ void ApplyPendingInputs(XrSession session) {
       // xrSyncActions carries no XrTime, so the glide evaluates against the latest intercepted
       // display time (0 before the first frame -> the animator snaps to the target).
       const XrTime now = AnimatorLastDisplayTime();
-      for (const vr_agent::StickyPose& sp : poses) {
+      for (const playspectra::StickyPose& sp : poses) {
         const XrPosef pose = AnimatorEvalController(sp, now).pose;
         XrResult r =
             Dispatch().setInputDeviceLocation(session, ToPath(sp.top_level), ToPath(sp.source), space, pose);
@@ -141,30 +141,30 @@ std::vector<XrAction> ActionsBoundTo(const std::string& sourceBindingPath) {
 // refresh the active-action-set set, and recompute changedSinceLastSync/lastChangeTime. Controller
 // poses are NOT handled here -- ApplyPoseOverride is the authoritative pose source in both CA and non-CA.
 void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
-  std::vector<vr_agent::PendingInput> batch = vr_agent::LayerStateDrainInputs();
+  std::vector<playspectra::PendingInput> batch = playspectra::LayerStateDrainInputs();
 
   // Resolve each injection's subactionPath BEFORE taking g_action_mutex: ToPath calls the runtime
   // (xrStringToPath), and the established rule (GAP-06) is to never call the runtime while holding
   // g_action_mutex. Active commands carry no state value, so they are dropped here. `p` points into
   // `batch`, which outlives this vector.
-  struct Resolved { const vr_agent::PendingInput* p; XrPath sub; };
+  struct Resolved { const playspectra::PendingInput* p; XrPath sub; };
   std::vector<Resolved> resolved;
   resolved.reserve(batch.size());
-  for (const vr_agent::PendingInput& p : batch) {
-    if (p.type == vr_agent::InputType::Active) continue;
+  for (const playspectra::PendingInput& p : batch) {
+    if (p.type == playspectra::InputType::Active) continue;
     resolved.push_back({&p, ToPath(p.top_level)});
   }
 
   std::lock_guard<std::mutex> lock(ActionMutex());
 
   for (const Resolved& r : resolved) {
-    const vr_agent::PendingInput& p = *r.p;
+    const playspectra::PendingInput& p = *r.p;
     for (XrAction action : ActionsBoundTo(p.source)) {  // g_actions read: fine under the lock
       FallbackActionState& st = g_fallback_states[{action, r.sub}];
       switch (p.type) {
-        case vr_agent::InputType::Float:  st.f = p.f; st.b = p.f > 0.5f; break;
-        case vr_agent::InputType::Bool:   st.b = p.b; st.f = p.b ? 1.0f : 0.0f; break;
-        case vr_agent::InputType::Vector2f: st.v = XrVector2f{p.x, p.y}; break;
+        case playspectra::InputType::Float:  st.f = p.f; st.b = p.f > 0.5f; break;
+        case playspectra::InputType::Bool:   st.b = p.b; st.f = p.b ? 1.0f : 0.0f; break;
+        case playspectra::InputType::Vector2f: st.v = XrVector2f{p.x, p.y}; break;
         default: break;
       }
     }
@@ -222,7 +222,7 @@ FallbackAgg AggregateFallback(XrAction action, XrPath subactionPath) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// [G] accessors for the thin hooks in openxr_agent_layer.cpp. Each touches the shared fallback state
+// [G] accessors for the thin hooks in layer_entry.cpp. Each touches the shared fallback state
 // in place, exactly as the original inline hook code did. PRECONDITION: caller holds ActionMutex().
 // ---------------------------------------------------------------------------------------------
 
@@ -270,4 +270,4 @@ void FallbackClearInstanceScoped() {
   g_fallback_sync_counter = 0;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the OpenVR sample app (hellovr_dx12, x64) and deploy it with the OpenComposite openvr_api.dll
-# to third_party/hellovr/ -- the OpenVR-side test app for the vr_agent stack (no Steam/SteamVR).
+# to third_party/hellovr/ -- the OpenVR-side test app for the playspectra stack (no Steam/SteamVR).
 #
 # Notes discovered while establishing this (2026-07-16, M2/M3):
 # - The openvr CLONE MUST BE TAG-PINNED to an interface era OpenComposite implements. OC(openxr
@@ -22,7 +22,7 @@
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENVR_TAG="${OPENVR_TAG:-v1.8.19}"   # OC-compatible interface era; see note above
-SRC="${TEMP:-/tmp}/vr_agent_openvr_${OPENVR_TAG}"   # short path (FTK1011); tag in path = no stale-clone ambiguity
+SRC="${TEMP:-/tmp}/playspectra_openvr_${OPENVR_TAG}"   # short path (FTK1011); tag in path = no stale-clone ambiguity
 DEST="${ROOT}/third_party/hellovr/bin"
 # Find MSBuild across VS editions (first match wins)
 MSBUILD=""

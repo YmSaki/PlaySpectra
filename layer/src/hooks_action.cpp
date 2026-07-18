@@ -1,4 +1,4 @@
-// Action/input + teardown hook cluster implementation. Moved verbatim from openxr_agent_layer.cpp
+// Action/input + teardown hook cluster implementation. Moved verbatim from layer_entry.cpp
 // (refactor R04); behaviour is unchanged (same action-registry observation, same GAP-08 non-CA
 // fallback, same teardown fan-out + lock discipline). See hooks_action.h.
 #include "hooks_action.h"
@@ -17,44 +17,44 @@
 #include "pose_animator.h"     // AnimatorReset (glide state is dead-runtime-scoped, like XrTime)
 #include "pose_override.h"     // PoseOverride* session/warning reset + EraseRefSpace
 
-using vr_agent::ActionMutex;
-using vr_agent::ActionReg;
-using vr_agent::AggregateFallback;
-using vr_agent::ApplyFallbackSync;
-using vr_agent::ApplyPendingInputs;
-using vr_agent::CaEnabled;
-using vr_agent::ClearLayerDispatch;
-using vr_agent::CurrentInstance;
-using vr_agent::CurrentSession;
-using vr_agent::Dispatch;
-using vr_agent::EraseRefSpace;
-using vr_agent::FallbackAgg;
-using vr_agent::FallbackArmIpEvent;
-using vr_agent::FallbackClearInstanceScoped;
-using vr_agent::FallbackClearSessionScoped;
-using vr_agent::FallbackCurrentProfile;
-using vr_agent::FallbackEraseForAction;
-using vr_agent::FallbackNoteSuggestedProfile;
-using vr_agent::FallbackTakePendingIpEvent;
-using vr_agent::PathToStr;
-using vr_agent::PoseOverrideClearSessionScoped;
-using vr_agent::PoseOverrideResetWarnings;
-using vr_agent::RegistryClearInstanceScoped;
-using vr_agent::RegistryClearSessionScoped;
-using vr_agent::RegistryEraseActionSet;
-using vr_agent::RegistryEraseSpace;
-using vr_agent::RegistryRecordAction;
-using vr_agent::RegistryRecordActionSet;
-using vr_agent::RegistryRecordActionSpace;
-using vr_agent::RegistryRecordAttach;
-using vr_agent::RegistryRecordBindings;
-using vr_agent::SetCaEnabled;
-using vr_agent::SetCurrentInstance;
-using vr_agent::SetCurrentSession;
+using playspectra::ActionMutex;
+using playspectra::ActionReg;
+using playspectra::AggregateFallback;
+using playspectra::ApplyFallbackSync;
+using playspectra::ApplyPendingInputs;
+using playspectra::CaEnabled;
+using playspectra::ClearLayerDispatch;
+using playspectra::CurrentInstance;
+using playspectra::CurrentSession;
+using playspectra::Dispatch;
+using playspectra::EraseRefSpace;
+using playspectra::FallbackAgg;
+using playspectra::FallbackArmIpEvent;
+using playspectra::FallbackClearInstanceScoped;
+using playspectra::FallbackClearSessionScoped;
+using playspectra::FallbackCurrentProfile;
+using playspectra::FallbackEraseForAction;
+using playspectra::FallbackNoteSuggestedProfile;
+using playspectra::FallbackTakePendingIpEvent;
+using playspectra::PathToStr;
+using playspectra::PoseOverrideClearSessionScoped;
+using playspectra::PoseOverrideResetWarnings;
+using playspectra::RegistryClearInstanceScoped;
+using playspectra::RegistryClearSessionScoped;
+using playspectra::RegistryEraseActionSet;
+using playspectra::RegistryEraseSpace;
+using playspectra::RegistryRecordAction;
+using playspectra::RegistryRecordActionSet;
+using playspectra::RegistryRecordActionSpace;
+using playspectra::RegistryRecordAttach;
+using playspectra::RegistryRecordBindings;
+using playspectra::SetCaEnabled;
+using playspectra::SetCurrentInstance;
+using playspectra::SetCurrentSession;
 
 namespace {
 
-void Log(const char* msg, const char* detail = nullptr) { vr_agent::LayerLog(msg, detail); }
+void Log(const char* msg, const char* detail = nullptr) { playspectra::LayerLog(msg, detail); }
 
 }  // namespace
 
@@ -69,8 +69,8 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
         FallbackClearSessionScoped();    // [G] GAP-08: sync state + pending IP event (per-session)
       }
       SetCurrentSession(XR_NULL_HANDLE);
-      vr_agent::LayerStateSetSession(false);
-      vr_agent::CaptureOnDestroySession(session);
+      playspectra::LayerStateSetSession(false);
+      playspectra::CaptureOnDestroySession(session);
     }
     return next ? next(session) : XR_ERROR_FUNCTION_UNSUPPORTED;
   } catch (...) {
@@ -211,7 +211,7 @@ XrResult XRAPI_CALL Hook_xrApplyHapticFeedback(XrSession session, const XrHaptic
       std::string sp = PathToStr(hapticActionInfo->subactionPath);
       if (!sp.empty()) hand = sp;
     }
-    vr_agent::LayerStateRecordHaptic(hand, amplitude);
+    playspectra::LayerStateRecordHaptic(hand, amplitude);
     Log("xrApplyHapticFeedback (app buzzed the controller -- grab detected)");
     PFN_xrApplyHapticFeedback next = Dispatch().applyHapticFeedback;
     return next ? next(session, hapticActionInfo, hapticFeedback) : XR_SUCCESS;
@@ -229,12 +229,12 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
       RegistryClearInstanceScoped();  // [F] action sets + actions + attachment (instance-scoped)
       FallbackClearInstanceScoped();  // [G] GAP-08: fallback state keyed by (now-invalid) actions
     }
-    vr_agent::ControlChannelStop();
-    vr_agent::LayerStateSetInstance(false);
-    vr_agent::LayerStateSetSession(false);
+    playspectra::ControlChannelStop();
+    playspectra::LayerStateSetInstance(false);
+    playspectra::LayerStateSetSession(false);
     // XrTime values are runtime-scoped: drop the cached display time + glide state so a fresh
     // instance never compares its times against this dead runtime's. Leaf mutex; no lock held here.
-    vr_agent::AnimatorReset();
+    playspectra::AnimatorReset();
     XrResult r = next ? next(instance) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (instance == CurrentInstance()) {
       // GAP-07: drop all next-layer pointers (they belong to the runtime we just tore down) and reset

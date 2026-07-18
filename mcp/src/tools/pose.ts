@@ -28,7 +28,10 @@ server.registerTool(
     title: "Set a controller pose",
     description:
       "Place a controller at a pose (position + orientation) in the app's world space (LOCAL: " +
-      "-Z forward, +Y up, metres). Held until vr_clear_controller / vr_reset. Orientation may be " +
+      "-Z forward, +Y up, metres). NOTE: the LOCAL origin differs per runtime (Meta XR Simulator " +
+      "puts the HEAD at y≈0; SteamVR puts the floor at y=0) — call vr_view first and compute " +
+      "coordinates relative to the view pose, or the object may land out of view. " +
+      "Held until vr_clear_controller / vr_reset. Orientation may be " +
       "given as yaw/pitch/roll degrees (ergonomic) or a raw quaternion; default identity. " +
       "Optional durationMs glides the controller linearly from its previous injected pose to the " +
       "target over that time (like a real hand moving); the tool returns after the glide completes.",

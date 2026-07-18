@@ -1,0 +1,89 @@
+<!doctype html>
+<meta charset="utf-8" />
+<style>
+  body { font: 13px system-ui; margin: 0; background: transparent; color: #222; }
+  :root.dark body { color: #ddd; }
+  #bar { display: flex; gap: 8px; align-items: center; padding: 8px; }
+  #note { opacity: 0.7; word-break: break-all; }
+  button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid #8884;
+           background: #8881; cursor: pointer; color: inherit; }
+  #main { padding: 0 8px 8px; }
+  #main img, #main video { max-width: 100%; border-radius: 8px; display: block; }
+  .strip { display: flex; gap: 6px; overflow-x: auto; padding: 0 8px 8px; }
+  .strip img { height: 110px; border-radius: 6px; cursor: pointer; flex: 0 0 auto; }
+  .strip img.sel { outline: 2px solid #4a90d9; }
+</style>
+<div id="bar"><button id="loadvid" hidden>▶ 動画を再生</button><span id="note"></span></div>
+<div id="main"></div>
+<div class="strip" id="strip"></div>
+<script type="module">
+/*__EXT_APPS_BUNDLE__*/
+const { App } = globalThis.ExtApps;
+(async () => {
+  const app = new App({ name: "RecordingViewer", version: "1.0.0" }, {}, { autoResize: true });
+  const main = document.getElementById("main");
+  const strip = document.getElementById("strip");
+  const note = document.getElementById("note");
+  const btn = document.getElementById("loadvid");
+  let meta = null;
+
+  const applyTheme = (t) => document.documentElement.classList.toggle("dark", t === "dark");
+
+  function show(src, el) {
+    main.innerHTML = "";
+    const big = new Image();
+    big.src = src;
+    main.append(big);
+    for (const s of strip.children) s.classList.toggle("sel", s === el);
+  }
+
+  // Tool result = sampled frame images + one text JSON ({dir,totalFrames,shown,videoPath?}).
+  app.ontoolresult = ({ content }) => {
+    strip.innerHTML = "";
+    main.innerHTML = "";
+    const txt = content.find((c) => c.type === "text");
+    meta = txt ? JSON.parse(txt.text) : null;
+    content.filter((c) => c.type === "image").forEach((c, i) => {
+      const img = new Image();
+      img.src = `data:${c.mimeType};base64,${c.data}`;
+      img.onclick = () => show(img.src, img);
+      strip.append(img);
+      if (i === 0) show(img.src, img);
+    });
+    if (meta) {
+      note.textContent = `${meta.shown}/${meta.totalFrames} frames — ${meta.dir}`;
+      btn.hidden = !meta.videoPath;
+    }
+  };
+
+  // mp4 is fetched on demand through the hidden helper tool (iframe CSP blocks file/net access),
+  // then played from a Blob URL — same-origin, so the sandbox allows it.
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "読み込み中...";
+    try {
+      const r = await app.callServerTool({ name: "vragent_get_media", arguments: { path: meta.videoPath } });
+      const j = JSON.parse(r.content[0].text);
+      if (!j.ok) throw new Error(j.error);
+      const bin = Uint8Array.from(atob(j.base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bin], { type: j.mime }));
+      main.innerHTML = "";
+      const v = document.createElement("video");
+      v.src = url;
+      v.controls = true;
+      v.autoplay = true;
+      v.loop = true;
+      main.append(v);
+      for (const s of strip.children) s.classList.remove("sel");
+    } catch (e) {
+      note.textContent = "video load failed: " + e.message;
+    }
+    btn.textContent = "▶ 動画を再生";
+    btn.disabled = false;
+  };
+
+  await app.connect();
+  applyTheme(app.getHostContext()?.theme);
+  app.onhostcontextchanged = (ctx) => applyTheme(ctx?.theme);
+})();
+</script>

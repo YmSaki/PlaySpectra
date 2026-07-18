@@ -12,7 +12,9 @@ server.registerTool(
     title: "Set the headset (viewpoint) pose",
     description:
       "Move the viewpoint: override the head pose in the app's world space (LOCAL: -Z forward, " +
-      "+Y up, metres). Applied inside xrLocateViews (keeps the runtime's IPD + FOV). Orientation " +
+      "+Y up, metres). NOTE: the LOCAL origin differs per runtime (Meta XR Simulator puts the " +
+      "HEAD at y≈0; SteamVR puts the floor at y=0) — call vr_view first to learn the current " +
+      "eye height before picking y. Applied inside xrLocateViews (keeps the runtime's IPD + FOV). Orientation " +
       "as yaw/pitch/roll degrees or a raw quaternion; default identity. Held until vr_reset. " +
       "Optional durationMs glides the viewpoint smoothly from its previous injected pose to the " +
       "target over that time (a comfortable move, not a teleport); the tool returns after the glide.",

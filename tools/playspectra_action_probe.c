@@ -72,7 +72,7 @@ main(int argc, char **argv)
 	XrPath leftHand;
 	CHK(xrStringToPath(inst, "/user/hand/left", &leftHand));
 
-	XrAction gripA, thumbA, trigA;
+	XrAction gripA, thumbA, trigA, hapticA;
 	XrActionCreateInfo aci = {XR_TYPE_ACTION_CREATE_INFO};
 	aci.countSubactionPaths = 1;
 	aci.subactionPaths = &leftHand;
@@ -88,17 +88,23 @@ main(int argc, char **argv)
 	strcpy(aci.actionName, "trigger");
 	strcpy(aci.localizedActionName, "trigger");
 	CHK(xrCreateAction(aset, &aci, &trigA));
+	aci.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT;
+	strcpy(aci.actionName, "haptic");
+	strcpy(aci.localizedActionName, "haptic");
+	CHK(xrCreateAction(aset, &aci, &hapticA));
 
-	XrPath gripPath, thumbPath, trigPath, profile;
+	XrPath gripPath, thumbPath, trigPath, hapticPath, profile;
 	CHK(xrStringToPath(inst, "/user/hand/left/input/grip/pose", &gripPath));
 	CHK(xrStringToPath(inst, "/user/hand/left/input/thumbstick", &thumbPath));
 	CHK(xrStringToPath(inst, "/user/hand/left/input/trigger/value", &trigPath));
+	CHK(xrStringToPath(inst, "/user/hand/left/output/haptic", &hapticPath));
 	CHK(xrStringToPath(inst, "/interaction_profiles/oculus/touch_controller", &profile));
-	XrActionSuggestedBinding binds[] = {{gripA, gripPath}, {thumbA, thumbPath}, {trigA, trigPath}};
+	XrActionSuggestedBinding binds[] = {
+	    {gripA, gripPath}, {thumbA, thumbPath}, {trigA, trigPath}, {hapticA, hapticPath}};
 	XrInteractionProfileSuggestedBinding sb = {XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
 	sb.interactionProfile = profile;
 	sb.suggestedBindings = binds;
-	sb.countSuggestedBindings = 3;
+	sb.countSuggestedBindings = 4;
 	CHK(xrSuggestInteractionProfileBindings(inst, &sb));
 
 	// --- Session (headless) ---
@@ -196,6 +202,22 @@ main(int argc, char **argv)
 				       loc.pose.position.y, loc.pose.position.z);
 				fflush(stdout);
 				reads++;
+
+				// haptics 逆方向の検証: 1回だけ振動を適用する。
+				// PlaySpectra 側は controller.set_output -> 共有state -> 制御チャネルが
+				// {"event":"haptics",...} を observer へ送出する。
+				if (reads == 2) {
+					XrHapticActionInfo hai = {XR_TYPE_HAPTIC_ACTION_INFO};
+					hai.action = hapticA;
+					hai.subactionPath = leftHand;
+					XrHapticVibration hv = {XR_TYPE_HAPTIC_VIBRATION};
+					hv.amplitude = 0.8f;
+					hv.duration = 100000000; // 100 ms in ns
+					hv.frequency = 0;        // unspecified
+					xrApplyHapticFeedback(sess, &hai, (const XrHapticBaseHeader *)&hv);
+					printf("[act] applied haptic feedback (left)\n");
+					fflush(stdout);
+				}
 			}
 		}
 		usleep(120 * 1000);

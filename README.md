@@ -62,7 +62,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **キャプチャ: D3D12** | ✅ Windows・実GPU で full E2E 20/20（395フレーム・fmt=29・非退化・録画） | `scripts/integration_test.sh D3D12`（metasim + MSVC hello_xr、2026-07-22） |
 | **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。実 MCP クライアントで 7/7 | `tools/playspectra_mcp.py`、`tools/playspectra_mcp_verify.py`（要 `pip install mcp`） |
 | **end-to-end Playwright ループ** | ✅ 操作注入 → hello_xr 再描画 → capture PNG 変化 2/2 PASS | `scripts/e2e_playwright_loop.sh`、`tools/scenarios/big_view_change.json` |
-| **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → D3D11 client-compositor で実描画 → capture レイヤー(:52700) が非退化観測。観測 20/20 | `scripts/run_hello_xr_monado.sh`（`integration_hello_xr.mjs` 20/20、2026-07-22） |
+| **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → **D3D11/D3D12** client-compositor で実描画 → capture レイヤー(:52700) が非退化観測。各 20/20 | `scripts/run_hello_xr_monado.sh [D3D11\|D3D12]`（`integration_hello_xr.mjs` 各 20/20、2026-07-22） |
 | **operate 到達（runtime レベル）** | ✅ layer override ではなく **:52702 で Monado 仮想 HMD を駆動 → 実アプリの xrLocateViews が追従**（override クリア状態で dz=−2.5 を 1:1 反映、x/y 不変）。「注入のアプリ到達」を runtime 経路で実証。2/2 | `tools/playspectra_coupling_probe.py`（`run_hello_xr_monado.sh` のゲート、2026-07-22） |
 | MCP サーバー（レガシー・TypeScript） | 🟡 改革前の設計（layer :52700 直結）。現行 Python 版に併存。今後の扱いは未決 | `mcp/src/` |
 | VRDevApp（実 Godot アプリ・Windows） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転） | `scripts/run_vrdevapp.sh`（未追跡）、memory `vrdevapp-test-target` |

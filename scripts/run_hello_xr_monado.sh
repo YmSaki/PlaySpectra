@@ -100,10 +100,12 @@ RC=99
 if [ "$LUP" = "1" ]; then
   echo "=== integration_hello_xr.mjs (layer observation of a real app on Monado) ==="
   node scripts/integration_hello_xr.mjs 52700
-  RC=$?
-  echo "=== coupling probe: drive Monado virtual HMD via :52702 (informational) ==="
-  python tools/playspectra_server.py --cmd move_head \
-    --args '{"to":{"position":[0.0,1.6,-1.5]},"duration_ms":300}' --port 52702 2>&1 | tail -2 || true
+  IRC=$?
+  echo "=== runtime coupling: :52702 operate drives Monado virtual HMD -> app xrLocateViews (:52700) ==="
+  python tools/playspectra_coupling_probe.py 52700 52702
+  CRC=$?
+  # verdict gates on BOTH: layer observation of a real app AND runtime-level operate reaching the app.
+  RC=$(( IRC != 0 ? IRC : CRC ))
 else
   echo "layer channel never came up"
 fi

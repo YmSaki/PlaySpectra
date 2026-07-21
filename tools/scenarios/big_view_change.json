@@ -1,0 +1,9 @@
+{
+  "name": "big_view_change",
+  "description": "Rotate the head 150deg and translate the viewpoint, then hold (no reset). Used by the end-to-end operate->observe test: injecting this via the Monado adapter makes an OpenXR app (hello_xr) re-render a visibly different view, which the PlaySpectra capture layer then observes as a changed PNG. Writer disconnect holds the state (spec 5.3), so post-injection frames keep the new view.",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "look", "yaw_deg": 150.0, "duration_ms": 400},
+    {"cmd": "move_head", "to": {"position": [0.6, 1.9, -2.2]}, "duration_ms": 400}
+  ]
+}

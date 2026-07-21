@@ -47,7 +47,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 
 凡例: ✅ 本環境で実装・E2E 検証済み / 🟡 実機・別環境で部分検証済み / 📋 設計・開発中 / 🔬 仮説（検証法付き）
 
-本環境で verifiable な主軸（操作 / 観察 / 記録 / 再生 / assert）は WSL2 上で end-to-end に成立している。検証環境は末尾の「検証環境」節を参照。
+本環境で verifiable な主軸（操作 / 観察 / 記録 / 再生 / assert）は WSL2 上で end-to-end に成立し、さらに **Windows・実GPU でも、Windows ビルドの Monado 上で実アプリ（hello_xr）相手に E2E 成立**している（下表・末尾行）。検証環境は末尾の「検証環境」節を参照。
 
 | 領域 | 状況 | 根拠（リポジトリ内） |
 | --- | --- | --- |
@@ -62,11 +62,12 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **キャプチャ: D3D12** | ✅ Windows・実GPU で full E2E 20/20（395フレーム・fmt=29・非退化・録画） | `scripts/integration_test.sh D3D12`（metasim + MSVC hello_xr、2026-07-22） |
 | **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。実 MCP クライアントで 7/7 | `tools/playspectra_mcp.py`、`tools/playspectra_mcp_verify.py`（要 `pip install mcp`） |
 | **end-to-end Playwright ループ** | ✅ 操作注入 → hello_xr 再描画 → capture PNG 変化 2/2 PASS | `scripts/e2e_playwright_loop.sh`、`tools/scenarios/big_view_change.json` |
+| **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → D3D11 client-compositor で実描画 → capture レイヤー(:52700) が非退化観測。20/20 PASS＋:52702 `move_head` で Monado 仮想 HMD 駆動 | `scripts/run_hello_xr_monado.sh`（`integration_hello_xr.mjs` 20/20、2026-07-22） |
 | MCP サーバー（レガシー・TypeScript） | 🟡 改革前の設計（layer :52700 直結）。現行 Python 版に併存。今後の扱いは未決 | `mcp/src/` |
 | VRDevApp（実 Godot アプリ・Windows） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転） | `scripts/run_vrdevapp.sh`（未追跡）、memory `vrdevapp-test-target` |
 | OpenVR アプリ | 🟡 OpenComposite（OpenVR→OpenXR 変換）経由で観察・姿勢注入（統合テスト 15 PASS / 1 SKIP）。openvr **v1.8.19** 世代でビルド | `scripts/integration_openvr_test.sh` |
 | **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/`（未追跡）に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |
-| Windows 実 GPU での完全 graphics session 検証 | 📋 本環境（WSL2）は非優先。実機・実 GPU が要る | — |
+| Windows Monado の**メイン（表示）compositor** session | 📋 上の実アプリ E2E は null compositor（headless）で実証済み。実 HMD へ提示する表示 compositor 経路は未検証 | `run_hello_xr_monado.sh` は `XRT_COMPOSITOR_NULL=1` |
 | Frame-synchronized Mode の「決定性」 | 🔬 delta time / GPU scheduling / physics 等が揺れるため未検証。実測してから "Deterministic" へ昇格 | 正典 §4 |
 
 > **グラフィックスAPIの完全性（D3D11 / D3D12 / Vulkan）はコア必須要件**（「VR版Playwrightが全キーを打てる」ため）。いずれのバックエンドも未対応フォーマットでは「無言で壊れた画像」を返さず、必ず明示的にエラーを返す。深度マップのみ nice-to-have（ユーザーが許容表現で明示）。

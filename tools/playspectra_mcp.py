@@ -87,6 +87,22 @@ def set_trigger(hand: str = "right", value: float = 1.0, duration_ms: int = 200)
 
 
 @mcp.tool()
+def move_controller(hand: str, x: float, y: float, z: float, duration_ms: int = 400) -> str:
+    """Move a controller (hand = "left" | "right") grip+aim to a STAGE-space position in metres.
+    Interpolated. Returns the resulting device state."""
+    srv().move_controller(hand, {"position": [x, y, z]}, duration_ms)
+    return json.dumps(_state())
+
+
+@mcp.tool()
+def set_input(hand: str, path: str, value: float, duration_ms: int = 0) -> str:
+    """Set an arbitrary controller input path (e.g. '/input/squeeze/value', '/input/thumbstick/x') on
+    hand = "left"|"right". Use 1/0 for bool paths (/click, /touch). Returns the device state."""
+    srv().set_input(hand, path, value, duration_ms)
+    return json.dumps(_state())
+
+
+@mcp.tool()
 def reset() -> str:
     """Reset the virtual devices to the builder-initial state. Returns the device state."""
     srv().reset()

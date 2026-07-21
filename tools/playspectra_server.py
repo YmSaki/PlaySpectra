@@ -291,6 +291,32 @@ class Server:
         ctrl = self.model.hand(hand)
         self._stream(duration_ms, lambda t: ctrl.inputs.__setitem__("/input/trigger/value", value))
 
+    def move_controller(self, hand, to, duration_ms=400):
+        """Move a controller's grip+aim pose to a STAGE-space target ({position, optional orientation}),
+        interpolated. Grip and aim move together (the whole hand); use set_input for finer control."""
+        ctrl = self.model.hand(hand)
+        gp0 = list(ctrl.grip_pos); gq0 = list(ctrl.grip_quat)
+        ap0 = list(ctrl.aim_pos); aq0 = list(ctrl.aim_quat)
+        p1 = list(to.get("position", gp0))
+        q1 = quat_norm(list(to.get("orientation", gq0)))
+
+        def apply(t):
+            ctrl.grip_pos = lerp3(gp0, p1, t); ctrl.grip_quat = slerp(gq0, q1, t)
+            ctrl.aim_pos = lerp3(ap0, p1, t); ctrl.aim_quat = slerp(aq0, q1, t)
+        self._stream(duration_ms, apply)
+
+    def set_input(self, hand, path, value, duration_ms=0):
+        """Set an arbitrary controller input path (e.g. '/input/squeeze/value', '/button/a/touch') to a
+        value, held. Float for /value|/x|/y, bool for /click|/touch. duration_ms=0 = instant."""
+        ctrl = self.model.hand(hand)
+        if path not in ctrl.inputs:
+            raise ValueError("unknown input %r for %s hand (declared: %s)" % (path, hand, list(ctrl.inputs)))
+        if duration_ms > 0:
+            self._stream(duration_ms, lambda t: ctrl.inputs.__setitem__(path, value))
+        else:
+            ctrl.inputs[path] = value
+            self._emit()
+
     def press(self, hand="right", button="a", ms=120):
         """Press+hold a click button for ms then release (also sets its touch while held)."""
         ctrl = self.model.hand(hand)
@@ -418,6 +444,8 @@ class Server:
             "walk_forward": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.walk_forward(speed, duration_ms, hand),
             "strafe": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.strafe(speed, duration_ms, hand),
             "trigger": lambda hand="right", value=1.0, duration_ms=200, **_: self.set_trigger(hand, value, duration_ms),
+            "move_controller": lambda hand="right", to=None, duration_ms=400, **_: self.move_controller(hand, to or {}, duration_ms),
+            "set_input": lambda hand="right", path=None, value=0.0, duration_ms=0, **_: self.set_input(hand, path, value, duration_ms),
             "press": lambda hand="right", button="a", ms=120, **_: self.press(hand, button, ms),
             "wait": lambda ms=100, **_: self.wait(ms),
             "reset": lambda **_: self.reset(),

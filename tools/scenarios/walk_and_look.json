@@ -1,0 +1,17 @@
+{
+  "name": "walk_and_look",
+  "description": "Sample PlaySpectra scenario: enter as writer, step forward, walk, look around, poke a button, reset. Drives the Monado adapter control channel (:52702) via playspectra_server.py.",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "move_head", "to": {"position": [0.0, 1.6, -0.8]}, "duration_ms": 400},
+    {"cmd": "walk_forward", "speed": 1.0, "duration_ms": 600},
+    {"cmd": "look", "yaw_deg": 90.0, "duration_ms": 400},
+    {"cmd": "walk_forward", "speed": 0.6, "duration_ms": 400},
+    {"cmd": "look", "yaw_deg": -45.0, "duration_ms": 300},
+    {"cmd": "trigger", "hand": "right", "value": 0.9, "duration_ms": 150},
+    {"cmd": "press", "hand": "right", "button": "a", "ms": 120},
+    {"cmd": "press", "hand": "left", "button": "x", "ms": 120},
+    {"cmd": "wait", "ms": 100},
+    {"cmd": "reset"}
+  ]
+}

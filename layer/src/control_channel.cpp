@@ -47,6 +47,12 @@ namespace {
 
 using json = nlohmann::json;
 
+// A well-formed request line is tiny (a single JSON command). Bound the accumulation buffer so a
+// faulty or hostile *local* client that streams bytes without a newline cannot grow it without limit
+// and exhaust memory. The channel is 127.0.0.1-only, so this is a robustness guard, not a fix for a
+// remote exploit. Reported by Jules/Sentinel (PR #5); applied here to the current (post-split) code.
+constexpr size_t kMaxRequestBytes = 1u << 20;  // 1 MiB
+
 std::thread g_thread;
 std::atomic<bool> g_running{false};
 SOCKET g_listen_socket = INVALID_SOCKET;
@@ -346,6 +352,9 @@ void ServeClient(SOCKET client) {
         sent += static_cast<size_t>(m);
       }
     }
+    // After draining every complete line, only an incomplete tail remains. If that tail alone exceeds
+    // the cap, no reasonable newline is coming: drop the faulty client (buffer/socket freed on return).
+    if (buffer.size() > kMaxRequestBytes) break;
   }
 }
 

@@ -23,7 +23,7 @@ Usage:
 `--verify` reads the state back (get_state) at checkpoints and asserts the scripted effect, so the
 run is self-checking against a live adapter (CLAUDE.md: 完了判定は機械値で).
 """
-import socket, json, sys, time, math, argparse
+import socket, json, sys, time, math, argparse, hashlib, os
 
 # ---- control channel (NDJSON over TCP), same framing as the E2E harnesses ----
 
@@ -58,6 +58,18 @@ class ControlClient:
                 continue
             if o.get("request_id") == obj.get("request_id"):
                 return o
+        return None
+
+    def req_line(self, obj, timeout=10.0):
+        """Send a request and return the next reply line parsed. For the layer capture channel
+        (:52700), whose protocol is one-line-request / one-line-reply with no request_id echo."""
+        self.s.sendall((json.dumps(obj) + "\n").encode())
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self._readline()
+            if line is None or not line.strip():
+                continue
+            return json.loads(line)
         return None
 
     def send_only(self, obj):
@@ -203,13 +215,17 @@ class DeviceModel:
 # ---- the Server: high-level commands -> interpolated set_state stream ----
 
 class Server:
-    def __init__(self, client, rate_hz=60.0, log=print):
+    def __init__(self, client, rate_hz=60.0, log=print, capture=None):
         self.c = client
         self.model = DeviceModel()
         self.seq = 0
         self.dt = 1.0 / rate_hz
         self.log = log
         self.assertions = []  # (name, ok, actual) per assert step -> scenario becomes a test
+        # Optional capture channel (layer :52700, per the operate->:52702 / capture->:52700 split).
+        # A ControlClient to the layer, or None if the scenario does no capture-asserts.
+        self.capture = capture
+        self.captures = {}  # name -> {"hash":..., "path":...} for visual-regression asserts
 
     # -- transport --
     def hello(self, role="writer"):
@@ -339,6 +355,54 @@ class Server:
         self.log("  assert: %s -> %s (actual=%s)" % (label, "PASS" if ok else "FAIL", actual))
         return ok
 
+    # -- capture assertions (visual regression): observe the SCREEN via the layer channel (:52700) --
+    def _screenshot(self, eye="left", timeout_ms=8000):
+        """Request an on-demand screenshot over the layer capture channel and hash the resulting PNG."""
+        if self.capture is None:
+            return {"ok": False, "error": "no capture channel (need --capture-port + a layer-loaded app)"}
+        try:
+            r = self.capture.req_line({"cmd": "screenshot", "eye": eye, "timeoutMs": timeout_ms},
+                                      timeout=timeout_ms / 1000.0 + 3)
+        except Exception as e:  # noqa: BLE001 -- a capture failure must not crash the scenario
+            return {"ok": False, "error": "capture request failed: %r" % e}
+        if not (r and r.get("ok")):
+            return {"ok": False, "error": "screenshot not ok: %s" % r}
+        path = r.get("path", "")
+        if not path or not os.path.exists(path):
+            return {"ok": False, "error": "screenshot path missing: %s" % path}
+        try:
+            h = hashlib.sha256(open(path, "rb").read()).hexdigest()[:16]
+        except OSError as e:
+            return {"ok": False, "error": "read PNG failed: %r" % e}
+        return {"ok": True, "hash": h, "path": path}
+
+    def capture_ref(self, name, eye="left"):
+        """Take a reference screenshot and store it under `name` for a later assert_capture."""
+        s = self._screenshot(eye)
+        ok = s.get("ok", False)
+        if ok:
+            self.captures[name] = {"hash": s["hash"], "path": s["path"]}
+        self.assertions.append(("capture[%s]" % name, bool(ok), s.get("hash") or s.get("error")))
+        self.log("  capture %s -> %s (%s)" % (name, "ok" if ok else "FAIL", s.get("hash") or s.get("error")))
+        return ok
+
+    def assert_capture(self, ref, op="changed", eye="left", name=None):
+        """Screenshot now and compare to a stored reference. op: 'changed' (visual regression detects a
+        difference after an operation) or 'stable' (no change expected)."""
+        base = self.captures.get(ref)
+        s = self._screenshot(eye)
+        label = name or ("capture %s vs ref[%s]" % (op, ref))
+        if not s.get("ok") or base is None:
+            detail = s.get("error") or ("no reference %r" % ref)
+            self.assertions.append((label, False, detail))
+            self.log("  assert_capture: %s -> FAIL (%s)" % (label, detail))
+            return False
+        same = s["hash"] == base["hash"]
+        ok = (op == "stable" and same) or (op == "changed" and not same)
+        self.assertions.append((label, bool(ok), "now=%s ref=%s" % (s["hash"], base["hash"])))
+        self.log("  assert_capture: %s -> %s (now=%s ref=%s)" % (label, "PASS" if ok else "FAIL", s["hash"], base["hash"]))
+        return ok
+
     def run_step(self, step):
         cmd = step.get("cmd")
         args = {k: v for k, v in step.items() if k != "cmd"}
@@ -346,6 +410,9 @@ class Server:
             "hello": lambda role="writer", **_: self.hello(role),
             "assert": lambda get=None, op="near", value=None, tol=1e-3, name=None, **_:
                 self.assert_state(get or [], op, value, tol, name),
+            "capture": lambda name="ref", eye="left", **_: self.capture_ref(name, eye),
+            "assert_capture": lambda ref="ref", op="changed", eye="left", name=None, **_:
+                self.assert_capture(ref, op, eye, name),
             "move_head": lambda to=None, duration_ms=500, **_: self.move_head(to or {}, duration_ms),
             "look": lambda yaw_deg=0.0, duration_ms=500, **_: self.look(yaw_deg, duration_ms),
             "walk_forward": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.walk_forward(speed, duration_ms, hand),
@@ -438,6 +505,8 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=52702)
     ap.add_argument("--rate", type=float, default=60.0, help="interpolation frames per second")
+    ap.add_argument("--capture-port", type=int, default=0,
+                    help="layer capture channel (:52700) for capture/assert_capture steps; 0 = disabled")
     ap.add_argument("--demo", action="store_true", help="run the built-in demo scenario")
     ap.add_argument("--verify", action="store_true", help="self-checking run (asserts effects via get_state)")
     a = ap.parse_args()
@@ -455,10 +524,20 @@ def main():
         return 2
 
     c = ControlClient(a.host, a.port)
-    srv = Server(c, rate_hz=a.rate)
-    print("running scenario %r against %s:%d" % (scenario.get("name", "?"), a.host, a.port))
+    cap = None
+    if a.capture_port:
+        try:
+            cap = ControlClient(a.host, a.capture_port)
+        except OSError as e:
+            print("warning: capture channel :%d unreachable (%s); capture-asserts will fail" % (a.capture_port, e))
+    srv = Server(c, rate_hz=a.rate, capture=cap)
+    print("running scenario %r against %s:%d%s" % (
+        scenario.get("name", "?"), a.host, a.port,
+        (" (capture :%d)" % a.capture_port) if cap else ""))
     summary = srv.run_scenario(scenario)
     c.close()
+    if cap:
+        cap.close()
     if summary["asserts"]:
         print("scenario done. asserts: %d/%d passed%s" % (
             summary["passed"], summary["asserts"],

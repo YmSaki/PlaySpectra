@@ -57,9 +57,9 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生 | `tools/playspectra_record.py`（`--verify` 5/5） |
 | **Scenario Runner + assert（状態）** | ✅ `run_scenario` + `assert`（get_state のパス比較、失敗で exit 1、negative control 実証） | `tools/scenarios/assert_demo.json` |
 | **capture-assert（視覚回帰）** | ✅ 参照 screenshot の PNG hash を取り `changed`/`stable` を assert | `tools/scenarios/capture_assert_demo.json`（3/3、negative control FAIL rc=1） |
-| **キャプチャ: Vulkan（Linux）** | ✅ hello_xr の描画から本番 Vulkan readback で PNG 生成（394枚） | Layer を Linux/Vulkan-only へ移植、`scripts/ps_layer_build.sh`＋`ps_capture_verify.sh`（scratchpad） |
-| キャプチャ: D3D11 | 🟡 Windows 実測済み（`XR_EXT_conformance_automation` 経路） | 旧 layer 実測（journal M0） |
-| キャプチャ: D3D12 | 🟡 MSVC 版 hello_xr で実測（Windows） | `scripts/setup_helloxr_msvc.sh` |
+| **キャプチャ: Vulkan** | ✅ Windows・実GPU で full E2E 20/20（fmt=43・深度パス present）＋ Linux で本番 Vulkan readback 394 PNG | `scripts/integration_test.sh Vulkan`（metasim, 2026-07-22）／ Linux 移植 `scripts/ps_layer_build.sh` |
+| **キャプチャ: D3D11** | ✅ Windows・実GPU で full E2E 20/20（screenshot 1680x1760 fmt=29・非退化・録画） | `scripts/integration_test.sh D3D11`（metasim + MSVC hello_xr、2026-07-22） |
+| **キャプチャ: D3D12** | ✅ Windows・実GPU で full E2E 20/20（395フレーム・fmt=29・非退化・録画） | `scripts/integration_test.sh D3D12`（metasim + MSVC hello_xr、2026-07-22） |
 | **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。実 MCP クライアントで 7/7 | `tools/playspectra_mcp.py`、`tools/playspectra_mcp_verify.py`（要 `pip install mcp`） |
 | **end-to-end Playwright ループ** | ✅ 操作注入 → hello_xr 再描画 → capture PNG 変化 2/2 PASS | `scripts/e2e_playwright_loop.sh`、`tools/scenarios/big_view_change.json` |
 | MCP サーバー（レガシー・TypeScript） | 🟡 改革前の設計（layer :52700 直結）。現行 Python 版に併存。今後の扱いは未決 | `mcp/src/` |
@@ -204,7 +204,7 @@ scripts/integration_openvr_test.sh                         # OpenVR（OpenCompos
 ## 検証環境
 
 - **Monado / Server / MCP / capture(Vulkan) の E2E は WSL2 Ubuntu 22.04 で検証**。GPU 不要（lavapipe の CPU Vulkan で完走を実証）。旧「キャプチャは実 GPU 必須」は end-to-end で否定済み。
-- **D3D11 / D3D12 キャプチャは Windows で実測**（MSVC 版 hello_xr）。
+- **D3D11 / D3D12 / Vulkan キャプチャは Windows・実 GPU で full E2E 検証済み**（各 20/20 = 60/60、2026-07-22、metasim CA 経路 + DoS 修正済み Layer DLL）。WSL2 が原理的に触れない D3D を含めコア必須マトリクスを Windows で完結。同ラン内で Layer CA 経路の head/controller override・durationMs グライド・haptic sync round-trip も緑。
 - **Windows での完全 graphics session（VRDevApp 実アプリ）・SteamVR Adapter は実機環境が要る**ため本環境では非優先。該当は上表で 🟡 / 📋。
 - 検証境界の規律（CLAUDE.md「検証済みと未検証を混ぜない」）に従い、本 README の各主張は上表の「根拠」列でリポジトリ内の実測ログ・テスト・一次ソースを指せるものだけを ✅ とし、実機依存・未検証は 🟡 / 📋 / 🔬 に分ける。
 

@@ -1,0 +1,16 @@
+{
+  "name": "assert_demo",
+  "description": "Playwright-style test: operate (move/rotate/press) + observe (get_state) + assert. The scenario runner exits non-zero if any assert fails, so a scenario is a self-checking test over the Runtime adapter.",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "assert", "name": "baseline head z ~ 0", "get": ["hmd", "head", "position", 2], "op": "near", "value": 0.0, "tol": 0.01},
+    {"cmd": "move_head", "to": {"position": [0.0, 1.6, -1.5]}, "duration_ms": 300},
+    {"cmd": "assert", "name": "head moved to z = -1.5", "get": ["hmd", "head", "position", 2], "op": "near", "value": -1.5, "tol": 0.02},
+    {"cmd": "look", "yaw_deg": 90.0, "duration_ms": 300},
+    {"cmd": "assert", "name": "yaw 90deg -> head quat.y ~ 0.707", "get": ["hmd", "head", "orientation", 1], "op": "near", "value": 0.7071, "tol": 0.02},
+    {"cmd": "trigger", "hand": "right", "value": 0.8, "duration_ms": 150},
+    {"cmd": "assert", "name": "right trigger held ~ 0.8", "get": ["right", "inputs", "/input/trigger/value"], "op": "near", "value": 0.8, "tol": 0.02},
+    {"cmd": "reset"},
+    {"cmd": "assert", "name": "reset -> head z ~ 0", "get": ["hmd", "head", "position", 2], "op": "near", "value": 0.0, "tol": 0.01}
+  ]
+}

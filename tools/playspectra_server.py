@@ -209,6 +209,7 @@ class Server:
         self.seq = 0
         self.dt = 1.0 / rate_hz
         self.log = log
+        self.assertions = []  # (name, ok, actual) per assert step -> scenario becomes a test
 
     # -- transport --
     def hello(self, role="writer"):
@@ -297,11 +298,54 @@ class Server:
         return r
 
     # -- scenario dispatch --
+    # -- observe + assert (turns a scenario into a test: operate -> observe -> assert) --
+    @staticmethod
+    def _resolve(node, path):
+        """Walk a get_state tree by a list of keys/indices. Handles slash-bearing input keys and array
+        indices uniformly (e.g. ["hmd","head","position",2] or ["left","inputs","/input/trigger/value"])."""
+        cur = node
+        for k in path:
+            if isinstance(cur, list):
+                if not isinstance(k, int) or k < 0 or k >= len(cur):
+                    return None
+                cur = cur[k]
+            elif isinstance(cur, dict):
+                cur = cur.get(k)
+            else:
+                return None
+        return cur
+
+    @staticmethod
+    def _cmp(actual, op, value, tol):
+        try:
+            if op == "near":  return actual is not None and abs(float(actual) - float(value)) <= tol
+            if op == "eq":    return actual == value
+            if op == "ne":    return actual != value
+            if op == "gt":    return actual is not None and float(actual) > float(value)
+            if op == "lt":    return actual is not None and float(actual) < float(value)
+            if op == "true":  return actual is True
+            if op == "false": return actual is False
+        except (TypeError, ValueError):
+            return False
+        return False
+
+    def assert_state(self, get, op="near", value=None, tol=1e-3, name=None):
+        """Read the live state (get_state) and check a field. Records the result; never raises."""
+        g = self.c.request({"cmd": "get_state", "request_id": "srv-assert%d" % (len(self.assertions) + 1)})
+        actual = self._resolve((g or {}).get("state", {}), get if isinstance(get, list) else [get])
+        ok = self._cmp(actual, op, value, tol)
+        label = name or ("%s %s %s" % (get, op, value))
+        self.assertions.append((label, bool(ok), actual))
+        self.log("  assert: %s -> %s (actual=%s)" % (label, "PASS" if ok else "FAIL", actual))
+        return ok
+
     def run_step(self, step):
         cmd = step.get("cmd")
         args = {k: v for k, v in step.items() if k != "cmd"}
         fn = {
             "hello": lambda role="writer", **_: self.hello(role),
+            "assert": lambda get=None, op="near", value=None, tol=1e-3, name=None, **_:
+                self.assert_state(get or [], op, value, tol, name),
             "move_head": lambda to=None, duration_ms=500, **_: self.move_head(to or {}, duration_ms),
             "look": lambda yaw_deg=0.0, duration_ms=500, **_: self.look(yaw_deg, duration_ms),
             "walk_forward": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.walk_forward(speed, duration_ms, hand),
@@ -316,12 +360,20 @@ class Server:
         self.log("  step: %s %s" % (cmd, args if args else ""))
         return fn(**args)
 
+    def assertion_summary(self):
+        total = len(self.assertions)
+        npass = sum(1 for _, ok, _ in self.assertions if ok)
+        return {"asserts": total, "passed": npass, "failed": total - npass,
+                "ok": total == 0 or npass == total,
+                "failures": [n for n, ok, _ in self.assertions if not ok]}
+
     def run_scenario(self, scenario):
         steps = scenario.get("steps", [])
         if not steps or steps[0].get("cmd") != "hello":
             self.hello("writer")  # ensure a writer session even if the scenario omits it
         for step in steps:
             self.run_step(step)
+        return self.assertion_summary()
 
 
 DEMO = {
@@ -405,8 +457,13 @@ def main():
     c = ControlClient(a.host, a.port)
     srv = Server(c, rate_hz=a.rate)
     print("running scenario %r against %s:%d" % (scenario.get("name", "?"), a.host, a.port))
-    srv.run_scenario(scenario)
+    summary = srv.run_scenario(scenario)
     c.close()
+    if summary["asserts"]:
+        print("scenario done. asserts: %d/%d passed%s" % (
+            summary["passed"], summary["asserts"],
+            "" if summary["ok"] else " -- FAILED: " + ", ".join(summary["failures"])))
+        return 0 if summary["ok"] else 1
     print("scenario done.")
     return 0
 

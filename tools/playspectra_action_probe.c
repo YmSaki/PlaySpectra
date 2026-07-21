@@ -203,10 +203,12 @@ main(int argc, char **argv)
 				fflush(stdout);
 				reads++;
 
-				// haptics 逆方向の検証: 1回だけ振動を適用する。
+				// haptics 逆方向の検証: 振動を周期的に適用する。
 				// PlaySpectra 側は controller.set_output -> 共有state -> 制御チャネルが
-				// {"event":"haptics",...} を observer へ送出する。
-				if (reads == 2) {
+				// {"event":"haptics",...} を接続中の全 observer/writer へ broadcast する。
+				// 一度きりだと observer の接続完了前に fire して取りこぼす(broadcast は
+				// pop して即破棄する)ため、reads>=2 から 15 read ごとに繰り返し発火させる。
+				if (reads >= 2 && (reads - 2) % 15 == 0) {
 					XrHapticActionInfo hai = {XR_TYPE_HAPTIC_ACTION_INFO};
 					hai.action = hapticA;
 					hai.subactionPath = leftHand;

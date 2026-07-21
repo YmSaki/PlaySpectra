@@ -126,6 +126,22 @@ def screenshot(eye: str = "left"):
 
 
 @mcp.tool()
+def wait_for(path_json: str, op: str = "near", value: float = 0.0, tol: float = 1e-2,
+             timeout_ms: int = 5000) -> str:
+    """Auto-wait (Playwright-style) until a device-state field satisfies a condition, then return it.
+    Poll get_state until the field at path_json satisfies (op, value) or timeout_ms elapses -- use this
+    instead of a fixed sleep before reading state. path_json is a JSON array walking the state tree,
+    e.g. '["hmd","head","position",2]' for head z, or '["right","inputs","/input/trigger/value"]'.
+    op: near|eq|ne|gt|lt|true|false (true/false ignore value). Returns {"met": bool, "state": {...}}."""
+    try:
+        path = json.loads(path_json)
+    except (ValueError, TypeError):
+        path = path_json  # allow a bare single key
+    met = srv().wait_for(path, op, value, tol, timeout_ms)
+    return json.dumps({"met": bool(met), "state": _state()})
+
+
+@mcp.tool()
 def run_scenario(scenario_json: str) -> str:
     """Run a PlaySpectra JSON scenario (operate + assert + capture-assert steps) and return the
     assertion summary {asserts, passed, failed, ok, failures}. The scenario is a self-checking test."""

@@ -1,0 +1,14 @@
+{
+  "name": "wait_for_demo",
+  "description": "Playwright-style auto-wait: after an operate step, wait_for the resulting state instead of a fixed wait(ms), then assert. Retrying asserts (timeout_ms) ride out interpolation/timing jitter. Drives the Monado adapter control channel (:52702) via playspectra_server.py.",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "move_head", "to": {"position": [0.0, 1.6, -1.5]}, "duration_ms": 300},
+    {"cmd": "wait_for", "get": ["hmd", "head", "position", 2], "op": "near", "value": -1.5, "tol": 0.02, "timeout_ms": 2000, "name": "head reached z=-1.5"},
+    {"cmd": "assert", "get": ["hmd", "head", "position", 2], "op": "near", "value": -1.5, "tol": 0.02, "timeout_ms": 1000, "name": "head at z=-1.5 (retrying assert)"},
+    {"cmd": "look", "yaw_deg": 90.0, "duration_ms": 300},
+    {"cmd": "wait_for", "get": ["hmd", "head", "orientation", 1], "op": "gt", "value": 0.6, "timeout_ms": 2000, "name": "yaw applied (quat.y > 0.6)"},
+    {"cmd": "reset"},
+    {"cmd": "assert", "get": ["hmd", "head", "position", 2], "op": "near", "value": 0.0, "tol": 0.02, "timeout_ms": 1000, "name": "reset restored head z~0"}
+  ]
+}

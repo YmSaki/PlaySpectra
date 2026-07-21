@@ -76,16 +76,18 @@ Observe + assert steps:
 
 | cmd | args | effect |
 |---|---|---|
-| `assert` | `get` (key/index path), `op` (`near`/`eq`/`ne`/`gt`/`lt`/`true`/`false`), `value`, `tol`, `name` | assert a field of the live `get_state` (e.g. `["hmd","head","position",2]`) |
+| `assert` | `get` (key/index path), `op` (`near`/`eq`/`ne`/`gt`/`lt`/`true`/`false`), `value`, `tol`, `name`, `timeout_ms?`, `poll_ms?` | assert a field of the live `get_state` (e.g. `["hmd","head","position",2]`). `timeout_ms>0` auto-retries until it passes (Playwright's `expect().toPass()`); default `0` = single shot |
+| `wait_for` | `get`, `op`, `value`, `tol`, `timeout_ms` (default 5000), `poll_ms`, `name` | Playwright-style auto-wait: poll `get_state` until the field satisfies `(op,value)` or the timeout — use instead of a fixed `wait` before an assert |
 | `capture` | `name`, `eye` | take a reference screenshot (layer channel) and store its hash |
-| `assert_capture` | `ref`, `op` (`changed`/`stable`), `eye`, `name` | screenshot now and compare to a stored reference |
+| `assert_capture` | `ref`, `op` (`changed`/`stable`), `eye`, `name`, `timeout_ms?`, `poll_ms?` | screenshot now and compare to a stored reference; `timeout_ms>0` retries (wait for a `changed` frame to arrive) |
 
 ## MCP tools
 
 `playspectra_mcp.py` exposes: `move_head`, `look`, `walk_forward`, `press`, `set_trigger`,
-`move_controller`, `set_input`, `reset` (operate); `get_state` (observe); `screenshot` → an MCP image
-block (the agent *sees* the rendered eye); `run_scenario` (operate + assert). The Server connects
-lazily on the first tool call, so the MCP server may start before the VR app.
+`move_controller`, `set_input`, `reset` (operate); `get_state`, `wait_for` (auto-wait until a
+state condition holds) (observe); `screenshot` → an MCP image block (the agent *sees* the rendered
+eye); `run_scenario` (operate + assert). The Server connects lazily on the first tool call, so the
+MCP server may start before the VR app.
 
 ## Conventions
 

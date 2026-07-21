@@ -1,7 +1,7 @@
-// VR-MCP control channel implementation. See control_channel.h.
+// PlaySpectra control channel implementation. See control_channel.h.
 //
-// A single background thread runs a blocking accept loop on 127.0.0.1:VR_AGENT_PORT (default
-// 52700, override via env VR_AGENT_PORT). It handles one MCP client at a time, reading
+// A single background thread runs a blocking accept loop on 127.0.0.1:PLAYSPECTRA_PORT (default
+// 52700, override via env PLAYSPECTRA_PORT). It handles one MCP client at a time, reading
 // newline-delimited JSON requests and writing one JSON reply line per request. Input-mutating
 // commands are pushed onto layer_state for the layer to drain on the app thread; `status` is
 // answered inline from published state.
@@ -10,8 +10,26 @@
 #include "layer_state.h"
 #include "capture.h"
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+// POSIX sockets: the accept/serve loop is identical; only the platform types/teardown differ. A small
+// compat shim below maps the winsock spellings (SOCKET / INVALID_SOCKET / closesocket / SD_BOTH) onto
+// their POSIX equivalents so the loop body stays verbatim.
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+using SOCKET = int;
+static constexpr int INVALID_SOCKET = -1;
+static constexpr int SOCKET_ERROR = -1;
+static inline int closesocket(int fd) { return ::close(fd); }
+static inline void WSACleanup() {}  // no-op on POSIX (no winsock to tear down)
+#ifndef SD_BOTH
+#define SD_BOTH SHUT_RDWR
+#endif
+#endif
 
 #include <atomic>
 #include <cstdlib>
@@ -24,7 +42,7 @@
 #include "action_registry.h"
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 using json = nlohmann::json;
@@ -332,20 +350,24 @@ void ServeClient(SOCKET client) {
 }
 
 void AcceptLoop(unsigned short port) {
+#ifdef _WIN32
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
     LogCC("WSAStartup failed");
     return;
   }
+#endif
 
   g_listen_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (g_listen_socket == INVALID_SOCKET) {
     LogCC("socket() failed");
+#ifdef _WIN32
     WSACleanup();
+#endif
     return;
   }
 
-  BOOL reuse = TRUE;
+  int reuse = 1;
   setsockopt(g_listen_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse),
              sizeof(reuse));
 
@@ -390,7 +412,7 @@ void AcceptLoop(unsigned short port) {
 }
 
 unsigned short ResolvePort() {
-  if (const char* env = std::getenv("VR_AGENT_PORT")) {
+  if (const char* env = std::getenv("PLAYSPECTRA_PORT")) {
     int p = std::atoi(env);
     if (p > 0 && p < 65536) return static_cast<unsigned short>(p);
   }
@@ -420,4 +442,4 @@ void ControlChannelStop() {
   if (g_thread.joinable()) g_thread.join();
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

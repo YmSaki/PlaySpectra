@@ -4,7 +4,7 @@
 #include <string>
 #include <cstring>
 
-using namespace vr_agent;
+using namespace playspectra;
 using json = nlohmann::json;
 
 /*

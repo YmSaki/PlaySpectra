@@ -1,4 +1,4 @@
-// Locate/reference-space hook cluster implementation. Moved verbatim from openxr_agent_layer.cpp
+// Locate/reference-space hook cluster implementation. Moved verbatim from layer_entry.cpp
 // (refactor R04); behaviour is unchanged (same head/VIEW + controller-pose override, same GAP-05
 // velocity zeroing, same view publication). See hooks_locate.h.
 #include "hooks_locate.h"
@@ -11,25 +11,25 @@
 #include "pose_animator.h"     // AnimatorEvalHead / AnimatorNoteDisplayTime (durationMs glide)
 #include "pose_override.h"     // pose math + VIEW tracking + velocity/next-chain helpers
 
-using vr_agent::ApplyHeadToLocation;
-using vr_agent::ApplyPoseOverride;
-using vr_agent::CurrentSession;
-using vr_agent::DescribeRefSpace;
-using vr_agent::Dispatch;
-using vr_agent::FindInNextChain;
-using vr_agent::IsViewSpace;
-using vr_agent::RebaseViewsToHead;
-using vr_agent::RecordRefSpace;
-using vr_agent::TransformHeadToSpace;
-using vr_agent::ZeroVelocity;
+using playspectra::ApplyHeadToLocation;
+using playspectra::ApplyPoseOverride;
+using playspectra::CurrentSession;
+using playspectra::DescribeRefSpace;
+using playspectra::Dispatch;
+using playspectra::FindInNextChain;
+using playspectra::IsViewSpace;
+using playspectra::RebaseViewsToHead;
+using playspectra::RecordRefSpace;
+using playspectra::TransformHeadToSpace;
+using playspectra::ZeroVelocity;
 
 namespace {
 // Evaluate the injected head target through the pose_animator (durationMs glide) at `now`, still in
 // LOCAL space -- callers then transform to their locate space as before. Duration 0 returns the
 // target unchanged, so the pre-durationMs behaviour is untouched.
-vr_agent::HeadPose EvalHead(const vr_agent::HeadPose& target, XrTime now) {
-  const XrPosef p = vr_agent::AnimatorEvalHead(target, now).pose;
-  vr_agent::HeadPose out = target;
+playspectra::HeadPose EvalHead(const playspectra::HeadPose& target, XrTime now) {
+  const XrPosef p = playspectra::AnimatorEvalHead(target, now).pose;
+  playspectra::HeadPose out = target;
   out.px = p.position.x; out.py = p.position.y; out.pz = p.position.z;
   out.qx = p.orientation.x; out.qy = p.orientation.y; out.qz = p.orientation.z;
   out.qw = p.orientation.w;
@@ -46,22 +46,22 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     // Feed the animator's time base (one of the two intercepted display-time streams; the other is
     // xrEndFrame) so the xrSyncActions path -- which has no XrTime -- can evaluate glides too.
-    if (viewLocateInfo) vr_agent::AnimatorNoteDisplayTime(viewLocateInfo->displayTime);
+    if (viewLocateInfo) playspectra::AnimatorNoteDisplayTime(viewLocateInfo->displayTime);
     XrResult r = next(session, viewLocateInfo, viewState, viewCapacityInput, viewCountOutput, views);
     if (XR_SUCCEEDED(r) && views && viewCountOutput && *viewCountOutput > 0) {
-      vr_agent::HeadPose h;
+      playspectra::HeadPose h;
       // Head override is a PULL-model interception: unlike controller poses (which are pushed to the
       // runtime via xrSetInputDeviceLocationEXT on every xrSyncActions), the head is applied by
       // reading g_head here at locate time and rewriting the runtime's answer -- no per-sync re-apply.
-      if (vr_agent::LayerStateGetHead(h)) {
+      if (playspectra::LayerStateGetHead(h)) {
         h = EvalHead(h, viewLocateInfo ? viewLocateInfo->displayTime
-                                       : vr_agent::AnimatorLastDisplayTime());
+                                       : playspectra::AnimatorLastDisplayTime());
         const XrViewStateFlags need =
             XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
         // Rebase only off *valid* runtime views -- the per-eye IPD/offset decomposition is meaningless
         // if the runtime returned untracked/garbage poses.
         if (viewState && (viewState->viewStateFlags & need) == need) {
-          const vr_agent::HeadPose hInSpace =
+          const playspectra::HeadPose hInSpace =
               viewLocateInfo ? TransformHeadToSpace(session, h, viewLocateInfo->space,
                                                     viewLocateInfo->displayTime)
                              : h;
@@ -77,10 +77,10 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
         const XrViewStateFlags valid =
             XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
         if ((viewState->viewStateFlags & valid) == valid) {
-          std::vector<vr_agent::ViewInfo> infos;
+          std::vector<playspectra::ViewInfo> infos;
           infos.reserve(*viewCountOutput);
           for (uint32_t i = 0; i < *viewCountOutput; ++i) {
-            vr_agent::ViewInfo vi;
+            playspectra::ViewInfo vi;
             vi.px = views[i].pose.position.x;
             vi.py = views[i].pose.position.y;
             vi.pz = views[i].pose.position.z;
@@ -96,7 +96,7 @@ XrResult XRAPI_CALL Hook_xrLocateViews(XrSession session, const XrViewLocateInfo
           }
           const std::string space =
               viewLocateInfo ? DescribeRefSpace(viewLocateInfo->space) : std::string("unknown");
-          vr_agent::LayerStateSetViews(infos, space);
+          playspectra::LayerStateSetViews(infos, space);
         }
       }
     }
@@ -133,10 +133,10 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
     if (XR_SUCCEEDED(r) && location) {
       bool overrode = false;
       if (IsViewSpace(space)) {
-        vr_agent::HeadPose h;
-        if (!IsViewSpace(baseSpace) && vr_agent::LayerStateGetHead(h)) {
+        playspectra::HeadPose h;
+        if (!IsViewSpace(baseSpace) && playspectra::LayerStateGetHead(h)) {
           h = EvalHead(h, time);
-          const vr_agent::HeadPose hInBase = TransformHeadToSpace(CurrentSession(), h, baseSpace, time);
+          const playspectra::HeadPose hInBase = TransformHeadToSpace(CurrentSession(), h, baseSpace, time);
           overrode = ApplyHeadToLocation(hInBase, location->pose, location->locationFlags);
         }
       } else {
@@ -169,10 +169,10 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
     if (!next) return XR_ERROR_FUNCTION_UNSUPPORTED;
     XrResult r = next(session, locateInfo, locations);
     if (XR_SUCCEEDED(r) && locateInfo && locateInfo->spaces && locations && locations->locations) {
-      vr_agent::HeadPose h;
-      const bool headActive = !IsViewSpace(locateInfo->baseSpace) && vr_agent::LayerStateGetHead(h);
+      playspectra::HeadPose h;
+      const bool headActive = !IsViewSpace(locateInfo->baseSpace) && playspectra::LayerStateGetHead(h);
       if (headActive) h = EvalHead(h, locateInfo->time);
-      const vr_agent::HeadPose hInBase =
+      const playspectra::HeadPose hInBase =
           headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;
       // GAP-05: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry
       // velocities[i] is zeroed only for entries we actually override, with null + range guards.

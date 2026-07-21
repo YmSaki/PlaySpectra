@@ -10,7 +10,7 @@ set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="${ROOT}/layer/build/_deps/openxr_sdk-src"
 # Build tree must live at a SHORT path: MSBuild FileTracker fails (FTK1011) past MAX_PATH.
-BUILD="${TEMP:-/tmp}/vr_agent_helloxr_msvc"
+BUILD="${TEMP:-/tmp}/playspectra_helloxr_msvc"
 DEST="${ROOT}/third_party/hello_xr_msvc"
 
 [ -d "$SRC" ] || { echo "[setup_helloxr_msvc] $SRC missing -- configure layer/ first (FetchContent)"; exit 1; }

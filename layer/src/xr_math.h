@@ -1,11 +1,11 @@
-#ifndef VR_AGENT_XR_MATH_H
-#define VR_AGENT_XR_MATH_H
+#ifndef PLAYSPECTRA_XR_MATH_H
+#define PLAYSPECTRA_XR_MATH_H
 
 #include <cmath>
 
 #include <openxr/openxr.h>
 
-namespace vr_agent {
+namespace playspectra {
 
 inline XrQuaternionf QMul(const XrQuaternionf& a, const XrQuaternionf& b) {
   return XrQuaternionf{a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
@@ -31,6 +31,6 @@ inline void NormalizeQuat(float& x, float& y, float& z, float& w) {
   x /= n; y /= n; z /= n; w /= n;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra
 
-#endif  // VR_AGENT_XR_MATH_H
+#endif  // PLAYSPECTRA_XR_MATH_H

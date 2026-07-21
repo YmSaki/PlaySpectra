@@ -8,14 +8,14 @@
 
 #include <cmath>
 
-using vr_agent::AnimatorEvalController;
-using vr_agent::AnimatorEvalHead;
-using vr_agent::AnimatorLastDisplayTime;
-using vr_agent::AnimatorNoteDisplayTime;
-using vr_agent::AnimatorReset;
-using vr_agent::EvaluatedPose;
-using vr_agent::HeadPose;
-using vr_agent::StickyPose;
+using playspectra::AnimatorEvalController;
+using playspectra::AnimatorEvalHead;
+using playspectra::AnimatorLastDisplayTime;
+using playspectra::AnimatorNoteDisplayTime;
+using playspectra::AnimatorReset;
+using playspectra::EvaluatedPose;
+using playspectra::HeadPose;
+using playspectra::StickyPose;
 
 namespace {
 

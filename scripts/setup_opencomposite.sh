@@ -2,7 +2,7 @@
 # Fetch the OpenComposite (OpenVR -> OpenXR translation) openvr_api.dll into third_party/opencomposite/.
 #
 # OpenComposite implements the OpenVR API and forwards calls to the active OpenXR runtime, letting an
-# OpenVR app run against our OpenXR stack (vr_agent layer + Monado) with NO SteamVR install. We use the
+# OpenVR app run against our OpenXR stack (playspectra layer + Monado) with NO SteamVR install. We use the
 # per-app method only: copy this DLL next to the target app, replacing its own openvr_api.dll (M2 does
 # that for hellovr_dx11). The system-wide "runtime switcher" is deliberately NOT used -- it mutates
 # global state, against the xcopy principle (G7).

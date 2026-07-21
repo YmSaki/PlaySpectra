@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenVR-path integration test: hellovr_dx12 (OpenVR app) -> OpenComposite -> vr_agent layer -> Monado.
+# OpenVR-path integration test: hellovr_dx12 (OpenVR app) -> OpenComposite -> playspectra layer -> Monado.
 # Prereqs (one-time): scripts/setup_monado.sh, scripts/setup_opencomposite.sh, scripts/setup_hellovr.sh.
 # Runtime is Monado by design (OpenComposite needs an OpenXR runtime; matrix stays minimal).
 #
@@ -8,16 +8,16 @@ set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${ROOT}/third_party/hellovr/bin/win64"
 CLIENT="${ROOT}/scripts/integration_openvr.mjs"
-CAP_DIR="${TEMP:-/tmp}/vr_agent_openvr_integration"
+CAP_DIR="${TEMP:-/tmp}/playspectra_openvr_integration"
 mkdir -p "$CAP_DIR"
 
 winpath() { command -v cygpath >/dev/null 2>&1 && cygpath -m "$1" || echo "$1"; }
 export XR_RUNTIME_JSON="$(winpath "${ROOT}/third_party/monado/openxr_monado.json")"
 export XR_API_LAYER_PATH="$(winpath "${ROOT}/layer/manifest")"
-export XR_ENABLE_API_LAYERS="XR_APILAYER_vr_agent"
-export VR_AGENT_LOG="$(winpath "${CAP_DIR}/vr_agent_layer.log")"
-export VR_AGENT_CAPTURE_DIR="$(winpath "${CAP_DIR}")"
-: > "$VR_AGENT_LOG" 2>/dev/null || true
+export XR_ENABLE_API_LAYERS="XR_APILAYER_playspectra"
+export PLAYSPECTRA_LOG="$(winpath "${CAP_DIR}/playspectra_layer.log")"
+export PLAYSPECTRA_CAPTURE_DIR="$(winpath "${CAP_DIR}")"
+: > "$PLAYSPECTRA_LOG" 2>/dev/null || true
 
 echo "[openvr-integration] runtime=$XR_RUNTIME_JSON"
 [ -x "${APP_DIR}/hellovr_dx12.exe" ] || { echo "hellovr not deployed -- run scripts/setup_hellovr.sh"; exit 1; }
@@ -53,7 +53,7 @@ fi
 # demonstrated to PASS reliably, so failure is a regression).
 graceful="skipped (asserts did not pass)"
 if [ "$ok" = "1" ] && [ "$rc" = "0" ]; then
-  LOG_G="$(echo "${CAP_DIR}/vr_agent_layer.log" | tr '\\' '/')"
+  LOG_G="$(echo "${CAP_DIR}/playspectra_layer.log" | tr '\\' '/')"
   taskkill //IM hellovr_dx12.exe >/dev/null 2>&1
   graceful="FAIL (WM_CLOSE did not reach clean xrDestroyInstance within 20s; force-kill fallback)"
   for i in $(seq 1 20); do

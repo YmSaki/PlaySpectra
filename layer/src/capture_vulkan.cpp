@@ -1,4 +1,4 @@
-// Vulkan color/depth-readback backend for VR-MCP frame capture. See capture_backends.h for the
+// Vulkan color/depth-readback backend for PlaySpectra frame capture. See capture_backends.h for the
 // interface contract; this is the reference implementation the D3D11/D3D12 backends mirror.
 //
 // This backend is one leaf behind capture.cpp's single dispatch (not a parallel capture system): at
@@ -10,8 +10,12 @@
 // nice-to-have) is linearized to view-space metres and encoded as a 16-bit grayscale PNG. Unsupported
 // formats and MSAA return an explicit error json, never a silently-broken image (CLAUDE.md).
 
+#ifdef _WIN32
 #include <windows.h>  // LoadLibraryA / GetProcAddress -- the layer loads Vulkan entry points at
                       // runtime and never links libvulkan (established design).
+#else
+#include <dlfcn.h>    // dlopen / dlsym -- POSIX equivalent of the runtime Vulkan loader.
+#endif
 
 #include <vulkan/vulkan.h>
 
@@ -33,7 +37,7 @@
 
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 
 using json = nlohmann::json;
 
@@ -124,6 +128,7 @@ bool LoadDeviceFn(T& fn, const char* name) {
 // Load vulkan-1.dll + resolve every entry point the readback needs. Idempotent.
 void LoadVulkan() {
   if (g_vk.ok) return;
+#ifdef _WIN32
   HMODULE dll = LoadLibraryA("vulkan-1.dll");
   if (!dll) {
     Log("LoadVulkan: vulkan-1.dll not found");
@@ -131,6 +136,16 @@ void LoadVulkan() {
   }
   g_vk.getInstanceProcAddr =
       reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(dll, "vkGetInstanceProcAddr"));
+#else
+  void* dll = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+  if (!dll) dll = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+  if (!dll) {
+    Log("LoadVulkan: libvulkan.so[.1] not found");
+    return;
+  }
+  g_vk.getInstanceProcAddr =
+      reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(dll, "vkGetInstanceProcAddr"));
+#endif
   if (!g_vk.getInstanceProcAddr) {
     Log("LoadVulkan: vkGetInstanceProcAddr missing");
     return;
@@ -894,4 +909,4 @@ json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t format, uint32_t sam
   return {{"available", true}, {"depthPath", path}, {"depthMeta", meta}};
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

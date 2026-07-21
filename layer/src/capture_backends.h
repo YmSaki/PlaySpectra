@@ -22,14 +22,14 @@
 
 #include <nlohmann/json.hpp>
 
-namespace vr_agent {
+namespace playspectra {
 
-// Next color-capture output path, e.g. "<VR_AGENT_CAPTURE_DIR>/vr_capture_<n>.png". Defined in
+// Next color-capture output path, e.g. "<PLAYSPECTRA_CAPTURE_DIR>/vr_capture_<n>.png". Defined in
 // capture.cpp, which owns the shared output dir + atomic counter. Backends call this instead of
 // re-deriving the path so numbering stays consistent across all APIs.
 std::string NextColorCapturePath();
 
-// Next depth-capture output path, e.g. "<VR_AGENT_CAPTURE_DIR>/vr_depth_<n>.png". Same shared
+// Next depth-capture output path, e.g. "<PLAYSPECTRA_CAPTURE_DIR>/vr_depth_<n>.png". Same shared
 // output dir + atomic counter as NextColorCapturePath (defined in capture.cpp).
 std::string NextDepthCapturePath();
 
@@ -68,4 +68,4 @@ nlohmann::json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t vkFormat, 
                                         uint32_t arrayIndex, float minDepth, float maxDepth,
                                         float nearZ, float farZ);
 
-}  // namespace vr_agent
+}  // namespace playspectra

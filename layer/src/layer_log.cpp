@@ -1,4 +1,4 @@
-// Shared layer logger implementation. Moved verbatim from openxr_agent_layer.cpp (refactor phase 1),
+// Shared layer logger implementation. Moved verbatim from layer_entry.cpp (refactor phase 1),
 // then extended with a wall-clock timestamp prefix: correlating this log against the app's own log
 // and the integration harness's sleeps is how flakes and glide timing get diagnosed, and without
 // timestamps that correlation needed ad-hoc instrumentation. Same env vars, same mutex; consumers
@@ -13,17 +13,17 @@
 #include <mutex>
 #include <string>
 
-namespace vr_agent {
+namespace playspectra {
 
 static std::mutex g_log_mutex;
 
 static std::ofstream& LogStream() {
   static std::ofstream stream = [] {
-    const char* env = std::getenv("VR_AGENT_LOG");
+    const char* env = std::getenv("PLAYSPECTRA_LOG");
     const char* tmp = std::getenv("TEMP");
     std::string path = env   ? env
-                       : tmp ? std::string(tmp) + "\\vr_agent_layer.log"
-                             : "vr_agent_layer.log";
+                       : tmp ? std::string(tmp) + "\\playspectra_layer.log"
+                             : "playspectra_layer.log";
     return std::ofstream(path, std::ios::app);
   }();
   return stream;
@@ -48,10 +48,10 @@ void LayerLog(const char* msg, const char* detail) {
   if (!out) return;
   char ts[16];
   FormatNow(ts);
-  out << "[vr_agent " << ts << "] " << msg;
+  out << "[playspectra " << ts << "] " << msg;
   if (detail) out << ": " << detail;
   out << "\n";
   out.flush();
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

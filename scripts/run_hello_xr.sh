@@ -4,12 +4,12 @@
 #   seconds: how long to let it run before killing (default 12)
 #   graphics-api: Vulkan (default) | D3D11 | D3D12 | OpenGL  (Meta supports Vulkan/D3D11/D3D12, NOT OpenGL)
 set -u
-VRMCP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "${VRMCP_ROOT}/scripts/env.sh"
+PLAYSPECTRA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${PLAYSPECTRA_ROOT}/scripts/env.sh"
 
 SECS="${1:-12}"
 GFX="${2:-Vulkan}"
-HELLO="${VRMCP_ROOT}/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe"
+HELLO="${PLAYSPECTRA_ROOT}/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe"
 LOG="$(mktemp -t hello_xr.XXXXXX.log)"
 
 echo "Running hello_xr -g ${GFX} for ${SECS}s (log: ${LOG})"

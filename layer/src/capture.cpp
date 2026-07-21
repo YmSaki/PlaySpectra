@@ -1,4 +1,4 @@
-// VR-MCP frame capture.
+// PlaySpectra frame capture.
 //
 // OpenXR-side tracking + xrEndFrame projection parsing + capture-request handoff. At xrEndFrame,
 // the resolved projection subimage's last-released image is dispatched to the graphics-API-specific
@@ -6,16 +6,21 @@
 // encode. All three OpenXR graphics bindings are supported.
 
 #define XR_USE_GRAPHICS_API_VULKAN
+#ifdef _WIN32
+// D3D bindings/backends are Windows-only. On other platforms a runtime can only ever hand the app a
+// Vulkan binding, so the D3D graphics-binding structs, includes, and dispatch are all #ifdef-guarded.
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
-
-#include <windows.h>  // LoadLibraryA / GetProcAddress -- the layer loads Vulkan entry points at
-                      // runtime and never links libvulkan (established design).
+#include <windows.h>  // LoadLibraryA / GetProcAddress (Vulkan loaded at runtime, never linked)
 #include <direct.h>   // _mkdir (recording session directory)
-
-#include <vulkan/vulkan.h>
 #include <d3d11.h>
 #include <d3d12.h>
+#else
+#include <sys/stat.h>   // mkdir
+#include <sys/types.h>
+#endif
+
+#include <vulkan/vulkan.h>
 
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -44,7 +49,7 @@
 
 #include "layer_log.h"
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 using json = nlohmann::json;
@@ -113,7 +118,11 @@ std::string RecTimestamp() {
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   std::time_t t = std::chrono::system_clock::to_time_t(now);
   struct tm tm_buf;
+#ifdef _WIN32
   localtime_s(&tm_buf, &t);
+#else
+  localtime_r(&t, &tm_buf);
+#endif
   char buf[32];
   std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
                 tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec, static_cast<int>(ms.count()));
@@ -134,7 +143,7 @@ GfxApi DetectGraphicsApi(const void* next) {
 }
 
 std::string CaptureOutputDir() {
-  if (const char* d = std::getenv("VR_AGENT_CAPTURE_DIR")) {
+  if (const char* d = std::getenv("PLAYSPECTRA_CAPTURE_DIR")) {
     if (d[0]) return std::string(d);
   }
   if (const char* t = std::getenv("TEMP")) {
@@ -190,8 +199,10 @@ struct Backend {
 
 static const Backend kBackends[] = {
     {GfxApi::Vulkan, VulkanReadbackToPng, true},
+#ifdef _WIN32
     {GfxApi::D3D11, D3D11ReadbackToPng, false},
     {GfxApi::D3D12, D3D12ReadbackToPng, false},
+#endif
 };
 
 const Backend* FindBackend(GfxApi api) {
@@ -235,7 +246,9 @@ void CaptureOnCreateSession(const XrSessionCreateInfo* createInfo, XrSession /*s
       // Hand the app-owned handles to the Vulkan backend (capture_vulkan.cpp). Not ref-held here.
       const auto* b = reinterpret_cast<const XrGraphicsBindingVulkanKHR*>(base);
       VulkanSetBinding(b->instance, b->physicalDevice, b->device, b->queueFamilyIndex, b->queueIndex);
-    } else if (base->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
+    }
+#ifdef _WIN32
+    else if (base->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
       // Hand the app-owned device to the D3D11 backend (capture_d3d11.cpp). Not ref-held here.
       const auto* b = reinterpret_cast<const XrGraphicsBindingD3D11KHR*>(base);
       D3D11SetDevice(b->device);
@@ -244,15 +257,28 @@ void CaptureOnCreateSession(const XrSessionCreateInfo* createInfo, XrSession /*s
       const auto* b = reinterpret_cast<const XrGraphicsBindingD3D12KHR*>(base);
       D3D12SetDevice(b->device, b->queue);
     }
+#endif
   }
   Log(std::string("session graphics API = ") + GfxApiName(g_api));
+
+  // Headless verification hook: PLAYSPECTRA_CAPTURE_TEST=<N> auto-starts recording (every N frames,
+  // default 1) without the control channel, so a plain OpenXR app (e.g. hello_xr) produces capture
+  // PNGs. Separate mutex (g_rec_mutex) from g_mutex held here, so this is safe.
+  if (const char* t = std::getenv("PLAYSPECTRA_CAPTURE_TEST")) {
+    if (t[0] && t[0] != '0') {
+      int n = std::atoi(t);
+      CaptureStartRecording(n > 1 ? static_cast<uint32_t>(n) : 1u, "left");
+    }
+  }
 }
 
 void CaptureOnDestroySession(XrSession /*session*/) {
   std::lock_guard<std::mutex> lock(g_mutex);
   VulkanFree();
+#ifdef _WIN32
   D3D11Free();
   D3D12Free();
+#endif
   g_swapchains.clear();
   g_api = GfxApi::Unknown;
 }
@@ -296,6 +322,7 @@ void CaptureOnEnumerateImages(XrSwapchain swapchain, uint32_t count,
         it->second.images.push_back(reinterpret_cast<uint64_t>(arr[i].image));
         break;
       }
+#ifdef _WIN32
       case XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR: {
         const auto* arr = reinterpret_cast<const XrSwapchainImageD3D11KHR*>(images);
         it->second.images.push_back(reinterpret_cast<uint64_t>(arr[i].texture));
@@ -306,6 +333,7 @@ void CaptureOnEnumerateImages(XrSwapchain swapchain, uint32_t count,
         it->second.images.push_back(reinterpret_cast<uint64_t>(arr[i].texture));
         break;
       }
+#endif
       default:
         return;  // unknown image type; leave empty
     }
@@ -581,7 +609,11 @@ std::string CaptureStartRecording(uint32_t intervalFrames, const std::string& ey
   auto now = std::chrono::system_clock::now();
   auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
   g_rec_dir = CaptureOutputDir() + "/recording_" + std::to_string(epoch_ms);
+#ifdef _WIN32
   _mkdir(g_rec_dir.c_str());
+#else
+  ::mkdir(g_rec_dir.c_str(), 0755);
+#endif
   g_rec_interval = intervalFrames > 0 ? intervalFrames : 30;
   g_rec_eye = eye.empty() ? "dominant" : eye;
   g_rec_seq = 0;
@@ -627,4 +659,4 @@ bool CaptureIsRecording() {
   return g_recording;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

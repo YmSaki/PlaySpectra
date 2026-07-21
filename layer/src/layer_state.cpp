@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace vr_agent {
+namespace playspectra {
 namespace {
 
 std::mutex g_queue_mutex;
@@ -153,4 +153,4 @@ std::vector<HapticEntry> LayerStateGetHapticLog(int limit) {
   return out;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

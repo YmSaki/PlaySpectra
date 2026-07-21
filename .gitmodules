@@ -1,0 +1,3 @@
+[submodule "runtime/monado-playspectra"]
+	path = runtime/monado-playspectra
+	url = https://github.com/YmSaki/monado-playspectra.git

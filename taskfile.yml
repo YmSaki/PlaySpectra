@@ -1,0 +1,116 @@
+version: '3'
+
+vars:
+  BUILD_DIR: build
+  MONADO_DIR: runtime/monado-playspectra
+  MONADO_BUILD_DIR: build/monado
+
+tasks:
+  setup:
+    desc: Initialize project dependencies
+    cmds:
+      - git submodule update --init --recursive
+      - npm ci --prefix mcp
+
+  configure:
+    desc: Configure PlaySpectra C++ components
+    cmds:
+      - cmake -S . -B {{.BUILD_DIR}} -DCMAKE_BUILD_TYPE=Debug
+
+  build:
+    desc: Build PlaySpectra C++ components
+    deps: [configure]
+    cmds:
+      - cmake --build {{.BUILD_DIR}} --parallel
+
+  build:mcp:
+    desc: Build MCP server
+    cmds:
+      - npm run build --prefix mcp
+
+  configure:monado:
+    desc: Configure Monado PlaySpectra fork
+    cmds:
+      - cmake -S {{.MONADO_DIR}} -B {{.MONADO_BUILD_DIR}}
+
+  build:monado:
+    desc: Build Monado PlaySpectra fork
+    deps: [configure:monado]
+    cmds:
+      - cmake --build {{.MONADO_BUILD_DIR}} --parallel
+
+  build:all:
+    desc: Build all PlaySpectra components
+    deps:
+      - build
+      - build:mcp
+      - build:monado
+
+  test:
+    desc: Run unit tests
+    deps: [build]
+    cmds:
+      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
+
+  test:integration:
+    desc: Run PlaySpectra integration tests
+    deps: [build:all]
+    cmds:
+      - node scripts/integration_hello_xr.mjs
+
+  # --- M2 (Monado Virtual HMD) build-environment entry points ---
+
+  monado:deps:
+    desc: Print the packages needed to build the Monado PlaySpectra fork (Ubuntu). Informational only; installs nothing.
+    silent: true
+    cmds:
+      - 'echo "Ubuntu build deps (from .gitlab-ci.yml FDO_DISTRIBUTION_PACKAGES, reproducible):"'
+      - 'echo "  sudo apt-get install -y build-essential ca-certificates cmake curl git glslang-tools \\"'
+      - 'echo "    libbluetooth-dev libbsd-dev libcjson-dev libdbus-1-dev libegl1-mesa-dev libeigen3-dev \\"'
+      - 'echo "    libgl1-mesa-dev libglvnd-dev libgstreamer-plugins-base1.0-dev libgstreamer1.0-dev \\"'
+      - 'echo "    libhidapi-dev libopencv-dev libsdl2-dev libsystemd-dev libudev-dev libusb-1.0-0-dev \\"'
+      - 'echo "    libuvc-dev libv4l-dev libvulkan-dev libwayland-dev libx11-dev libx11-xcb-dev \\"'
+      - 'echo "    libxcb-randr0-dev libxrandr-dev libxxf86vm-dev ninja-build pkg-config python3 \\"'
+      - 'echo "    wayland-protocols"'
+      - 'echo ""'
+      - 'echo "M2.1 first blockers (this env is missing these): ninja-build glslang-tools libvulkan-dev libeigen3-dev"'
+
+  monado:proto:test:
+    desc: Compile+run the standalone PlaySpectra NDJSON protocol parser test (no Monado build needed)
+    cmds:
+      - gcc -Wall -Wextra -I {{.MONADO_DIR}}/src/external/cjson -I {{.MONADO_DIR}}/src/xrt/drivers/playspectra {{.MONADO_DIR}}/src/xrt/drivers/playspectra/playspectra_proto_test.c {{.MONADO_DIR}}/src/xrt/drivers/playspectra/playspectra_proto.c {{.MONADO_DIR}}/src/external/cjson/cjson/cJSON.c -o {{.BUILD_DIR}}/playspectra_proto_test -lm
+      - '{{.BUILD_DIR}}/playspectra_proto_test{{if eq OS "windows"}}.exe{{end}}'
+
+  # Full Monado configure/build use the existing configure:monado / build:monado tasks.
+  # The M2 build env (Linux/WSL) runs those after `task monado:deps` packages are installed;
+  # XRT_BUILD_DRIVER_PLAYSPECTRA defaults ON so no extra flag is needed.
+
+  # --- Environment setup + work prep (Linux / WSL / cloud) ---
+
+  submodule:attach:
+    desc: Attach/初期化 the Monado (PlaySpectra fork) submodule
+    cmds:
+      - git submodule update --init --recursive
+
+  setup:linux-deps:
+    desc: (Linux/WSL/cloud) Install Monado+PlaySpectra build deps + OpenXR loader + lavapipe. Needs sudo/root.
+    cmds:
+      - sudo apt-get update
+      - >-
+        sudo apt-get install -y --no-install-recommends
+        build-essential cmake ninja-build pkg-config glslang-tools
+        libvulkan-dev libeigen3-dev libcjson-dev
+        libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev
+        libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols
+        libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev
+        libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
+
+  bootstrap:linux:
+    desc: '(Linux/WSL/cloud) One-shot env+prep = deps, submodule, proto test, configure(Ninja), build Monado+PlaySpectra'
+    cmds:
+      - task: setup:linux-deps
+      - task: submodule:attach
+      - task: monado:proto:test
+      - cmake -S {{.MONADO_DIR}} -B {{.MONADO_BUILD_DIR}} -G Ninja
+      - cmake --build {{.MONADO_BUILD_DIR}} --parallel
+      - 'echo "PlaySpectra Monado runtime built. Runtime JSON: {{.MONADO_BUILD_DIR}}/openxr_monado-dev.json"'

@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace vr_agent {
+namespace playspectra {
 
 enum class InputType { Float, Bool, Vector2f, Active };
 
@@ -104,4 +104,4 @@ struct HapticEntry {
 };
 std::vector<HapticEntry> LayerStateGetHapticLog(int limit);
 
-}  // namespace vr_agent
+}  // namespace playspectra

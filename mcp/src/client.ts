@@ -5,7 +5,7 @@ import net from "node:net";
 import { readFile } from "node:fs/promises";
 
 export const HOST = "127.0.0.1";
-export const PORT = Number(process.env.VR_AGENT_PORT ?? "52700");
+export const PORT = Number(process.env.PLAYSPECTRA_PORT ?? "52700");
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };
 
@@ -106,7 +106,7 @@ export async function send(obj: unknown): Promise<any> {
     return {
       ok: false,
       connected: false,
-      error: `control channel unreachable on ${HOST}:${PORT} — is the VR app running with the vr_agent layer enabled? (${(e as Error).message})`,
+      error: `control channel unreachable on ${HOST}:${PORT} — is the VR app running with the playspectra layer enabled? (${(e as Error).message})`,
     };
   }
 }

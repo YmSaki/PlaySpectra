@@ -1,6 +1,6 @@
 // Pure pixel / numeric conversion helpers. See pixel_convert.h for the contract and the R03 rationale.
 // Bodies moved verbatim from capture_vulkan.cpp (only the linkage changed: anonymous namespace ->
-// vr_agent::).
+// playspectra::).
 
 #include "pixel_convert.h"
 
@@ -9,7 +9,7 @@
 #include <cstring>
 #include <limits>
 
-namespace vr_agent {
+namespace playspectra {
 
 // ---- IEEE half-float (binary16) -> float, hand-rolled (no compiler intrinsic dependency). ----
 // Handles zero, subnormals (normalized on the way out), inf and NaN, exponent bias 15 -> 127.
@@ -87,4 +87,4 @@ float LinearizeViewDepth(float z, float nearZ, float farZ) {
   return farZ * nearZ / denom;
 }
 
-}  // namespace vr_agent
+}  // namespace playspectra

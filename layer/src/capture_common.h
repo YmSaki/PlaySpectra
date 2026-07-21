@@ -17,7 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace vr_agent {
+namespace playspectra {
 
 // Repack a mapped 8-bit RGBA/BGRA readback into a tightly-packed w*h*4 RGBA buffer. `src` points at
 // the first row; each source row is `rowPitch` bytes (>= w*4 -- pass w*4 when the staging buffer is
@@ -47,8 +47,8 @@ nlohmann::json BuildCaptureSuccessJson(const std::string& path, const std::strin
                                        std::int64_t format);
 
 // Resolve "left"/"right"/"dominant" to a 0-based eye index, clamped to [0, viewCount-1].
-// DominantEyeIndex checks VR_AGENT_DOMINANT_EYE env (default right=1).
+// DominantEyeIndex checks PLAYSPECTRA_DOMINANT_EYE env (default right=1).
 int DominantEyeIndex();
 int EyeToIndex(const std::string& eye, uint32_t viewCount);
 
-}  // namespace vr_agent
+}  // namespace playspectra

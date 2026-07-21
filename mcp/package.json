@@ -1,11 +1,11 @@
 {
-  "name": "vr-mcp",
+  "name": "playspectra",
   "version": "0.1.0",
   "description": "MCP server that drives a headless OpenXR VR app for VR application development (VR equivalent of Playwright)",
   "type": "module",
   "main": "dist/server.js",
   "bin": {
-    "vr-mcp": "dist/server.js"
+    "playspectra": "dist/server.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

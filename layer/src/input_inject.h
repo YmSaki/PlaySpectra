@@ -1,5 +1,5 @@
 // Input injection -- the CA and non-CA paths of the single "inject button/analog input" responsibility.
-// Extracted from openxr_agent_layer.cpp (refactor phase 6) so both halves live in one translation unit:
+// Extracted from layer_entry.cpp (refactor phase 6) so both halves live in one translation unit:
 //   [C] ApplyPendingInputs -- on a runtime WITH XR_EXT_conformance_automation, drain queued MCP
 //       injections and push them into the runtime (xrSetInputDeviceState* / xrSetInputDeviceLocationEXT)
 //       from inside the xrSyncActions hook, so the runtime latches the new state on this sync;
@@ -9,7 +9,7 @@
 // The fallback state (the sticky (action, subactionPath) store, the active-set set, the emulated profile,
 // the pending synthetic InteractionProfileChanged, the approximate sync counter) and the [G] helpers
 // (ActionsBoundTo, FallbackActionState) are TU-private in input_inject.cpp; this header publishes only
-// what the (thin, remaining) hooks in openxr_agent_layer.cpp call. Behaviour -- data, algorithms, lock
+// what the (thin, remaining) hooks in layer_entry.cpp call. Behaviour -- data, algorithms, lock
 // discipline -- is unchanged; this is a move only.
 //
 // ---------------------------------------------------------------------------------------------
@@ -38,7 +38,7 @@
 
 #include <openxr/openxr.h>
 
-namespace vr_agent {
+namespace playspectra {
 
 // [C] CA path: drain queued MCP input commands and apply them via conformance_automation. Runs on the
 // app thread from inside the xrSyncActions hook. Takes no internal lock (the CA path touches no [G]
@@ -77,4 +77,4 @@ void FallbackEraseForAction(XrAction action);       // xrDestroyActionSet: drop 
 void FallbackClearSessionScoped();        // xrDestroySession: sync state + pending IP event (per-session)
 void FallbackClearInstanceScoped();       // xrDestroyInstance: all fallback state (keyed by dead actions)
 
-}  // namespace vr_agent
+}  // namespace playspectra

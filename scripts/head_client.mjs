@@ -5,7 +5,7 @@
 //      HOLD_MS (default 2000). Usage: node scripts/head_client.mjs [port]
 import net from "node:net";
 
-const PORT = Number(process.argv[2] ?? process.env.VR_AGENT_PORT ?? "52700");
+const PORT = Number(process.argv[2] ?? process.env.PLAYSPECTRA_PORT ?? "52700");
 const HOST = "127.0.0.1";
 const YAW = (Number(process.env.HEAD_YAW_DEG ?? "0") * Math.PI) / 180;
 const HX = Number(process.env.HEAD_X ?? "0");

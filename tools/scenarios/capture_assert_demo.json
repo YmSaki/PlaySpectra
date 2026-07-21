@@ -1,0 +1,12 @@
+{
+  "name": "capture_assert_demo",
+  "description": "Visual-regression test: operate + OBSERVE THE SCREEN + assert. Takes a reference screenshot via the layer capture channel, asserts a no-op leaves it stable, then rotates/moves the head and asserts the captured image changed. Run with --capture-port 52700 against an app that has the PlaySpectra layer loaded (e.g. hello_xr).",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "capture", "name": "before"},
+    {"cmd": "assert_capture", "ref": "before", "op": "stable", "name": "no-op -> capture stable"},
+    {"cmd": "look", "yaw_deg": 150.0, "duration_ms": 400},
+    {"cmd": "move_head", "to": {"position": [0.6, 1.9, -2.2]}, "duration_ms": 400},
+    {"cmd": "assert_capture", "ref": "before", "op": "changed", "name": "head moved -> capture changed"}
+  ]
+}

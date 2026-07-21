@@ -9,7 +9,7 @@ server.registerTool(
   {
     title: "VR session status",
     description:
-      "Report the vr_agent layer's control-channel state: whether an OpenXR instance/session exists, " +
+      "Report the playspectra layer's control-channel state: whether an OpenXR instance/session exists, " +
       "whether XR_EXT_conformance_automation is available (needed for input injection), the runtime " +
       "name, and how many haptic pulses the app has requested (an app-side reaction signal).",
     inputSchema: {},

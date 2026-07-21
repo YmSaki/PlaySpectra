@@ -244,7 +244,15 @@ XrResult XRAPI_CALL PlaySpectraCreateApiLayerInstance(const XrInstanceCreateInfo
 
 }  // namespace
 
-extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(
+// The loader finds this exported symbol by name. __declspec(dllexport) on Windows; default ELF
+// visibility is public, but be explicit so a project-wide -fvisibility=hidden can't hide it.
+#ifdef _WIN32
+#define PLAYSPECTRA_EXPORT __declspec(dllexport)
+#else
+#define PLAYSPECTRA_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" PLAYSPECTRA_EXPORT XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(
     const XrNegotiateLoaderInfo* loaderInfo, const char* apiLayerName,
     XrNegotiateApiLayerRequest* apiLayerRequest) {
   try {

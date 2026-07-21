@@ -58,10 +58,15 @@ add_library(playspectra_layer SHARED
   src/capture_common.cpp
   src/pixel_convert.cpp
   src/capture_vulkan.cpp
-  src/capture_d3d11.cpp
-  src/capture_d3d12.cpp
   ${lodepng_SOURCE_DIR}/lodepng.cpp
 )
+
+# D3D11/D3D12 color-capture backends are Windows-only (COM/DXGI). On other platforms only the Vulkan
+# backend is built; capture.cpp #ifdef _WIN32-guards its D3D dispatch to match (core completeness is
+# per-platform: a Linux runtime can only ever hand the app a Vulkan binding).
+if(WIN32)
+  target_sources(playspectra_layer PRIVATE src/capture_d3d11.cpp src/capture_d3d12.cpp)
+endif()
 
 target_include_directories(playspectra_layer PRIVATE
   ${lodepng_SOURCE_DIR}
@@ -71,12 +76,15 @@ target_include_directories(playspectra_layer PRIVATE
 target_link_libraries(playspectra_layer PRIVATE
   OpenXR::headers
   nlohmann_json::nlohmann_json
-  d3d11
-  d3d12
-  dxgi
-  dxguid
-  ws2_32
 )
+
+if(WIN32)
+  # D3D capture backends + winsock (control channel). POSIX sockets need no extra lib.
+  target_link_libraries(playspectra_layer PRIVATE d3d11 d3d12 dxgi dxguid ws2_32)
+else()
+  find_package(Threads REQUIRED)
+  target_link_libraries(playspectra_layer PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 # Exceptions must never cross the exported C ABI (xrNegotiateLoaderApiLayerInterface and the
 # hooked xr* functions) -- wrap those function bodies in try/catch and translate to XrResult.
@@ -97,8 +105,8 @@ set_target_properties(playspectra_layer PROPERTIES
 add_custom_command(TARGET playspectra_layer POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           $<TARGET_FILE:playspectra_layer>
-          ${CMAKE_CURRENT_SOURCE_DIR}/manifest/playspectra_layer.dll
-  COMMENT "Syncing playspectra_layer.dll next to the loader manifest"
+          ${CMAKE_CURRENT_SOURCE_DIR}/manifest/$<TARGET_FILE_NAME:playspectra_layer>
+  COMMENT "Syncing the layer binary next to the loader manifest"
 )
 
 # --- Host-run unit tests (opt in with -DPLAYSPECTRA_BUILD_TESTS=ON) ---

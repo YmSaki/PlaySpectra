@@ -10,8 +10,26 @@
 #include "layer_state.h"
 #include "capture.h"
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+// POSIX sockets: the accept/serve loop is identical; only the platform types/teardown differ. A small
+// compat shim below maps the winsock spellings (SOCKET / INVALID_SOCKET / closesocket / SD_BOTH) onto
+// their POSIX equivalents so the loop body stays verbatim.
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+using SOCKET = int;
+static constexpr int INVALID_SOCKET = -1;
+static constexpr int SOCKET_ERROR = -1;
+static inline int closesocket(int fd) { return ::close(fd); }
+static inline void WSACleanup() {}  // no-op on POSIX (no winsock to tear down)
+#ifndef SD_BOTH
+#define SD_BOTH SHUT_RDWR
+#endif
+#endif
 
 #include <atomic>
 #include <cstdlib>
@@ -332,20 +350,24 @@ void ServeClient(SOCKET client) {
 }
 
 void AcceptLoop(unsigned short port) {
+#ifdef _WIN32
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
     LogCC("WSAStartup failed");
     return;
   }
+#endif
 
   g_listen_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (g_listen_socket == INVALID_SOCKET) {
     LogCC("socket() failed");
+#ifdef _WIN32
     WSACleanup();
+#endif
     return;
   }
 
-  BOOL reuse = TRUE;
+  int reuse = 1;
   setsockopt(g_listen_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse),
              sizeof(reuse));
 

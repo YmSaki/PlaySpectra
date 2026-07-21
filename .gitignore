@@ -19,3 +19,10 @@ third_party/
 feature-inventory.csv
 refactor-plan.csv
 refactor-plan-review.md
+
+driver/build
+
+bin
+build
+
+.claude/harness

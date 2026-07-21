@@ -219,6 +219,12 @@ class Server:
         # seed model from the adapter's current (builder) state
         g = self.c.request({"cmd": "get_state", "request_id": "srv-seed"})
         self.model.init_from(g)
+        # Own a monotonic sequence ABOVE the adapter's current (spec §4): the adapter never rewinds
+        # (Q2), so a writer that starts low would be stale-rejected. Continue above what is there.
+        try:
+            self.seq = int((g or {}).get("state", {}).get("sequence", 0))
+        except (TypeError, ValueError):
+            self.seq = 0
         return r
 
     def _emit(self):

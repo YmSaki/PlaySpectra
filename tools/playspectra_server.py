@@ -578,6 +578,34 @@ def verify_run(host, port, rate):
     return 0 if npass == len(results) else 1
 
 
+def run_single(host, port, rate, cmd, args_json, capture_port=0):
+    """CLI operate interface (architecture §2: MCP / CLI / Scenario are peer operation interfaces).
+    Connect, run ONE scenario-step command, print the resulting device state as JSON, tear down.
+    Reuses run_step so the CLI vocabulary is exactly the scenario vocabulary. State persists in the
+    adapter between calls, so CLI commands compose (each hello re-seeds the model from get_state)."""
+    try:
+        step_args = json.loads(args_json)
+    except ValueError as e:
+        print("bad --args JSON: %s" % e); return 2
+    if not isinstance(step_args, dict):
+        print("--args must be a JSON object, e.g. '{\"yaw_deg\":90}'"); return 2
+    c = ControlClient(host, port)
+    cap = ControlClient(host, capture_port) if capture_port else None
+    # Progress ("step:", "wait_for:", ...) goes to STDERR so STDOUT stays clean JSON for piping/parsing.
+    srv = Server(c, rate_hz=rate, capture=cap, log=lambda *a: print(*a, file=sys.stderr))
+    srv.hello("writer")
+    # get_state/status are observe-only (not run_step verbs): the state is printed either way.
+    result = None if cmd in ("get_state", "status") else srv.run_step({"cmd": cmd, **step_args})
+    g = c.request({"cmd": "get_state", "request_id": "cli-gs"})
+    c.close()
+    if cap:
+        cap.close()
+    print(json.dumps({"cmd": cmd, "result": result, "state": (g or {}).get("state", {})},
+                     ensure_ascii=False))
+    # An assert/wait_for that did not hold is a non-zero exit (scriptable pass/fail, like the runner).
+    return 1 if (cmd in ("assert", "wait_for", "assert_capture") and result is False) else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="PlaySpectra Server / Scenario Runner")
     ap.add_argument("scenario", nargs="?", help="scenario JSON file")
@@ -588,10 +616,18 @@ def main():
                     help="layer capture channel (:52700) for capture/assert_capture steps; 0 = disabled")
     ap.add_argument("--demo", action="store_true", help="run the built-in demo scenario")
     ap.add_argument("--verify", action="store_true", help="self-checking run (asserts effects via get_state)")
+    ap.add_argument("--cmd", help="CLI operate interface: run ONE command (a scenario-step cmd, e.g. "
+                                  "move_head / look / walk_forward / get_state / wait_for) and print the "
+                                  "state, instead of a whole scenario")
+    ap.add_argument("--args", default="{}",
+                    help="JSON object of args for --cmd, e.g. '{\"to\":{\"position\":[0,1.6,-1]},\"duration_ms\":400}'")
     a = ap.parse_args()
 
     if a.verify:
         return verify_run(a.host, a.port, a.rate)
+
+    if a.cmd:
+        return run_single(a.host, a.port, a.rate, a.cmd, a.args, a.capture_port)
 
     if a.demo:
         scenario = DEMO

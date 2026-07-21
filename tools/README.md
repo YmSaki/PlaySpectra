@@ -41,6 +41,12 @@ whole loop against `hello_xr`.
 # Run a JSON scenario (operate + assert) against the adapter:
 python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
 
+# CLI operate interface: run ONE command (any scenario-step cmd) and print the state as JSON.
+# stdout is clean JSON (progress goes to stderr); an assert/wait_for that fails exits non-zero.
+python3 tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
+python3 tools/playspectra_server.py --cmd get_state
+python3 tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
+
 # Add visual-regression (screen) asserts via the layer capture channel:
 python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
 

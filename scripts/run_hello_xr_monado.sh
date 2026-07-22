@@ -18,9 +18,11 @@
 #
 # Prereqs (see CLAUDE.local.md "Windows で Monado(PlaySpectra driver) をビルドする方法"):
 #   - monado built:  cmake --build <build-win> --target monado-service cli openxr_monado
-#   - hello_xr (MSVC, D3D):  third_party/hello_xr_msvc/hello_xr.exe  (scripts/setup_helloxr_msvc.sh)
+#   - hello_xr: MSVC D3D build (third_party/hello_xr_msvc/, scripts/setup_helloxr_msvc.sh) for D3D11/D3D12,
+#     and the layer-bundled MinGW build (layer/build/.../hello_xr.exe, from the layer's OpenXR-SDK
+#     FetchContent) for Vulkan -- the MSVC build has no Vulkan graphics plugin.
 # Usage: scripts/run_hello_xr_monado.sh [gfx=D3D11] [secs=25]
-#   gfx: D3D11 | D3D12  (the MSVC hello_xr is built WITHOUT Vulkan -- '-g Vulkan' errors "Unsupported")
+#   gfx: D3D11 | D3D12 | Vulkan  (the hello_xr binary is auto-picked to match the requested API)
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 9
@@ -28,7 +30,12 @@ GFX="${1:-D3D11}"
 SECS="${2:-25}"
 BW="runtime/monado-playspectra/build-win"
 SVC="$BW/src/xrt/targets/service/Release/monado-service.exe"
-HELLO="third_party/hello_xr_msvc/hello_xr.exe"
+# MSVC hello_xr is D3D-only; the layer-bundled MinGW hello_xr carries the Vulkan plugin. Pick to match.
+if [ "$GFX" = "Vulkan" ] || [ "$GFX" = "Vulkan2" ]; then
+  HELLO="layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe"
+else
+  HELLO="third_party/hello_xr_msvc/hello_xr.exe"
+fi
 MANIFEST="$BW/Release/openxr_monado-dev.json"
 
 # Vulkan SDK: needed on PATH so openxr_monado.dll's vulkan-1.dll dependency resolves at load time.

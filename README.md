@@ -54,7 +54,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **Monado Adapter**: Virtual HMD + 左右コントローラー | ✅ Monado がデバイス列挙（head/left/right）・OpenXR アプリが pose 取得・`set_state` で pose/入力が遷移 | submodule `runtime/monado-playspectra` `drivers/playspectra/`、`tools/playspectra_{headless,action}_probe.c` |
 | Monado 制御チャネル（NDJSON/TCP :52702） | ✅ feature-complete: `set_state`/`get_state`/haptics broadcast/複数 observer/writer 排他/`frame_synchronized`/`reset` | `tools/playspectra_{multiobs,frame,reset}_test.py`（E2E 11/11・10/10・20/20） |
 | **PlaySpectra Server**: 高水準命令＋補間 | ✅ `move_head`/`look`/`walk_forward`/`strafe`/`trigger`/`press`/`set_input`/`move_controller`/`reset`/`get_state` | `tools/playspectra_server.py`（`--verify` 6/6、`controller_ops` 7/7） |
-| **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生 | `tools/playspectra_record.py`（`--verify` 5/5） |
+| **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生。**live Windows Monado で 5/5**（42フレーム記録・軌跡 z→-2・reset 後 replay が head z を再現） | `tools/playspectra_record.py`（`--verify --port 52702`、2026-07-22） |
 | **Scenario Runner + assert（状態）** | ✅ `run_scenario` + `assert`（get_state のパス比較、失敗で exit 1、negative control 実証） | `tools/scenarios/assert_demo.json` |
 | **capture-assert（視覚回帰）** | ✅ 参照 screenshot の PNG hash を取り `changed`/`stable` を assert | `tools/scenarios/capture_assert_demo.json`（3/3、negative control FAIL rc=1） |
 | **キャプチャ: Vulkan** | ✅ Windows・実GPU で full E2E 20/20（fmt=43・深度パス present）＋ Linux で本番 Vulkan readback 394 PNG | `scripts/integration_test.sh Vulkan`（metasim, 2026-07-22）／ Linux 移植 `scripts/ps_layer_build.sh` |

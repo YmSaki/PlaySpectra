@@ -21,13 +21,33 @@
 #   - hello_xr: MSVC D3D build (third_party/hello_xr_msvc/, scripts/setup_helloxr_msvc.sh) for D3D11/D3D12,
 #     and the layer-bundled MinGW build (layer/build/.../hello_xr.exe, from the layer's OpenXR-SDK
 #     FetchContent) for Vulkan -- the MSVC build has no Vulkan graphics plugin.
-# Usage: scripts/run_hello_xr_monado.sh [gfx=D3D11] [secs=25]
-#   gfx: D3D11 | D3D12 | Vulkan  (the hello_xr binary is auto-picked to match the requested API)
+# Usage: scripts/run_hello_xr_monado.sh [gfx=D3D11] [secs=60]
+#   gfx: D3D11 | D3D12 | Vulkan | all  (the hello_xr binary is auto-picked to match the requested API;
+#        'all' runs every graphics API in turn and gates on the combined result -- the full-coverage
+#        regression the north star requires: all three OpenXR graphics bindings, not a subset)
+#   secs: hard-kill watchdog for the app. MUST exceed the ~15-26s test (the assertions + coupling), or
+#         the watchdog races the test and kills the app mid-assertion (this is what flaked 'all' at
+#         secs=26 under back-to-back load). Normal teardown kills the app the instant the test returns,
+#         so a generous watchdog costs nothing -- the run returns when the test does, not at `secs`.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 9
 GFX="${1:-D3D11}"
-SECS="${2:-25}"
+SECS="${2:-60}"
+
+# 'all': re-invoke self once per graphics API and combine the verdicts (fail if any API fails).
+if [ "$GFX" = "all" ]; then
+  overall=0
+  for api in D3D11 D3D12 Vulkan; do
+    echo "########## $api ##########"
+    "$0" "$api" "$SECS"; rc=$?
+    echo "########## $api rc=$rc ##########"
+    [ "$rc" != "0" ] && overall=1
+  done
+  echo "ALL_APIS_RC=$overall"
+  exit $overall
+fi
+
 BW="runtime/monado-playspectra/build-win"
 SVC="$BW/src/xrt/targets/service/Release/monado-service.exe"
 # MSVC hello_xr is D3D-only; the layer-bundled MinGW hello_xr carries the Vulkan plugin. Pick to match.
@@ -75,7 +95,15 @@ APPLOG="$(mktemp -t helloxr.XXXXXX.log)"
 echo "=== service log: $SVCLOG ==="
 echo "=== app log:     $APPLOG ==="
 
-taskkill //F //IM monado-service.exe 2>/dev/null; taskkill //F //IM hello_xr.exe 2>/dev/null; sleep 1
+taskkill //F //IM monado-service.exe 2>/dev/null; taskkill //F //IM hello_xr.exe 2>/dev/null
+# taskkill //F is async: a prior run's service can still hold :52702 for a moment. Wait for both
+# ports to actually free before we bind, else the readiness check latches onto the DYING process
+# (this is what made back-to-back API runs in 'all' mode flake -- the 2nd run saw the 1st's listener).
+for i in $(seq 1 20); do
+  if ! listen 52702 && ! listen 52700; then break; fi
+  sleep 0.5
+done
+sleep 1
 
 echo "=== start monado-service (:52702, null compositor) ==="
 "$SVC" > "$SVCLOG" 2>&1 &
@@ -93,6 +121,8 @@ echo "=== launch hello_xr -g $GFX against Monado (stdin held open) ==="
 # hello_xr quits on stdin EOF; hold it open with a sleep pipe so the render loop runs.
 sleep "$((SECS + 10))" | "$HELLO" -g "$GFX" > "$APPLOG" 2>&1 &
 APP_PID=$!
+# hard-kill watchdog: a backstop for a hung test only. It must outlast the assertions (see SECS note
+# in the header) -- normal teardown below kills the app the instant the test returns.
 ( sleep "$SECS"; taskkill //F //IM hello_xr.exe 2>/dev/null ) &
 
 LUP=0

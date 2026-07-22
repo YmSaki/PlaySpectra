@@ -1,0 +1,50 @@
+{
+  "jsonid": "input_profile",
+  "controller_type": "playspectra_controller",
+  "device_class": "TrackedDeviceClass_Controller",
+  "legacy_binding": "{playspectra}/input/legacy_bindings_playspectra.json",
+  "input_bindingui_mode": "controller_handed",
+  "input_source": {
+    "/input/trigger": {
+      "type": "trigger",
+      "binding_image_point": [0, 0],
+      "order": 1
+    },
+    "/input/grip": {
+      "type": "trigger",
+      "value_source": "/input/grip",
+      "binding_image_point": [0, 0],
+      "order": 2
+    },
+    "/input/joystick": {
+      "type": "joystick",
+      "binding_image_point": [0, 0],
+      "order": 3
+    },
+    "/input/a": {
+      "type": "button",
+      "binding_image_point": [0, 0],
+      "order": 4
+    },
+    "/input/b": {
+      "type": "button",
+      "binding_image_point": [0, 0],
+      "order": 5
+    },
+    "/input/system": {
+      "type": "button",
+      "binding_image_point": [0, 0],
+      "order": 6
+    },
+    "/output/haptic": {
+      "type": "vibration",
+      "binding_image_point": [0, 0],
+      "order": 7
+    },
+    "/pose/raw": {
+      "type": "pose",
+      "binding_image_point": [0, 0],
+      "order": 8
+    }
+  }
+}

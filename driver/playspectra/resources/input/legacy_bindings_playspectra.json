@@ -1,0 +1,42 @@
+{
+  "jsonid": "default_bindings",
+  "controller_type": "playspectra_controller",
+  "name": "Legacy bindings for PlaySpectra virtual controller",
+  "description": "Maps the virtual controller onto SteamVR legacy input actions (VD1 minimal; refined in VD3).",
+  "bindings": {
+    "/actions/legacy": {
+      "sources": [
+        {
+          "inputs": {
+            "click": { "output": "/actions/legacy/in/left_axis1_press" },
+            "pull": { "output": "/actions/legacy/in/left_axis1_value" }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/left/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": { "output": "/actions/legacy/in/right_axis1_press" },
+            "pull": { "output": "/actions/legacy/in/right_axis1_value" }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/right/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": { "output": "/actions/legacy/in/left_system_press" }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/system"
+        },
+        {
+          "inputs": {
+            "click": { "output": "/actions/legacy/in/right_system_press" }
+          },
+          "mode": "button",
+          "path": "/user/hand/right/input/system"
+        }
+      ]
+    }
+  }
+}

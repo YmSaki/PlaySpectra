@@ -1,6 +1,7 @@
 # Build trees & artifacts
 node_modules/
 mcp/dist/
+/build/
 layer/build/
 layer/manifest/*.dll
 layer/manifest/*.so
@@ -9,6 +10,11 @@ __pycache__/
 *.pdb
 *.obj
 *.ilk
+
+# SteamVR driver (driver/) & built app binaries -- generated, not source.
+# Tracked source: driver/src/, driver/CMakeLists.txt, driver/playspectra/driver.vrdrivermanifest
+driver/build/
+bin/
 
 # Local venvs (e.g. .venv-mcp for run_mcp_verify_monado.sh; mcp must be isolated, not in a shared env)
 .venv*/
@@ -24,10 +30,3 @@ third_party/
 feature-inventory.csv
 refactor-plan.csv
 refactor-plan-review.md
-
-driver/build
-
-bin
-build
-
-.claude/harness

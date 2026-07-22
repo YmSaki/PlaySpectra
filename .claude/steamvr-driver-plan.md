@@ -1,4 +1,4 @@
-# SteamVR 仮想コントローラードライバー計画 (driver_vragent)
+# SteamVR 仮想コントローラードライバー計画 (driver_playspectra)
 
 決定日: 2026-07-17。The Lab 実測で確定した方針転換。
 
@@ -20,19 +20,19 @@ Meta XR Sim / Monado では従来どおり CA 経路が動く(15 PASS 実証済�
 ```
 MCP server (TS)
   ├─ 既存: control channel :52700 → OpenXR レイヤー (capture / head / CA注入)
-  └─ 新規: driver channel  :52701 → driver_vragent.dll (SteamVR 内)
+  └─ 新規: driver channel  :52701 → driver_playspectra.dll (SteamVR 内)
                                       ├─ 仮想コントローラー L/R (TrackedDeviceClass_Controller)
                                       ├─ DriverPose_t 更新 (RunFrame)
                                       └─ IVRDriverInput (bool/scalar コンポーネント)
 ```
 
-- **driver_vragent.dll**: OpenVR ドライバー API (`openvr_driver.h`) を実装する server tracked device provider。
+- **driver_playspectra.dll**: OpenVR ドライバー API (`openvr_driver.h`) を実装する server tracked device provider。
   - `HmdDriverFactory` エクスポート → `IServerTrackedDeviceProvider`
   - Init で仮想コントローラー2本 (`ITrackedDeviceServerDriver`) を `TrackedDeviceAdded`
-  - 入力プロファイル: 独自 JSON (resources/input/vragent_profile.json)。Touch 互換のコンポーネント構成
+  - 入力プロファイル: 独自 JSON (resources/input/playspectra_profile.json)。Touch 互換のコンポーネント構成
     (trigger/grip/joystick/A/B/system) にして The Lab 等の既存バインディングが解決できるようにする
   - IPC: レイヤーと同じ NDJSON over TCP パターン (:52701)。コマンド: pose / input / status
-- **SteamVR 登録**: `vrpathreg adddriver <repo>/driver/vragent` + steamvr.vrsettings
+- **SteamVR 登録**: `vrpathreg adddriver <repo>/driver/playspectra` + steamvr.vrsettings
   `activateMultipleDrivers: true`。実機 Rift ドライバーと共存(コントローラー4本になるが直近アクティブが勝つ)。
 - **openvr_driver.h**: ValveSoftware/openvr v1.8.19 タグ固定 (プロジェクト全体の openvr ピンと統一)。
   ドライバー API は後方互換なので現行 SteamVR で動く。
@@ -42,7 +42,7 @@ MCP server (TS)
 ## マイルストーン
 
 - **VD1** driver skeleton: DLL ビルド + vrpathreg 登録 + SteamVR がコントローラー2本を認識
-  (機械判定: `vrcmd` or SteamVR ステータス画面 / vrserver.txt ログに vragent デバイス追加行)
+  (機械判定: `vrcmd` or SteamVR ステータス画面 / vrserver.txt ログに playspectra デバイス追加行)
 - **VD2** pose 注入: :52701 経由で DriverPose_t 更新。The Lab 内で手が動く(スクショで機械判定可)
 - **VD3** ボタン注入: IVRDriverInput コンポーネント。The Lab の「スタート」ボタン押下到達
 
@@ -76,14 +76,14 @@ MCP server (TS)
   検証法: 実 SteamVR で物理HMDポーズ固定 vs 仮想HMDポーズ注入の両条件で歪みを撮って比較。
   実測して初めて「歪みの原因」を決定へ昇格させる。**この仮説は Monado 採用理由からは分離する**
   (Monado の根拠はソース改変可能/正規経路/headless/CI の事実のみ)。
-  なお実現時の切替(実機観戦 ⇔ 仮想HMD)は vrsettings フラグ (driver_vragent.virtualHmd) +
+  なお実現時の切替(実機観戦 ⇔ 仮想HMD)は vrsettings フラグ (driver_playspectra.virtualHmd) +
   SteamVR 再起動を想定(SteamVR は HMD を1つしか採用しない)。
 - **VD5** MCP ルーティング: vr_input/vr_set_controller/vr_set_hmd が経路自動選択
 - **VD6** docs + 統合テスト
 
 ## コントローラー偽装の方向決定 (2026-07-17) — 効果は仮説 H3、実測待ち
 
-偽装先は `oculus_touch` を選ぶ(独自タイプ vragent_controller ではなく)。選定理由のうち**事実**は
+偽装先は `oculus_touch` を選ぶ(独自タイプ playspectra_controller ではなく)。選定理由のうち**事実**は
 (1) ユーザー実機が Rift CV1 + Touch で、steamvr.vrsettings に oculus_touch_250820_* キーが実在する
 こと(実測)。(2) knuckles はスケルタル入力エミュレーションが必要で自動化に不要、(3) Vive wands は
 ジョイスティックなし、は学習知識由来の比較。

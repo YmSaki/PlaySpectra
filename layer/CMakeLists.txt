@@ -8,6 +8,14 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Our sources carry UTF-8 (Japanese) comments. Without /utf-8 MSVC decodes them as the system ANSI
+# code page -- CP1252 on CI runners, CP932 on JA dev boxes -- which raises C4819 and can cascade into
+# phantom parse errors. /utf-8 makes the build locale-independent (same fix the Monado submodule got
+# in cdd429f88). Harmless for the ASCII/UTF-8-clean fetched dependencies below.
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 include(FetchContent)
 
 # OpenXR-SDK-Source include(CTest)s, which would otherwise cache BUILD_TESTING=ON and register the

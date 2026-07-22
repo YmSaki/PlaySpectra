@@ -401,3 +401,93 @@ D3D 系キャプチャの既知欠落(MSAA/HDR/TYPELESS)は全て解消、3バ�
   (R10 リンク切れ/R17 冪等性) — レビュー健全、ドリフト提案なし。plateau 0。
 - agent-memory: h-reviewer が R17 教訓を review-checklist-patch-idempotency として自律蒸留済み(検出側)。
   本 h-evolve の setup-scripts (6) は書き手側の規則で相補 — 重複でなく役割分担、整理不要。
+
+## 2026-07-17 — scripts-nits-batch (setup-curl-fsl + setup-hellovr-nits + openvr-test-graceful-promote)  [outcome: done]
+
+**What shipped**: 3つの独立したスクリプト改善をワークツリー並列 fan-out で一括実行。
+1. curl -sL → -fSL 統一(setup_monado.sh, setup_opencomposite.sh) — HTTP エラー早期失敗
+2. MSBuild edition preflight(setup_hellovr.sh) — BuildTools/Community/Enterprise/Professional 4版自動探索 + `.git` clone guard
+3. graceful teardown SKIP→FAIL 昇格(integration_openvr_test.sh) — PASS 実証済みのため退行検知有効化 + rc=1 反映 + scs[1] 寸法チェック(integration_openvr.mjs)
+
+→ resolved 1b9aa0e。レビュー pass(findings なし)。
+
+**L84 (procedure that worked)**: ワークツリー並列 fan-out が初めて正常動作。3エージェント × worktree isolation で独立ファイルの mechanical fix を同時実行。マージはコンフリクトなし。ただし cherry-pick 時に tracked .claude/ ファイルが混入する問題あり — `git checkout -- .claude/` で手動復元が必要だった。
+**L85 (friction)**: ワークツリーブランチのマージ時、tracked .claude/harness/ ファイル(state.json 等)が cherry-pick に含まれて working tree の state を上書きする。worktree fan-out 後の join フローで .claude/ を除外する仕組みが欲しい。
+
+## 2026-07-17 — doc-cleanup-batch (R21 stale-comments + layer-log-unused-string)  [outcome: done]
+
+**What shipped**: コメント是正(3ファイル) + 未使用 include 除去(1ファイル)。
+1. openxr_agent_layer.cpp: 冒頭コメントを現状反映(全バックエンド実装済み、単一 XrInstance 設計)
+2. capture.cpp: stale「not implemented error」記述を除去
+3. capture_backends.h: 「Vulkan stays inline in capture.cpp」→ capture_vulkan.cpp 分離済みに修正
+4. layer_log.h: 未使用 `#include <string>` 除去(ビルド green + 64/64 テスト PASS で検証)
+
+→ resolved 99b991c。レビュー pass(2 notes、non-blocking)。
+
+**L86 (reviewer finding, not a defect)**: capture.cpp:516 のランタイムエラー文字列 "not implemented" はコメントではなく正当なコード。コントラクトの grep 検証コマンドがコメントと区別できなかった。DoD チェックは grep のスコープを明確にすべき。
+**L87 (procedure that worked)**: 小粒タスク(コメント数行+include 1行)では、ワークツリー並列の cmake configure オーバーヘッドが作業量を上回るため、inline sequential の方が効率的。scripts-nits-batch(ビルド不要の script 変更)とは異なるパターン。
+
+## 2026-07-17 — R19 layer-state-split  [outcome: done]
+
+**What shipped**: control_channel の公開状態ストア(5 mutex+globals グループ)を layer_state.{h,cpp} に分離。control_channel は transport+protocol 専任に。型5個 + API 15個超を移動。ClearAllStickyPoses / GetStatus / GetHapticLog を追加して直接 mutex アクセスを解消。消費者9ファイルの include を追従。
+
+→ resolved 9b8efda。レビュー needs-fix(dead include 3件)→修正→pass。
+
+**L88 (recurring finding, R04/R05 と同型)**: API リネーム（ControlChannel* → LayerState*）時に sed で関数呼び出しは置換したが #include 行は元ファイル名のまま残った。コメント部分がリネーム済みで見た目 OK に見えるが、実際は dead include + transitive 依存で成立している脆い状態。API リネームを伴う move-only リファクタでは、sed 後に `grep -rn '#include "旧ヘッダ"'` で全数確認すべき。
+**L89 (procedure that worked)**: 大きめ move-only リファクタ(13ファイル +306/-324)でも sequential 実行で品質を保てた。レビュアーが dead include(Lens 1, R04/R05 再発パターン)を1回で検出し、修正は mechanical。
+
+## 2026-07-17 — R20 server-ts-split  [outcome: done]
+
+**What shipped**: mcp/src/server.ts (815行、21ツール) を client.ts / math.ts / tools/{observe,input,pose,head,recording}.ts に分割。server.ts は 19行(import + 登録 + transport のみ)に。
+
+→ resolved 63609d2。レビュー needs-fix(コメント40行欠落、review-checklist lens 1)→復元→pass。
+
+**L90 (recurring finding, lens 1 三度目)**: TS の move-only 分割でもコメントが欠落(C++ の R04/R05/R19 と同型)。言語に関係なくコード移動時のコメント追従は普遍的な罠。Write で新ファイルを作成する際に元コメントを含めて verbatim コピーする習慣が必要。
+
+## 2026-07-17 — unit-tests-registry-capture  [outcome: done]
+
+**What shipped**: HandTopFromBindingPath (action_registry) を inline 化 + EyeToIndex/DominantEyeIndex (capture.cpp anonymous ns) を capture_common に抽出し、テスト14件追加(合計78件)。
+
+→ resolved 0728461。レビュー pass(findings なし)。
+
+**L91 (procedure that worked)**: テスト対象のリンク依存が重い場合、関数を header-only inline 化(HandTopFromBindingPath、R12 パターン)または既にリンク済みの TU に移動(EyeToIndex → capture_common)することでテストターゲットへの追加リンクなしでテスト可能にする。R11 の「スコープ外」判定を覆す正当な手法。
+
+**L84〜L91 → processed (h-evolve 2026-07-17)**。8件を2資産へ蒸留(ユーザー承認済み A+B):
+- `.claude/rules/review-checklist.md` lens 1 強化 — API リネーム後の grep 全数確認 + Write 時コメント verbatim コピー(言語非依存) ← L88/L90
+- `.claude/harness/backlog.md` — worktree-join-exclude-claude ← L85
+- 蒸留対象外: L84(記録のみ・初動作報告)、L86(タスク固有)、L87(判断基準・汎化不要)、L89(記録のみ)、L91(手法知識・規則化不要)
+- metrics 所見: 29ループ・rejections 平均0.34(直近5=0.40)。直近2件の rejection はいずれも lens 1 の既知パターン(dead include/コメント欠落) — レビュー健全、ドリフト提案なし。plateau 0。
+- 2026-07-18 (steamvr-driver VD1/VD2 準備中): **未検証知識を事実として文書化する失敗が同一セッションで3回再発**(H1 役割割当を仕様書に「決定」と記載 / README で Monado CA を実測と真逆に記載+開発中設計を実装済みと混在 / VD2 で H3 偽装を検証装置と明示せず実装)。ユーザー指摘 2回。恒久対策として CLAUDE.md に「検証済みと未検証を混ぜない」節を新設(仮説ラベル+検証方法の義務化、README 3段階凡例、判別法=リポジトリ内の実測ログを指させるか)。h-evolve 候補: review-checklist に「文書中の技術主張は実測ログ/一次ソースを指せるか」レンズ追加を検討。
+  → processed (h-evolve 2026-07-18): review-checklist.md lens 7「技術主張の検証可能性」新設 + CLAUDE.md「検証済みと未検証を混ぜない」節。出典=2026-07-18 の3連発(H1/Monado CA/H3)。
+
+## 2026-07-22 — h-evolve 実行記録 (4回目) + PlaySpectra asset drift 是正
+
+**入力の状態**: journal は 2026-07-18 で全項目 processed・未処理なし。metrics.jsonl は 2026-07-17
+(29ループ) 以降エントリなし = **PlaySpectra 改革 (7/19〜22) は h-loop 外 (cron/手動) で実施され
+journal/metrics 未記録**。蒸留対象は本セッションの実測 friction + 既存資産の drift。
+
+**適用 (P1・stale asset 是正)**: M0.5 改名 (2026-07-19) の DoD「grep 0件」が **.claude/rules +
+agent-memory で未達**だった (vr_agent_layer/vr_agent_test/vr_agent_openvr が残存)。根因は ripgrep が
+gitignore の .claude/ をスキップし rename 時の確認 grep が false 0 を返したこと ([[review-env-sandbox-quirks]]
+L15 の既知癖)。全て ground truth (layer/CMakeLists=playspectra_layer/playspectra_test、
+scripts=playspectra_openvr_/playspectra_integration、capture.cpp の vr_capture_N.png は改名対象外の出力名)
+と照合し是正 → 明示パス grep 0件を確認。対象: native-win-interop.md(L27/L30)、review-checklist.md
+(vr_agent_test×2)、setup-scripts.md(例パス)、review-checklist-frame-capture.md(memory・4トークン)。
+
+**提案 (P2〜P4・要ユーザー承認、未適用)**:
+- P2: review-checklist lens 3 に「grep 完了確認は gitignore 対象 (.claude/ 等) も明示パスで —
+  ripgrep は gitignore をスキップし false 0 を出す」を追記。出典=本 P1 の根因。
+- P3: review-env-sandbox-quirks memory に「Read tool が捏造/stale なファイル内容を返すことがある —
+  doc/impl の相違を報告/編集する前に grep で実文字列を確認」を追記。出典=本セッション2件
+  (playspectra_mcp.py/tools/README.md の初回 Read が架空内容→grep で否定→誤 finding 寸前)。
+- P4: CLAUDE.md に「.claude/ はユーザー global gitignore 対象 — 設計書は git add -f で追跡し、
+  追跡文書は非追跡パスへリンクしない」を追記。出典=本セッション (正典 architecture 等5点が未追跡で
+  README リンク切れ、526de7d9 で是正)。
+
+**metrics 所見**: rejections 平均 ~0.31 (29ループ)・plateau 0・新規ループなし → review 健全・ドリフト提案なし。
+
+**訂正(append-only)**: 上記 P2〜P4 は「提案・未適用」と書いたが、ユーザー4度目の授権
+(「機械的に進めれるところは進める…質問を控え…」)を承認とみなし **2026-07-22 に適用済み**:
+review-checklist.md lens 3(gitignore/grep false-0 注意)、review-env-sandbox-quirks memory
+(Read tool の捏造/stale 内容)、CLAUDE.md「リポジトリ運用の注意(.claude/ の git 追跡)」節。
+= h-evolve 4回目 完了(P1〜P4 全適用・二重蒸留防止マーク済み)。

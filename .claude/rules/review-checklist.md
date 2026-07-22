@@ -8,14 +8,14 @@ h-review が h-reviewer への委譲時に渡す。各レンズは実際に起�
    関数を動かしたら説明コメントも一緒に動いたか(孤立コメントが別物を指していないか)。移動で「最後の
    使用者」が消えた using / `#include` を grep で全数確認したか。
    逆方向も同じ: **共有ソースへ新しい依存を足したら、それを自前コンパイルする全ターゲット
-   (vr_agent_test 等)のソース列が追従しているか**。本体ビルドだけの DoD はテストターゲットの
+   (playspectra_test 等)のソース列が追従しているか**。本体ビルドだけの DoD はテストターゲットの
    リンク切れをすり抜ける — テストターゲットのビルド+実行を DoD に含める。
    **API リネームを伴う move-only リファクタ**では、sed で関数呼び出しを置換した後に
    `grep '#include "旧ヘッダ"'` で全消費者を全数確認する(コメント部分がリネーム済みで見た目 OK でも
    #include 行が旧ファイル名のまま残る — transitive include で偶然コンパイルが通る脆い状態)。
    **Write で新ファイルを作成する際は、元のコメントを含めて verbatim コピーする**(言語非依存。
    TS でも C++ でも同じ罠が再発する — コード本体だけコピーしてコメントを落とすと WHY が失われる)。
-   — 出典: journal L29 (R06, コメント孤立), L39 (R05, dead using 5本), L43 (R04, dead include。**2タスク連続で再発**), L67 (R10, capture_common→pixel_convert 依存追加で vr_agent_test リンク切れ), L88 (R19, API リネーム後の dead include。**4回目**), L90 (R20, TS 分割でコメント40行欠落。**5回目・言語非依存で再発**)
+   — 出典: journal L29 (R06, コメント孤立), L39 (R05, dead using 5本), L43 (R04, dead include。**2タスク連続で再発**), L67 (R10, capture_common→pixel_convert 依存追加で playspectra_test リンク切れ), L88 (R19, API リネーム後の dead include。**4回目**), L90 (R20, TS 分割でコメント40行欠落。**5回目・言語非依存で再発**)
 
 2. **レビュアー間・報告間で事実が食い違ったら、一次ソース(grep/実行)で裁く。**
    「他で使われている」「使われていない」の類いは主張の多数決でなく ground truth を自分で取る。
@@ -23,7 +23,11 @@ h-review が h-reviewer への委譲時に渡す。各レンズは実際に起�
 
 3. **偽前提の是正は、その語をリポジトリ/文書全体で grep してから閉じる。**
    1箇所直して残りが古い前提のまま(特に後続タスクへの指示文)は再発源。完了条件は「grep 0件(許容形除く)」。
-   — 出典: journal L53 (M2→M3, hellovr_dx11 が M2節修正後も3箇所残存しレビュアーが検出)
+   **grep の完了確認は gitignore 対象(`.claude/` 等)を明示 path で別途走らせる** — ripgrep/Grep tool は
+   gitignore をスキップするため、リポジトリルート grep だけでは「残存0」を false 0 で誤判定する。
+   — 出典: journal L53 (M2→M3, hellovr_dx11 が M2節修正後も3箇所残存しレビュアーが検出), 2026-07-22
+   (M0.5 改名の「grep 0件」が .claude/rules+agent-memory の vr_agent_* を見逃した。根因=ripgrep の
+   gitignore スキップ [[review-env-sandbox-quirks]] L15)
 
 4. **文書中の数値は、引用元の生データから機械カウントして照合する。**
    目視集計の転記は数え間違う。後続タスクがその数値を前提にするなら特に。

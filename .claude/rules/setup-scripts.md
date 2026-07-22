@@ -17,7 +17,7 @@ paths:
    深い階層(scratchpad 等)は MSBuild FileTracker が FTK1011 で死ぬ(MAX_PATH)。
    — 出典: hello_xr MSVC ビルド(M0 前段)・hellovr ビルド(M2)
 
-3. **サードパーティの clone はタグ固定し、タグをパスに含める**(例: `%TEMP%/vr_agent_openvr_v1.8.19`)。
+3. **サードパーティの clone はタグ固定し、タグをパスに含める**(例: `%TEMP%/playspectra_openvr_v1.8.19`)。
    「最新 main」は互換性の時限爆弾(openvr master → OpenComposite 未実装版数で無音ブロック)。
    互換版数は推量でなく**一次ソース**(実装側の版数宣言 × ヘッダの Version 文字列)で決め、根拠を
    スクリプトのコメントに書く。VERSION.txt に取得元+タグ+日時を記録。

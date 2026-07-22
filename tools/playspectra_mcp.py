@@ -73,6 +73,14 @@ def walk_forward(speed: float = 1.0, duration_ms: int = 1000, hand: str = "left"
 
 
 @mcp.tool()
+def strafe(speed: float = 1.0, duration_ms: int = 1000, hand: str = "left") -> str:
+    """Hold the thumbstick sideways (speed in [-1,1]; + is right) for duration, then release. The lateral
+    twin of walk_forward. Returns the state."""
+    srv().strafe(speed, duration_ms, hand)
+    return json.dumps(_state())
+
+
+@mcp.tool()
 def press(hand: str = "right", button: str = "a", ms: int = 120) -> str:
     """Press and release a controller button (right: a/b, left: x/y). Returns the device state."""
     srv().press(hand, button, ms)

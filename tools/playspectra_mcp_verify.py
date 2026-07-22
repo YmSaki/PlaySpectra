@@ -28,7 +28,9 @@ async def main():
     def check(n, cond, d=""):
         results.append((n, bool(cond))); print(("PASS" if cond else "FAIL"), n, "-", d)
 
-    async with stdio_client(StdioServerParameters(command="python3", args=[MCP_PATH])) as (r, w):
+    # spawn the server under the SAME interpreter running this verify (not a bare "python3", which on
+    # Windows resolves to a different install that may lack `mcp` -- ModuleNotFoundError at spawn).
+    async with stdio_client(StdioServerParameters(command=sys.executable, args=[MCP_PATH])) as (r, w):
         async with ClientSession(r, w) as session:
             await session.initialize()
             names = [t.name for t in (await session.list_tools()).tools]

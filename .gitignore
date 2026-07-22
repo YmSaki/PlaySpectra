@@ -3,10 +3,15 @@ node_modules/
 mcp/dist/
 layer/build/
 layer/manifest/*.dll
+layer/manifest/*.so
+__pycache__/
 *.log
 *.pdb
 *.obj
 *.ilk
+
+# Local venvs (e.g. .venv-mcp for run_mcp_verify_monado.sh; mcp must be isolated, not in a shared env)
+.venv*/
 
 # Large external dependencies (fetched/extracted by setup; reproduced, not source)
 third_party/

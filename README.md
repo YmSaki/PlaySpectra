@@ -100,9 +100,9 @@ third_party/             外部ランタイム / SDK 取得先（非コミット
 
 PlaySpectra は2つの検証経路がある。
 
-### A. Monado 経路（操作＋観察の主軸・本環境＝Linux/WSL2）
+### A. Monado 経路（操作＋観察の主軸）
 
-Monado のビルドには glslang / Vulkan SDK が要り、本プロジェクトは WSL2 Ubuntu 22.04 で検証している。GPU は不要（lavapipe / llvmpipe の CPU Vulkan で完走を実証済み）。
+**WSL2 Ubuntu 22.04（下記）と Windows・実GPU（末尾に別記）の両方で検証済み**。Monado のビルドには glslang / Vulkan SDK が要る。WSL2 は GPU 不要（lavapipe / llvmpipe の CPU Vulkan で完走を実証済み）。
 
 ```bash
 # 1. submodule（Monado fork）を取得
@@ -121,8 +121,18 @@ PLAYSPECTRA_ENABLE=1 runtime/monado-playspectra/build/src/xrt/targets/service/mo
 #    再現手順: scratchpad の ps_helloxr_run.sh 参照
 
 # 5. Server / MCP からアプリを操作・観察
-python3 tools/playspectra_server.py --verify        # 6/6
-python3 tools/playspectra_mcp_verify.py             # 7/7（要 pip install mcp）
+python3 tools/playspectra_server.py --verify        # 9/9
+python3 tools/playspectra_mcp_verify.py             # 14/14（要 pip install mcp）
+```
+
+#### Windows・実GPU（本セッションで Monado 経路の全層を E2E 検証）
+
+WSL2 と同じ Monado 経路が Windows でも動く（capture/operate/record-replay/MCP 全層。詳細は検証境界表＋memo）。ビルドは **VS2022 同梱 vcpkg ツールチェーン**で `--target monado-service cli openxr_monado`（`/utf-8` は submodule に導入済み。手順の詳細は各 `scripts/run_*_monado.sh` のヘッダ prereqs）。フル E2E は1コマンド:
+
+```bash
+scripts/run_hello_xr_monado.sh all       # 実アプリ×Windows Monado×capture: D3D11/D3D12/Vulkan 各20/20 + coupling 2/2
+scripts/run_scenario_e2e_monado.sh       # VR-Playwright ループ: 操作シナリオ→再描画→視覚回帰 3/3
+PY=<venv-python> scripts/run_mcp_verify_monado.sh   # MCP 全13ツール 14/14（mcp は venv 隔離必須）
 ```
 
 ### B. Layer 経路（Instrumentation＝観測・録画）

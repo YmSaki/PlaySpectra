@@ -89,7 +89,7 @@ Observe + assert steps:
 
 ## MCP tools
 
-`playspectra_mcp.py` exposes: `move_head`, `look`, `walk_forward`, `press`, `set_trigger`,
+`playspectra_mcp.py` exposes: `move_head`, `look`, `walk_forward`, `strafe`, `press`, `set_trigger`,
 `move_controller`, `set_input`, `reset` (operate); `get_state`, `wait_for` (auto-wait until a
 state condition holds) (observe); `screenshot` → an MCP image block (the agent *sees* the rendered
 eye); `run_scenario` (operate + assert). The Server connects lazily on the first tool call, so the

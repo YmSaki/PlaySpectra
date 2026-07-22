@@ -57,7 +57,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生。**live Windows Monado で 5/5**（42フレーム記録・軌跡 z→-2・reset 後 replay が head z を再現） | `tools/playspectra_record.py`（`--verify --port 52702`、2026-07-22） |
 | **Scenario Runner + assert（状態）** | ✅ `run_scenario` + `assert`（get_state のパス比較、失敗で exit 1、negative control 実証） | `tools/scenarios/assert_demo.json` |
 | **capture-assert（視覚回帰）** | ✅ 参照 screenshot の PNG hash を取り `changed`/`stable` を assert | `tools/scenarios/capture_assert_demo.json`（3/3、negative control FAIL rc=1） |
-| **キャプチャ: Vulkan** | ✅ Windows・実GPU で full E2E 20/20（fmt=43・深度パス present）＋ Linux で本番 Vulkan readback 394 PNG | `scripts/integration_test.sh Vulkan`（metasim, 2026-07-22）／ Linux 移植 `scripts/ps_layer_build.sh` |
+| **キャプチャ: Vulkan** | ✅ Windows・実GPU で full E2E 20/20（fmt=43・深度パス present）＋ Linux で本番 Vulkan readback 394 PNG | `scripts/integration_test.sh Vulkan`（metasim, 2026-07-22）／ Linux 移植＝`layer/`（`CMakeLists.txt` の `if(WIN32)` で D3D/winsock を条件化した Vulkan-only ビルド・POSIX socket 化、committed） |
 | **キャプチャ: D3D11** | ✅ Windows・実GPU で full E2E 20/20（screenshot 1680x1760 fmt=29・非退化・録画） | `scripts/integration_test.sh D3D11`（metasim + MSVC hello_xr、2026-07-22） |
 | **キャプチャ: D3D12** | ✅ Windows・実GPU で full E2E 20/20（395フレーム・fmt=29・非退化・録画） | `scripts/integration_test.sh D3D12`（metasim + MSVC hello_xr、2026-07-22） |
 | **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。**live Windows Monado + hello_xr 相手に実 MCP クライアントで 14/14**（全13ツールを実測: HMD操作/両コントローラー move_controller・set_input・set_trigger/walk_forward・strafe/press/wait_for/screenshot 実画像/run_scenario/reset。arg マッピングも確認） | `tools/playspectra_mcp.py`、`scripts/run_mcp_verify_monado.sh`（要 `pip install mcp`・**venv 推奨**、2026-07-22） |
@@ -118,7 +118,7 @@ PLAYSPECTRA_ENABLE=1 runtime/monado-playspectra/build/src/xrt/targets/service/mo
 
 # 4. OpenXR アプリを headless で起動（例: hello_xr -g Vulkan2）
 #    lavapipe を単体強制すると複数 ICD の device_select 由来 hang を回避できる
-#    再現手順: scratchpad の ps_helloxr_run.sh 参照
+#    このフル bring-up は committed の scripts/e2e_playwright_loop.sh（lavapipe 単体強制込み）が自動化
 
 # 5. Server / MCP からアプリを操作・観察
 python3 tools/playspectra_server.py --verify        # 9/9
@@ -170,8 +170,8 @@ source scripts/env.sh
 
 現行 MCP（`tools/playspectra_mcp.py`）はエージェント向けに、Server が持つ高水準命令を公開する:
 
-- 操作: `move_head` / `look` / `walk_forward` / `press` / `set_trigger` / `move_controller` / `set_input` / `reset`
-- 観察: `get_state`（デバイス状態） / `screenshot`（画面を MCP Image で返す＝AI が画面を見る）
+- 操作: `move_head` / `look` / `walk_forward` / `strafe` / `press` / `set_trigger` / `move_controller` / `set_input` / `reset`
+- 観察: `get_state`（デバイス状態） / `wait_for`（状態が条件を満たすまで自動待機＝Playwright 流 auto-wait） / `screenshot`（画面を MCP Image で返す＝AI が画面を見る）
 - 実行: `run_scenario`（JSON シナリオを assert 込みで実行）
 
 Server は操作を `set_state`（完全スナップショット）の列へ補間して Monado Adapter（:52702）へ送り、capture は Layer（:52700）から取得する（`operate→:52702 / capture→:52700` の横断）。
@@ -201,9 +201,9 @@ python3 tools/playspectra_frame_test.py         # frame_synchronized 10/10
 python3 tools/playspectra_reset_test.py         # reset 20/20
 
 # Server / MCP / Recorder
-python3 tools/playspectra_server.py --verify    # 6/6
+python3 tools/playspectra_server.py --verify    # 9/9
 python3 tools/playspectra_record.py --verify    # 5/5
-python3 tools/playspectra_mcp_verify.py         # MCP 7/7（要 pip install mcp）
+python3 tools/playspectra_mcp_verify.py         # MCP 14/14（要 pip install mcp）
 
 # Layer（Instrumentation）
 scripts/integration_test.sh [Vulkan|D3D11|D3D12]           # hello_xr + Meta XR Sim

@@ -15,6 +15,7 @@
 #include <string>
 
 #include "layer_state.h"  // HeadPose (injected head pose the override consumes)
+#include "pose_override_pure.h"  // ApplyHeadToLocation / ZeroVelocity / FindInNextChain (pure, inline)
 
 namespace playspectra {
 
@@ -62,23 +63,12 @@ void EraseRefSpace(XrSpace space);                              // xrDestroySpac
 void RebaseViewsToHead(const HeadPose& h, uint32_t count, XrView* views);
 HeadPose TransformHeadToSpace(XrSession session, const HeadPose& h, XrSpace targetSpace, XrTime time);
 
-// Fill a location's pose/flags from an injected head pose already expressed in the location's base
-// space (xrLocateSpace(VIEW) returns the single VIEW origin = the head pose, so a direct copy). Always
-// overrides, so always returns true; the bool keeps the GAP-05 "zero velocity only on overridden
-// entries" invariant explicit and parallel to ApplyPoseOverride.
-bool ApplyHeadToLocation(const HeadPose& h, XrPosef& pose, XrSpaceLocationFlags& flags);
-
 // Controller grip/aim override: if `space` is a tracked grip/aim action space for a hand with an
 // injected sticky pose, write that pose (LOCAL -> baseSpace) into outPose/outFlags and return true.
 // Serves both xrLocateSpace and xrLocateSpaces. GAP-04 aim = grip * offset; GAP-06 null-subactionPath
 // hand inference. `session` may be the current session for the singular xrLocateSpace (no session arg).
 bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTime time,
                        XrPosef& outPose, XrSpaceLocationFlags& outFlags);
-
-// GAP-05: zero a located space's velocity (static injected pose -> no motion) and set the VALID bits.
-void ZeroVelocity(XrSpaceVelocityFlags& flags, XrVector3f& linear, XrVector3f& angular);
-// GAP-05: walk a MUTABLE next-chain for a struct of `type`, returning a writable pointer (or null).
-void* FindInNextChain(void* next, XrStructureType type);
 
 // Cleanup helpers called from the (thin) lifecycle hooks. ClearSessionScoped destroys the LOCAL space
 // and clears the VIEW-space tracking (xrDestroySession); ResetWarnings re-arms the log-once guards so a

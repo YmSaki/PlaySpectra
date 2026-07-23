@@ -138,6 +138,7 @@ if(PLAYSPECTRA_BUILD_TESTS)
     tests/test_pixel_convert.cpp
     tests/test_pose_animator.cpp
     tests/test_xr_math.cpp
+    tests/test_pose_override_pure.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
     src/pixel_convert.cpp

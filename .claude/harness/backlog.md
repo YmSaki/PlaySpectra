@@ -4,33 +4,62 @@
 （レビュー時の実装注意は旧 refactor-plan-review.md 由来、同じく削除済み）。
 **auto実行のスコープは move-only リファクタのみ**。挙動変更(下記 Deferred)は human approval まで自動着手しない。
 
-次フェーズ: **Monado PoC**（Meta XR Simulator 代替検証）→ 計画は `.claude/monado-poc-plan.md`。
+現況(2026-07-22): **Monado PoC → PlaySpectra 大改革(2026-07-19) → M0.5 改名 / M1 仕様 / M2 Monado 仮想HMD+Touch /
+Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/playspectra-architecture.md`、進捗
+`.claude/playspectra-m2-status.md`、memory [[windows-monado-unified-stack]]。**以下 Open は改革前(〜2026-07-18)の
+起票**で、SteamVR/OpenVR 系は architecture §9 で「SteamVR Adapter」に再位置づけ済み。優先度の再付けは M2 後の
+ユーザー留保事項(architecture §8「順不同・M2 後に再優先度付け」)。
 
 ## Open — move-only refactors (auto-pickable / 優先度・依存順)
-- **[P2] R12 xr-math-header** — pose_override.cpp の QMul/QConj/QRot/VAdd/VSub + control_channel.cpp の NormalizeQuat を xr_math.h(header-only inline)へ verbatim 集約。数式不変。注意: NormalizeQuat は float&×4、pose_override 側は XrQuaternionf — シグネチャ統一時は呼び出し側の書き換えが入る(数式不変なら move-only 扱い可)。
-- **[P2] R16 dxgi-formats-header** — capture_d3d11/d3d12 に重複する DxgiIsRGBA8/BGRA8 を dxgi_formats.h へ共有。TYPELESS 受理差(D3D12=可/D3D11=否)は allowTypeless 引数で可視化し現挙動維持(D3D11=false/D3D12=true)。差異の解消自体は R17。
-- **[P2] R11 unit-tests** — ホスト実行ユニットテスト拡充。対象: pixel_convert 全関数(HalfFloatSelfTest の昇格)、LinearizeViewDepth(reversed-Z/inf 境界)、NormalizeQuat、HandTopFromBindingPath/InferHandTops、AggregateFallback(bool OR/float絶対値max/vec2大きさ勝ち)、EyeToIndex。**depends R03(済), R12**。※googletest 基盤(VR_AGENT_BUILD_TESTS, 単体13件)は導入済み — 残対象の棚卸しから。
-- **[P2] R13 lodepng-pin** — FetchContent の lodepng を GIT_TAG master→コミットハッシュ固定+非推奨 FetchContent_Populate(単独形)是正。注意: lodepng.cpp を add_library で直接ソースに入れているため、MakeAvailable 化の際は lodepng 側 CMakeLists を走らせない取り込み方(SOURCE_SUBDIR ダミー等)にする。
-- **[P3] R19 layer-state-split** — control_channel の公開状態ストア(poses/head/views/haptics 5系統の mutex+globals)を layer_state.{h,cpp}(Set/Get API)へ、ソケット transport を control_channel_transport へ分離。プロトコル(コマンドテーブル)専任に。注意: Handle_reset が g_pose_mutex を直接ロックして g_poses.clear() するバックドアあり — API 経由に揃える(挙動不変で可能)。**depends R06(済)**。
-- **[P3] R20 server-ts-split** — mcp/src/server.ts(730行、registerTool 19個)を client.ts(ControlClient)/math.ts(quat/vec)/tools/*.ts(input/pose/head/observe)へ分割。server.ts は登録と起動のみに。
-- **[P2] recording-mode** — 録画モード: フラグ(env or MCP コマンド start_recording/stop_recording)で観察視点の連続フレームキャプチャを保存し、エビデンスとして保持できるようにする(Playwright の video/trace 相当)。ユーザー動機:「Claude が見ている視点で見てみたい」。既存の screenshot 経路を周期実行+セッションディレクトリ+manifest(タイムスタンプ付き)に束ねる形が自然。 — src: ユーザー発案 2026-07-17
-- **[P3] R21 stale-comments** — openxr_agent_layer.cpp:13-19 冒頭コメント是正(doc-only)+capture.cpp:6-8 の「D3D11/D3D12 は not implemented エラー」記述の拭き取り(R17 review nit、現状は全バックエンド実装済み): (1)「D3D11/D3D12 still return an explicit not implemented error」は虚偽(実装済み。残る非対応は MSAA/HDR/TYPELESS のみ=R08-R10/R17)。(2) per-instance dispatch TODO(18-19行)は GAP-07 で解消済み+R18削除で方針否定済み — 削除し「単一 XrInstance 前提は意図的設計判断」を1行明記(layer_dispatch.cpp:15-22 と整合)。R04 分割後の hooks_*.cpp 移動言及の是正(capture_backends.h:8-9 含む)も同範疇。
-- **[P3] layer-log-unused-string** — layer_log.h の未使用 `#include <string>`(R14 で顕在化)を掃除。transitive include 依存の可能性 — 除去前に他 TU のビルド影響を要検証。 — src: journal 2026-07-14 (R14 review)
+(全消化済み)
+
+## Open — harness 改善
+- **[P3] worktree-join-exclude-claude** — worktree fan-out → join (cherry-pick/merge) 時に tracked `.claude/` ファイルが混入して working tree の harness state を上書きする。join フローで `.claude/` を除外する仕組みが必要。 — src: h-evolve 2026-07-17 (journal L85)
+
+## Open — SteamVR Adapter (旧「SteamVR 仮想ドライバー」・architecture §9 で再位置づけ、設計= .claude/steamvr-driver-plan.md)
+> 注(2026-07-22): 改革で **PlaySpectra の「SteamVR Adapter」**に相当。driver/ に改名済スケルトン実在
+> (`driver/src/driver_playspectra.cpp`)。**VD4(headless 仮想HMD)の目標は Monado Adapter(M2)で既達**のため、VD4 は
+> 実 SteamVR 共存ケースへ縮退。全 VD 群は Windows/SteamVR 実機が要る(本環境不可)。新 Core への再接続も未。
+- **[P1] vd1-driver-skeleton** — driver_playspectra.dll スケルトン(HmdDriverFactory + IServerTrackedDeviceProvider + 仮想コントローラー2本)。SteamVR に認識されるまで。 — src: The Lab 実測 2026-07-17
+- **[P1] vd2-pose-injection** — IPC(NDJSON/TCP :52701) 経由で DriverPose_t 更新 + **共存仮説 H1〜H3 の実測**(plan「実機との共存」節。役割の活動追従/GetRawTrackedDevicePoses 挙動/oculus_touch 偽装は全部未検証仮説 — 実測してから方式を決める)。 — src: 同上 + 2026-07-18
+- **[P1] vd3-button-input** — IVRDriverInput の bool/scalar コンポーネント駆動。The Lab の「スタート」を押せるまで。 — src: 同上
+- **[P3] vd-mirror-mux** — 方式2候補: 実機ミラー+チャンネル単位 inject-wins/real-wins mux。VD2 の H1/H2 実測結果を見てから設計判断。 — src: 2026-07-18
+- **[P1] vd4-virtual-hmd** — 仮想 HMD (TrackedDeviceClass_HMD + IVRDisplayComponent + IPC ポーズ注入)。head override の歪み(コンポジターが実機ポーズでリプロジェクションする不整合)を根本解消し、完全仮想 (headless) モードを実現。vrsettings フラグで実機 Rift と切替。 — src: ユーザー指摘 2026-07-17 (「見え方もおかしいし、うまく操作できないとかありえる」)
+- **[P2] vd5-mcp-routing** — MCP ツール(vr_input/vr_set_controller/vr_set_hmd)を CA 経路(層) と driver 経路(SteamVR) で自動選択。 — src: The Lab 実測 2026-07-17
+- **[P2] vd6-docs-test** — README + 統合テスト + 実測記録。 — src: 同上
+
+## Open — MCP 改善アイデア
+- **[P3] mcp-apps-widget** — MCP Apps (UI ウィジェット) での動画プレイヤー埋め込み。インライン画像リターン(vr_stop_recording サンプルフレーム添付 + vr_view_recording 新設)は別ブランチ `feat/mcp-recording-viewer-widget` で実装済みだが、本ブランチ `feat/mcp-server` には**未マージ**(`mcp/src/tools/recording.ts` は `vr_start_recording`/`vr_stop_recording` のみ、stop の返り値に画像もなし)。マージ後、Claude Code がウィジェット描画に対応したら mp4 プレイヤー化を検討。 — src: ユーザー発案 2026-07-17、事実訂正 2026-07-24(Codex review 指摘・grep で確認)
 
 ## Open — OpenVRマイルストーン (設計= .claude/openvr-milestone-plan.md、M0 は Done)
-- **[P3] setup-curl-fsl** — setup_monado.sh / setup_opencomposite.sh の curl を -fSL に統一(HTTPエラー早期失敗+診断。PE検査バックストップは維持)。 — src: journal 2026-07-16 (M1 review nit)
-- **[P3] setup-hellovr-nits** — setup_hellovr.sh: MSBuild パスの BuildTools ハードコードに preflight 追加(VS Community等で親切に失敗)、部分クローン残留時の [ -d ] 判定の脆さ。 — src: journal 2026-07-16 (M2 review nits)
-- **[P3] openvr-test-graceful-promote** — integration_openvr_test.sh の graceful ゲートを SKIP→FAIL 昇格(PASS 達成可能と実証済みのため退行検知を効かせる)。寸法チェックの scs[1] 追加も同時に。 — src: journal 2026-07-16 (M4 review 観察)
-- **[P2] openvr-real-game-injection** — 実ゲーム(OpenXR or OpenVRレガシー直読み系)での入力注入到達検証。M4 の SKIP 事項(OC の IVRInput マニフェスト・ルーティングは legacy 合成で未到達)。ゲーム選定はユーザー判断。 — src: journal 2026-07-16 (M4/M5)
+- **[P2] openvr-real-game-injection** — 実ゲーム(OpenXR or OpenVRレガシー直読み系)での入力注入到達検証。**2026-07-17 The Lab で部分達成**: OC 経由レイヤー到達・screenshot/head 注入 OK。ボタン注入は SteamVR が conformance_automation 非対応で不可 → vd1〜vd5 (SteamVR 仮想ドライバー) が後継。 — src: journal 2026-07-16 (M4/M5), The Lab 実測 2026-07-17
 
 ## Deferred — behavior-changing (R08→R09→R10→R17 は 2026-07-17 に全消化済み)
 - **[P2] R15 error-json-unify** — エラー応答の api/eye/viewIndex を共通 fail ヘルパー(capture_common)で3バックエンド統一(Vulkan にも追加、D3D11 の10箇所手書きを置換)。エラー文言は不変だが出力が変わるため挙動変更扱い。成功 JSON の sampleCount/msaaResolved 等を統一するかは実施時に1行決める。追記(R08 review nit): capture_d3d11 の EnsureResolveTexture 失敗 JSON に hr 併記も(兄弟エラーは全て hr 付き)。
 > これらは出力が変わるため、ユーザー承認まで自動着手しない。~~この環境で E2E 不可~~ → **2026-07-16 解消**:
 > MSVC 版 hello_xr(third_party/hello_xr_msvc、`HELLO_XR_EXE` で指定)により D3D11/D3D12 の E2E が可能になった。
 
+## Done — PlaySpectra 改革 (2026-07-19〜2026-07-22、h-loop 外で実施につき journal 未記録・現況同期のため後追い記載)
+- **M0.5 内部一括改名** — vr_agent/vragent→playspectra、VR_AGENT_*→PLAYSPECTRA_*、VR-MCP→PlaySpectra。layer/driver/mcp/scripts 追従(layer target=playspectra_layer/playspectra_test)。 → 15cca62(refactor/playspectra-rename-m05)。 — src: architecture §7/§8。**残: .claude/ 配下の追従漏れを 2026-07-22 h-evolve で一掃(rules/agent-memory/backlog の driver_playspectra 等)**
+- **M1 VirtualDeviceState / 通信仕様(rev2)** — STAGE/完全スナップショット/valid・tracked・connected 分離/semantic-path 入力/grip・aim 独立/frame_synchronized(論理ステップ)/エラー分類/request_id・writer 排他。DoD 未達は「ユーザー再レビュー承認」1点のみ。 — src: `.claude/playspectra-device-core-spec.md`
+- **M2 最小 Monado Virtual HMD + 左右 Touch** — 列挙 / pose・入力 / set_state / haptics 逆方向 / 複数 observer / reset を WSL2 で E2E、submodule に実装(親 gitlink 49010dbdf)。 — src: `.claude/playspectra-m2-status.md`
+- **Windows 統一スタック(実GPU)** — Monado(PlaySpectra driver) を Windows ビルド → Server/wait_for/CLI 9/9・record 5/5・frame 10/10・reset 20/20・capture D3D11/D3D12/Vulkan 60/60・実アプリ hello_xr×capture 各20/20・MCP 14/14・coupling 2/2。真因=MSVC の UTF-8/CP932 誤読→/utf-8。 — src: memory [[windows-monado-unified-stack]]、`.claude/playspectra-windows-framework-decision.md`(案A 実行済)
+- **Server / Scenario Runner / Recorder+Replay / MCP(Python)** — 高水準命令+補間+assert+capture-assert+auto-wait(wait_for)+record/replay、FastMCP 13ツール(operate→:52702 / capture→:52700)。 — src: README 実装状況表、`tools/playspectra_*.py`
+- **設計書の git 追跡 + doc 整合** — 正典 architecture 等 .claude/ 設計書5点を git add -f、README/rules の stale 数値・ツール列挙・壊れた参照・旧識別子を是正。 → 526de7d9 / 6f53669d(feat/mcp-server)。 — src: 本セッション 2026-07-22
+
 ## Doing
 
 ## Done
+- **[P3] unit-tests-registry-capture** — HandTopFromBindingPath inline化+EyeToIndex抽出+テスト14件。78/78 PASS。レビュー pass。 → resolved 0728461。 — src: journal 2026-07-17 (L91)
+- **[P3] R20 server-ts-split** — mcp/src/server.ts(815行、21ツール)を client.ts/math.ts/tools/5ファイルに分割。server.ts=19行。tsc green。レビュー needs-fix(コメント欠落)→復元→pass。 → resolved 63609d2。 — src: journal 2026-07-17 (L90)
+- **[P3] R19 layer-state-split** — control_channel の状態ストア5グループを layer_state.{h,cpp} に分離。型5個+API 15個超移動。ClearAllStickyPoses/GetStatus/GetHapticLog 追加。消費者9ファイル追従。レビュー needs-fix(dead include)→修正→pass。 → resolved 9b8efda。 — src: journal 2026-07-17 (L88-L89)
+- **[P3] doc-cleanup-batch** — R21 stale-comments + layer-log-unused-string。コメント是正3ファイル + 未使用 #include 除去。ビルド green + 64/64 PASS。レビュー pass(2 notes non-blocking)。 → resolved 99b991c。 — src: journal 2026-07-17 (L86-L87)
+- **[P3] scripts-nits-batch** — setup-curl-fsl + setup-hellovr-nits + openvr-test-graceful-promote を並列実行。curl -fSL統一/MSBuild edition preflight/graceful FAIL昇格+scs[1]寸法チェック。レビュー pass(findings なし)。 → resolved 1b9aa0e。 — src: journal 2026-07-17 (L84-L85)
+- **[P2] recording-mode** — 連続フレームキャプチャ録画(Layer 周期 PNG + MCP ffmpeg optional)。E2E 20/20。レビュー pass(3 LOW fixes 即時適用)。 → resolved 7416521。 — src: journal 2026-07-17 (L80-L83)
+- **[P2] R13 lodepng-pin** — lodepng GIT_TAG を master→コミットハッシュ ed6fe582 に固定。FetchContent_Populate → MakeAvailable(SOURCE_SUBDIR _none)是正。レビュー pass。 → resolved 5637bf03。 — src: journal 2026-07-17 (L79)
+- **[P2] R11 unit-tests** — pixel_convert 5関数 + xr_math 6関数のテスト50件追加(合計64件)。プロダクションコード変更なし。レビュー pass。 → resolved 45d2d2f。 — src: journal 2026-07-17 (L76-L78)
+- **[P2] R16 dxgi-formats-header** — DxgiIsRGBA8/BGRA8/HDR16F を dxgi_formats.h へ統合、ResolveTypedFormat/FootprintFormat → DxgiResolveTyped に名前統一。レビュー pass(findings なし)。 → resolved 0c14295。 — src: journal 2026-07-17 (L74-L75)
+- **[P2] R12 xr-math-header** — QMul/QConj/QRot/VAdd/VSub + NormalizeQuat を xr_math.h(header-only inline, namespace vr_agent)へ verbatim 集約。dead `<cmath>` 除去。レビュー pass(findings なし)。 → resolved fdbca93。 — src: journal 2026-07-17 (L72-L73)
 - **[P2] R17 d3d11-typeless** — D3D11 guard へ 8bit TYPELESS 2種(同族 UNORM 解釈、D3D12 と規則統一)+ResolveTypedFormat(MSAA resolve の typed 化、R16 統合予定)。両ランタイム非列挙のため E2E は防御 SKIP(実測)。回帰全 green。レビュー needs-fix(冪等マーカー)→修正→pass。R16 依存は解消不要と判明(ローカル写像で成立)。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L70-L71)
 - **[P1] R10 d3d-hdr** — 16F half→sRGB decode を capture_common 共有(DecodeHdrRowsToSrgb+単体テスト)で D3D11/D3D12 へ。JSON は Vulkan 同形・同文言。16bit TYPELESS は明示エラー維持。HDR E2E 18/18×4組合せ・回帰17/17×4・MSAA 18/18×2・単体14/14。レビュー needs-fix(vr_agent_test 依存漏れ)→修正→pass。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L67-L69)
 - **[P1] R09 d3d12-msaa** — D3D12 MSAA を RESOLVE 遷移+RESOLVE_DEST 常在中間キャッシュで対応。hello_xr D3D12 パッチ3点(env override/深度 SampleDesc/PSO SampleDesc)。monado は D3D11 と同型拒否=SKIP。metasim 18/18・回帰17/17×2・レビュー pass(findings なし)。 → resolved(feat コミット、squash済)。 — src: journal 2026-07-17 (L64-L66)

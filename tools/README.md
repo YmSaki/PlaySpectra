@@ -24,6 +24,14 @@ One `Server` connects to both; `--capture-port 52700` enables the capture channe
 | `playspectra_record.py` | **Recorder + Replay** — observer records a state trajectory; writer replays it. |
 | `playspectra_mcp.py` | **MCP server** — exposes the Server as MCP tools so an AI agent can drive/observe (needs `pip install mcp`). |
 | `playspectra_mcp_verify.py` | Drives the MCP server with a real MCP client (end-to-end check). |
+| `playspectra_math_test.py` | **Unit tests** for the Server's pure interpolation math (lerp3/quat_mul/quat_yaw/quat_norm/slerp) — stdlib `unittest`, no socket/host app/pip needed. |
+| `playspectra_frame_test.py` | E2E test for `frame_synchronized` conflict resolution (apply/idempotent/conflict) against a live control channel. |
+| `playspectra_multiobs_test.py` | E2E test for multiple simultaneous observer connections on the control channel. |
+| `playspectra_reset_test.py` | E2E test for `reset` restoring head/controller state to the builder-initial values. |
+| `playspectra_waitfor_test.py` | Deterministic, in-environment test for `wait_for` / retrying `assert` (mocks the `:52702` protocol — no Monado/GPU needed). |
+| `playspectra_capture_assert_test.py` | Deterministic, in-environment test for `assert_capture`'s retry path (mocks both `:52702` and `:52700` — no layer/GPU needed). |
+| `playspectra_coupling_probe.py` | Runtime-level probe: confirms an injected `set_state` actually reaches a live app's `xrLocateViews` (needs a live stack — see `scripts/run_hello_xr_monado.sh`). |
+| `playspectra_action_probe.c` / `playspectra_headless_probe.c` | C probes used as the OpenXR host for the E2E tests above (device enumeration / action-reach checks). |
 | `scenarios/*.json` | Sample scenarios (walk_and_look, assert_demo, capture_assert_demo, controller_ops, big_view_change). |
 | `requirements.txt` | Python deps (only the MCP pieces need `mcp`; the rest are stdlib-only). |
 

@@ -89,7 +89,7 @@ runtime/
 layer/                    OpenXR API Layer（Instrumentation 軸・C++/CMake）
   src/                      フック・制御チャネル(:52700)・状態ストア・キャプチャ
                             （capture_{vulkan,d3d11,d3d12}.cpp。D3D は WIN32 条件、Vulkan は Linux 可）
-  tests/                    ユニットテスト（gtest、78件）
+  tests/                    ユニットテスト（gtest、92件 Windows / 83件 非Windows。DXGI判定9件はWIN32限定）
 mcp/                      レガシー TypeScript MCP（layer :52700 直結・改革前）
 driver/                   改革前 SteamVR 仮想ドライバースケルトン（未追跡・SteamVR Adapter の素材）
 scripts/                  セットアップ・E2E ハーネス（e2e_playwright_loop.sh 等）
@@ -194,6 +194,23 @@ scripts/e2e_playwright_loop.sh
 
 ## テスト
 
+### 統合ユニットテストゲート（1コマンド・環境非依存）
+
+```bash
+bash scripts/run_all_tests.sh   # mcp 42 + layer 92(Win)/83(非Win) + tools(python) 33 + submodule proto 43 = 210件(Win)/201件(非Win)
+```
+
+依存(python/gcc/submodule)が揃っている前提の件数。**欠けているツールチェーンがあればそのスイートだけ明示 SKIP
+され、最終行に SKIP数とスイート名が出る**（`ALL GREEN` と `GREEN WITH SKIPS` を区別。rc は FAIL のみで決まり
+SKIP では非ゼロにならない）ので、SKIPが起きてもログを見れば気づける。
+
+hosted CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)、mcp-tests=ubuntu / layer-tests=windows-latest）は
+push 済みだが **private repo の課金ブロックで現在休眠中**（run 29966605494 は両ジョブとも起動失敗。課金解消 or
+public化まで hosted CI の green は未証明）。`run_all_tests.sh` が「1コマンドで全部回して赤なら失敗」という CI の
+役割をローカル・課金ゼロで代替する（ただしクリーンな独立環境の担保＝複数OS再現性までは代替しない）。
+
+### 個別スイート
+
 ```bash
 # 制御チャネル E2E（Monado Adapter）
 python3 tools/playspectra_multiobs_test.py      # 複数 observer 11/11
@@ -210,7 +227,8 @@ scripts/integration_test.sh [Vulkan|D3D11|D3D12]           # hello_xr + Meta XR 
 PLAYSPECTRA_DISABLE_CA=1 scripts/integration_test.sh Vulkan # 非 CA フォールバック経路
 VR_RUNTIME=monado scripts/integration_test.sh Vulkan       # ランタイム切替
 scripts/integration_openvr_test.sh                         # OpenVR（OpenComposite + Monado）
-./layer/build/playspectra_test.exe                         # ユニットテスト 78件
+ctest --test-dir layer/build -E loader_test                # ユニットテスト 92件（Windows）/ 83件（非Windows）
+#   ※ 直接バイナリを叩く場合は拡張子が OS で違う: Windows=playspectra_test.exe / 非Windows=playspectra_test
 ```
 
 ## 検証環境

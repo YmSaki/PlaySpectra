@@ -1,6 +1,8 @@
 #ifndef PLAYSPECTRA_DXGI_FORMATS_H
 #define PLAYSPECTRA_DXGI_FORMATS_H
 
+#include <cstdint>  // int64_t (self-contained: consumers must not have to include this first)
+
 #include <dxgiformat.h>
 
 // 8-bit-per-channel RGBA-order formats (channel bytes already in R,G,B,A order in memory).

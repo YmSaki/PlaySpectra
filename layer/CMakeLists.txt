@@ -144,6 +144,11 @@ if(PLAYSPECTRA_BUILD_TESTS)
     src/pose_animator.cpp
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )
+  # DXGI format helpers need dxgiformat.h (Windows-only). Matches the layer's per-platform D3D guard:
+  # a non-Windows runtime only ever hands a Vulkan binding, so there is no DXGI classification there.
+  if(WIN32)
+    target_sources(playspectra_test PRIVATE tests/test_dxgi_formats.cpp)
+  endif()
 
   target_include_directories(playspectra_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

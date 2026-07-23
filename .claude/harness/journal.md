@@ -491,3 +491,44 @@ scripts=playspectra_openvr_/playspectra_integration、capture.cpp の vr_capture
 review-checklist.md lens 3(gitignore/grep false-0 注意)、review-env-sandbox-quirks memory
 (Read tool の捏造/stale 内容)、CLAUDE.md「リポジトリ運用の注意(.claude/ の git 追跡)」節。
 = h-evolve 4回目 完了(P1〜P4 全適用・二重蒸留防止マーク済み)。
+
+## 2026-07-22 — 文書claim の実走再検証 (このセッション・Windows 実GPU)
+
+「検証済み/未検証を混ぜない」規律の最深部として、文書の ✅ を**この Windows マシンで実走**して独立再現した
+(doc-trust → verified-here-now)。すべて claim と一致:
+- **自己完結(ハードウェア/ライブMonado/pip 不要)**: gtest `layer/build/playspectra_test.exe` **78/78** /
+  `waitfor_test.py`(MockAdapter) **9/9** / `capture_assert_test.py`(Mock×2) **7/7**。
+- **ライブ Monado(build-win の monado-service.exe/monado-cli.exe・:52702・null compositor)**:
+  probe=XRT_SUCCESS(HMD+L/R 3デバイス) / `server --verify` **9/9** / `record --verify` **5/5** /
+  frame_test **10/10** / reset_test **20/20** / multiobs **中核8/8**(haptics broadcast 3件は host app 前提で
+  期待どおり FAIL=回帰でない)。各制御セマンティクステストは fresh service で実行(writer切断の状態保持による順序汚染回避)。
+- 未実行(環境依存): 実アプリE2E(run_hello_xr_monado.sh)は openxr_monado-dev.json 未生成(build-win に openxr_monado
+  ターゲット未ビルド)+hello_xr 要 / mcp_verify は要 venv+mcp。回帰でなく未ビルド/未セットアップ。
+- サービスは1呼び出し内でライフサイクルを閉じ taskkill で後片付け(ゾンビ0を tasklist で確認)。
+
+## 2026-07-23 — h-evolve 実行記録 (5回目) + テストカバレッジ/CI 着手 (このセッション・h-loop 外)
+
+**このセッションの作業** (ユーザー主導・h-loop 外なので metrics 未記録):
+- **A(driver/scripts 整理コミット)**: .gitignore の素パターン整理(/build/・driver/build/・bin/ に錨、素の
+  build/.claude/harness 除去) + .gitattributes/.mcp.json/.vscode 追跡 (cbeb7e9d4)。SteamVR driver スケルトン
+  driver_playspectra (vd1/vd2 土台・未ビルド/未検証・SteamVR実機不在) + 入力プロファイル2点 (1e3466320/9a35e9be9)。
+  VRDevApp 検証ハーネス scripts/run_vrdevapp.sh+vrdevapp_client.mjs (70b4cd201)。
+- **テストカバレッジ item 1**: mcp/src/math.ts の node:test 42件 (5f2e00209)。node:test+tsx 採用・tsconfig で
+  *.test.ts を build 除外。ローカル 42/42。
+- **item 6 CI**: .github/workflows/ci.yml (mcp=ubuntu/layer=windows) + layer に /utf-8 (2026e1d7a)。push → CI は
+  **課金ブロックで起動せず** (run 29966605494・private repo)。→ ローカル代替 scripts/run_all_tests.sh 120テスト green (c7218ca7f)。
+
+**蒸留 (h-evolve 5回目・ユーザー承認 P1/P2/P3、P4見送り)**:
+- P1 → auto-memory `ci-and-test-gate` 新規: 課金ブロック現況 + ローカルゲート + mcp テスト規約。 → processed
+- P2 → `.claude/rules/build-cmake.md` 新規(paths: **/CMakeLists.txt): 新規MSVCターゲットは /utf-8 必須(2回発生:
+  Monado cdd429f88 / layer 2026e1d7a)。配置は既存rule(scripts/**・layer/src/**)が CMakeLists 編集で発火しない
+  ため専用rule=global最適と判断(ユーザーが global最適を条件に承認)。 → processed
+- P3 → review-checklist.md lens 8 追記: git status/.gitignore の可視性を明示コマンドで確認(素パターン全階層マッチ・
+  未追跡ツリー畳み込み)。出典 cbeb7e9d4 / 9a35e9be9(resources/ 露出 near-miss)。 → processed
+- P4(purpose-first の feedback memory)は**見送り**: 根拠が本セッション1回の指摘のみで状況固有、恒久規則化は早計
+  (メタ認知点検で自己格下げ→ユーザーも見送り承認)。
+- 記録のみ(非蒸留): loader_test/`-E loader_test` の保険は未検証前提(fresh build 拒否で fresh configure の
+  BUILD_TESTING=OFF シード挙動を未確認)→ commit/コメントに明記済み・fresh CI/ビルドが走ったら再評価。
+
+**metrics 所見**: 29ループ不変(平均 rejections ~0.31・plateau 0・新規ループなし = 本セッションは h-loop 外)
+→ review 健全・ドリフト提案なし。

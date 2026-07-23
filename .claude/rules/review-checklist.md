@@ -53,3 +53,14 @@ h-review が h-reviewer への委譲時に渡す。各レンズは実際に起�
    — 出典: journal 2026-07-18 (同一セッション3回再発: H1役割割当を仕様書に「決定」と記載 / README で
    Monado CA を実測と真逆に記載+開発中設計を実装済みと混在 / VD2 で H3 偽装を検証装置と明示せず実装。
    ユーザー指摘2回 → CLAUDE.md「検証済みと未検証を混ぜない」節新設)
+
+8. **git status / .gitignore の可視性を額面どおり信じない — 未追跡ツリーと ignore 範囲は明示コマンドで確かめる。**
+   (a) 素のディレクトリ名 ignore パターン(`build`/`bin` 等)は**全階層マッチ**で想定外の dir を無音で隠す。
+   最上位限定は `/build/` と錨を打ち、ignore 範囲は `git check-ignore -v <path>` / `git status --ignored` で確認する。
+   (b) git は**未追跡のディレクトリツリーを1エントリに畳む**ため、その下の入れ子 source は ignore 済みサブdir の
+   陰に隠れる。新規ツリー追加時は `git add -n <dir>` / `git ls-files --others <dir>` で全数列挙し、**最初のコミット
+   後にもう一度 git status を見る**(親を追跡した瞬間に隠れていた入れ子が露出する)。レンズ3が「grep の false-0
+   (gitignore スキップ)」を見るのに対し、これは「git 自身の status/ignore 表示の死角」を見る。
+   — 出典: 2026-07-23 (cbeb7e9d4: 素の `build` が最上位 build/ [Monado+proto test] を隠蔽、除去して初めて露出 /
+   9a35e9be9: driver 入力プロファイル driver/playspectra/resources/ が親 driver コミット後に露出 = 危うく
+   スケルトンを入力プロファイル欠落のまま出荷する near-miss)

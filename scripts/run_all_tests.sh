@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Run every environment-independent unit test with one command and exit non-zero if any fail:
-#   - mcp/   node:test suite  (pure quaternion/vector math)      -> 42 cases
-#   - layer/ gtest via ctest  (capture_common/pixel_convert/pose_animator + header-only units) -> 78 cases
+#   - mcp/     node:test   (pure quaternion/vector math)                            -> 42 cases
+#   - layer/   gtest/ctest (capture/pixel/pose helpers + xr_math/dxgi/pose_override) -> 92 Win / 83 non-Win (DXGI is WIN32-only)
+#   - tools/   unittest    (Scenario Runner interpolation math in playspectra_server) -> 17 cases
+#   - submodule playspectra_proto (gcc standalone: frame verdict + content_sig)       -> 43 cases
 #
 # WHY: GitHub Actions (.github/workflows/ci.yml) is billing-blocked on this private repo, so nothing
 # auto-runs these. This script is the local stand-in -- it recovers CI's "one command runs everything"
@@ -39,6 +41,33 @@ if [ -f "$BUILD/CMakeCache.txt" ]; then
   # -E loader_test: the fetched OpenXR SDK's own test is not ours to run (mirrors ci.yml). The
   # BUILD_TESTING=OFF seed in layer/CMakeLists.txt is the primary guard; this is belt-and-suspenders.
   ctest --test-dir "$BUILD" -E loader_test --output-on-failure || { echo ">> layer tests FAILED"; fail=1; }
+fi
+
+echo ""
+echo "== tools: PlaySpectra framework math (unittest) =="
+if command -v python >/dev/null 2>&1; then
+  python tools/playspectra_math_test.py || { echo ">> framework math tests FAILED"; fail=1; }
+elif command -v python3 >/dev/null 2>&1; then
+  python3 tools/playspectra_math_test.py || { echo ">> framework math tests FAILED"; fail=1; }
+else
+  echo "  (python not found -- skipped)"
+fi
+
+echo ""
+echo "== submodule: playspectra_proto (gcc standalone) =="
+PROTO="runtime/monado-playspectra/src/xrt/drivers/playspectra"
+if command -v gcc >/dev/null 2>&1 && [ -f "$PROTO/playspectra_proto_test.c" ]; then
+  mkdir -p build
+  # No Monado deps: proto parse/verdict/content_sig test compiles from proto.c + bundled cJSON only.
+  if gcc -I runtime/monado-playspectra/src/external/cjson -I "$PROTO" \
+         "$PROTO/playspectra_proto_test.c" "$PROTO/playspectra_proto.c" \
+         runtime/monado-playspectra/src/external/cjson/cjson/cJSON.c -o build/proto_test.exe; then
+    ./build/proto_test.exe || { echo ">> proto tests FAILED"; fail=1; }
+  else
+    echo ">> proto build FAILED"; fail=1
+  fi
+else
+  echo "  (gcc or submodule source not found -- skipped)"
 fi
 
 echo ""

@@ -20,16 +20,32 @@ Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/pla
 > 注(2026-07-22): 改革で **PlaySpectra の「SteamVR Adapter」**に相当。driver/ に改名済スケルトン実在
 > (`driver/src/driver_playspectra.cpp`)。**VD4(headless 仮想HMD)の目標は Monado Adapter(M2)で既達**のため、VD4 は
 > 実 SteamVR 共存ケースへ縮退。全 VD 群は Windows/SteamVR 実機が要る(本環境不可)。新 Core への再接続も未。
+> 追記(2026-07-24・ユーザー相談): **MCP/Server 側の実装は不要と判明**——Server は VirtualDeviceState の
+> NDJSON プロトコルを喋る Adapter に繋ぐだけの薄いクライアント(architecture.md §2)なので、SteamVR Adapter
+> が Monado Adapter(:52702)と**同一プロトコル**を実装しさえすれば接続先ポートが変わるだけで無改修対応する。
+> 下記 vd5-mcp-routing はこの分離を知らない改革前(2026-07-17)設計の名残と判明したため撤回し、要件を
+> vd2-pose-injection に統合した。Monado=headless/CIレーン・SteamVR=実ゲームレーンの**並存**が設計意図で、
+> どちらかを「デフォルト」に選ぶ話ではない(architecture.md §2 図に明記済み)。詳細: memory
+> [[mcp-adapter-migration-decision]]。
 - **[P1] vd1-driver-skeleton** — driver_playspectra.dll スケルトン(HmdDriverFactory + IServerTrackedDeviceProvider + 仮想コントローラー2本)。SteamVR に認識されるまで。 — src: The Lab 実測 2026-07-17
-- **[P1] vd2-pose-injection** — IPC(NDJSON/TCP :52701) 経由で DriverPose_t 更新 + **共存仮説 H1〜H3 の実測**(plan「実機との共存」節。役割の活動追従/GetRawTrackedDevicePoses 挙動/oculus_touch 偽装は全部未検証仮説 — 実測してから方式を決める)。 — src: 同上 + 2026-07-18
+- **[P1] vd2-pose-injection** — IPC(NDJSON/TCP :52701) 経由で DriverPose_t 更新 + **共存仮説 H1〜H3 の実測**(plan「実機との共存」節。役割の活動追従/GetRawTrackedDevicePoses 挙動/oculus_touch 偽装は全部未検証仮説 — 実測してから方式を決める)。**Monado Adapter(:52702)と同一の VirtualDeviceState/NDJSON プロトコルで実装し、Server/MCP を無改修で両対応させる**(2026-07-24、下記vd5撤回に伴い要件明記)。 — src: 同上 + 2026-07-18、2026-07-24
 - **[P1] vd3-button-input** — IVRDriverInput の bool/scalar コンポーネント駆動。The Lab の「スタート」を押せるまで。 — src: 同上
 - **[P3] vd-mirror-mux** — 方式2候補: 実機ミラー+チャンネル単位 inject-wins/real-wins mux。VD2 の H1/H2 実測結果を見てから設計判断。 — src: 2026-07-18
 - **[P1] vd4-virtual-hmd** — 仮想 HMD (TrackedDeviceClass_HMD + IVRDisplayComponent + IPC ポーズ注入)。head override の歪み(コンポジターが実機ポーズでリプロジェクションする不整合)を根本解消し、完全仮想 (headless) モードを実現。vrsettings フラグで実機 Rift と切替。 — src: ユーザー指摘 2026-07-17 (「見え方もおかしいし、うまく操作できないとかありえる」)
-- **[P2] vd5-mcp-routing** — MCP ツール(vr_input/vr_set_controller/vr_set_hmd)を CA 経路(層) と driver 経路(SteamVR) で自動選択。 — src: The Lab 実測 2026-07-17
+- ~~vd5-mcp-routing~~ — **撤回(2026-07-24)**。旧文言「MCPツール(vr_input/vr_set_controller/vr_set_hmd)をCA経路(層)とdriver経路(SteamVR)で自動選択」は改革後のServer/Adapter分離を前提しない設計。上記の追記のとおりMCP側の分岐は不要と判明したため削除、要件はvd2-pose-injectionへ吸収。 — src: The Lab実測2026-07-17、撤回2026-07-24
 - **[P2] vd6-docs-test** — README + 統合テスト + 実測記録。 — src: 同上
 
-## Open — MCP 改善アイデア
-- **[P3] mcp-apps-widget** — MCP Apps (UI ウィジェット) での動画プレイヤー埋め込み。インライン画像リターン(vr_stop_recording サンプルフレーム添付 + vr_view_recording 新設)は別ブランチ `feat/mcp-recording-viewer-widget` で実装済みだが、本ブランチ `feat/mcp-server` には**未マージ**(`mcp/src/tools/recording.ts` は `vr_start_recording`/`vr_stop_recording` のみ、stop の返り値に画像もなし)。マージ後、Claude Code がウィジェット描画に対応したら mp4 プレイヤー化を検討。 — src: ユーザー発案 2026-07-17、事実訂正 2026-07-24(Codex review 指摘・grep で確認)
+## Open — MCP 移行 (legacy TS 版の扱い、2026-07-24 方針決定)
+- **[P2] mcp-ts-retire** — `mcp/`(TypeScript、`mcp/src/client.ts` が今も `:52700` Layer 直結・改革前設計のまま)を
+  **廃止方向で確定**。現行の実働は `tools/playspectra_mcp.py`(Server/Adapter 越し、Windows 実機で MCP 全ツール
+  14/14)。`mcp/` 側は分岐点 `24b88fbe` 以降、実質的な機能追加が止まっている(recording.ts も含め検証済み)。
+  手順: (1) 未マージの `feat/mcp-recording-viewer-widget`(録画ビューアwidget、1コミット `7782fa062`、
+  `24b88fbe` から分岐)は**この `mcp/` へマージしない**——廃止予定の設計へ機能を足すだけになるため。
+  (2) ウィジェットのアイデアを `tools/playspectra_mcp.py` 側へ移植。(3) 移植後 `mcp/` を削除(または明示
+  アーカイブ)し、`feat/mcp-recording-viewer-widget` ブランチも役目を終える。README「MCP サーバー
+  （レガシー・TypeScript）」行もこの決定に合わせて更新済み(2026-07-24)。 — src: ユーザー方針確認 2026-07-24、
+  詳細 memory [[mcp-adapter-migration-decision]]
+- **[P3] mcp-apps-widget** — MCP Apps (UI ウィジェット) での動画プレイヤー埋め込み。インライン画像リターン(vr_stop_recording サンプルフレーム添付 + vr_view_recording 新設)は別ブランチ `feat/mcp-recording-viewer-widget` で実装済みだが、本ブランチ `feat/mcp-server` には**未マージ**(`mcp/src/tools/recording.ts` は `vr_start_recording`/`vr_stop_recording` のみ、stop の返り値に画像もなし)。**上記 mcp-ts-retire の決定により、このまま `mcp/` へマージするのではなく Python 版へ移植する方針(2026-07-24)**。Claude Code がウィジェット描画に対応したら mp4 プレイヤー化を検討。 — src: ユーザー発案 2026-07-17、事実訂正+方針確定 2026-07-24
 
 ## Open — OpenVRマイルストーン (設計= .claude/openvr-milestone-plan.md、M0 は Done)
 - **[P2] openvr-real-game-injection** — 実ゲーム(OpenXR or OpenVRレガシー直読み系)での入力注入到達検証。**2026-07-17 The Lab で部分達成**: OC 経由レイヤー到達・screenshot/head 注入 OK。ボタン注入は SteamVR が conformance_automation 非対応で不可 → vd1〜vd5 (SteamVR 仮想ドライバー) が後継。 — src: journal 2026-07-16 (M4/M5), The Lab 実測 2026-07-17

@@ -64,7 +64,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **end-to-end Playwright ループ**（操作シナリオ→再描画→視覚回帰） | ✅ **Windows・実GPU**: server.py が `capture_assert_demo` シナリオを実行 operate(:52702)→観測(:52700)→視覚 assert（no-op stable / head 移動で changed）3/3。＋ WSL2 で 2/2 | `scripts/run_scenario_e2e_monado.sh`（Windows）、`scripts/e2e_playwright_loop.sh`（WSL2）、`tools/scenarios/{capture_assert_demo,big_view_change}.json` |
 | **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → **D3D11 / D3D12 / Vulkan の全3API** で実描画 → capture レイヤー(:52700) が非退化観測。各 20/20 | `scripts/run_hello_xr_monado.sh [D3D11\|D3D12\|Vulkan\|all]`（各 20/20＋coupling 2/2、`all` で3API一括回帰、2026-07-22） |
 | **operate 到達（runtime レベル）** | ✅ layer override ではなく **:52702 で Monado 仮想 HMD を駆動 → 実アプリの xrLocateViews が追従**（override クリア状態で dz=−2.5 を 1:1 反映、x/y 不変）。「注入のアプリ到達」を runtime 経路で実証。2/2 | `tools/playspectra_coupling_probe.py`（`run_hello_xr_monado.sh` のゲート、2026-07-22） |
-| MCP サーバー（レガシー・TypeScript） | 🟡 改革前の設計（layer :52700 直結）。現行 Python 版に併存。今後の扱いは未決 | `mcp/src/` |
+| MCP サーバー（レガシー・TypeScript） | 📋 **廃止方向で決定（2026-07-24）**。改革前の設計（layer :52700 直結）のまま分岐点以降実質更新なし。録画ビューアwidget（未マージ）のアイデアを現行 Python 版へ移植後に削除予定 | `mcp/src/`、backlog `mcp-ts-retire` |
 | VRDevApp（実 Godot アプリ・Windows） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転） | `scripts/run_vrdevapp.sh`（未追跡）、memory `vrdevapp-test-target` |
 | OpenVR アプリ | 🟡 OpenComposite（OpenVR→OpenXR 変換）経由で観察・姿勢注入（統合テスト 15 PASS / 1 SKIP）。openvr **v1.8.19** 世代でビルド | `scripts/integration_openvr_test.sh` |
 | **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/`（未追跡）に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |

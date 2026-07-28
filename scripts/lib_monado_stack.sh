@@ -6,6 +6,9 @@
 #                                 # sets SVC_PID/APP_PID and MSTACK_SVCLOG/MSTACK_APPLOG; returns 0 iff :52700 up
 #   ... run your client against :52702 (operate) / :52700 (observe) ...
 #   mstack_down                   # taskkill + kill the stack
+# When the harness must launch the app itself (e.g. it speaks the app's stdin/stdout contract), use the
+# service half on its own instead:
+#   mstack_service_up / mstack_service_down    # monado-service only; mstack_up is built on these
 # GFX: D3D11 | D3D12 | Vulkan. The hello_xr binary is auto-picked: MSVC build for D3D (Vulkan-less),
 # the layer-bundled MinGW build for Vulkan. XR_RUNTIME_JSON points THIS process at Monado per-process
 # (system ActiveRuntime untouched); XRT_COMPOSITOR_NULL=1 (headless); IPC_IGNORE_VERSION=1 tolerates a
@@ -41,15 +44,16 @@ mstack_env() {  # $1=GFX
   export PLAYSPECTRA_MONADO_PORT=52702 PLAYSPECTRA_PORT=52700
 }
 
-mstack_up() {  # $1=GFX $2=SECS -> service + app; sets SVC_PID/APP_PID; returns 0 iff layer :52700 up
-  local GFX="$1" SECS="$2" HELLO f i LUP=0
-  HELLO="$(mstack_hello_bin "$GFX")"
-  for f in "$MSTACK_SVC" "$HELLO" "$MSTACK_MANIFEST"; do
+mstack_service_up() {  # -> starts monado-service alone; sets SVC_PID/MSTACK_SVCLOG; 0 iff :52702 up
+  # Split out of mstack_up because not every harness wants us to launch the app: a harness that speaks
+  # the app's stdin/stdout contract (run_vrapp_monado.sh) must own the app process itself.
+  local f i
+  for f in "$MSTACK_SVC" "$MSTACK_MANIFEST"; do
     [ -f "$f" ] || { echo "MISSING $f"; return 3; }
   done
-  MSTACK_SVCLOG="$(mktemp -t msvc.XXXXXX.log)"; MSTACK_APPLOG="$(mktemp -t hx.XXXXXX.log)"
-  echo "service log: $MSTACK_SVCLOG   app log: $MSTACK_APPLOG"
-  taskkill //F //IM monado-service.exe 2>/dev/null; taskkill //F //IM hello_xr.exe 2>/dev/null
+  MSTACK_SVCLOG="${MSTACK_SVCLOG:-$(mktemp -t msvc.XXXXXX.log)}"
+  echo "service log: $MSTACK_SVCLOG"
+  taskkill //F //IM monado-service.exe 2>/dev/null
   # taskkill //F is async: wait for a prior run's ports to actually free before we bind, else the
   # readiness check latches onto the DYING process (this flaked back-to-back 'all' runs).
   for i in $(seq 1 20); do
@@ -60,6 +64,22 @@ mstack_up() {  # $1=GFX $2=SECS -> service + app; sets SVC_PID/APP_PID; returns 
   "$MSTACK_SVC" > "$MSTACK_SVCLOG" 2>&1 & SVC_PID=$!
   for i in $(seq 1 40); do mstack_listen 52702 && break; kill -0 "$SVC_PID" 2>/dev/null || break; sleep 0.5; done
   mstack_listen 52702 || { echo "service down"; tail -15 "$MSTACK_SVCLOG"; taskkill //F //IM monado-service.exe 2>/dev/null; return 4; }
+  return 0
+}
+
+mstack_service_down() {
+  taskkill //F //IM monado-service.exe 2>/dev/null
+  kill "${SVC_PID:-}" 2>/dev/null
+}
+
+mstack_up() {  # $1=GFX $2=SECS -> service + app; sets SVC_PID/APP_PID; returns 0 iff layer :52700 up
+  local GFX="$1" SECS="$2" HELLO i LUP=0
+  HELLO="$(mstack_hello_bin "$GFX")"
+  [ -f "$HELLO" ] || { echo "MISSING $HELLO"; return 3; }
+  MSTACK_APPLOG="$(mktemp -t hx.XXXXXX.log)"
+  taskkill //F //IM hello_xr.exe 2>/dev/null
+  mstack_service_up || return $?
+  echo "app log: $MSTACK_APPLOG"
   # hello_xr quits on stdin EOF; hold it open with a sleep pipe. The watchdog is a backstop for a hung
   # test only (must outlast the assertions); normal teardown kills the app the instant the test returns.
   sleep "$((SECS + 10))" | "$HELLO" -g "$GFX" > "$MSTACK_APPLOG" 2>&1 & APP_PID=$!
@@ -74,6 +94,7 @@ mstack_up() {  # $1=GFX $2=SECS -> service + app; sets SVC_PID/APP_PID; returns 
 }
 
 mstack_down() {
-  taskkill //F //IM hello_xr.exe 2>/dev/null; taskkill //F //IM monado-service.exe 2>/dev/null
-  kill "${APP_PID:-}" "${SVC_PID:-}" 2>/dev/null
+  taskkill //F //IM hello_xr.exe 2>/dev/null
+  kill "${APP_PID:-}" 2>/dev/null
+  mstack_service_down
 }

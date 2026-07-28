@@ -532,3 +532,38 @@ review-checklist.md lens 3(gitignore/grep false-0 注意)、review-env-sandbox-q
 
 **metrics 所見**: 29ループ不変(平均 rejections ~0.31・plateau 0・新規ループなし = 本セッションは h-loop 外)
 → review 健全・ドリフト提案なし。
+
+## 2026-07-24 — テストカバレッジ仕上げ + Codex外部レビュー導入 + MCP/SteamVR設計決定 (このセッション・h-loop外)
+
+**このセッションの作業**(ユーザー主導・会話型、h-loop外なので metrics 未記録):
+- **テストカバレッジ仕上げ**: mcp/src/math.ts 42件(既存)に加え、layer の DXGI フォーマット判定9件(+`dxgi_formats.h`
+  の非自己完結ヘッダ実バグを発見・修正)、pose_override純粋3関数(header-only inline抽出)+テスト5件、
+  tools/playspectra_math_test.py 17件、submodule proto の frame_synchronized/content_sig を33→43件へ拡充。
+  `scripts/run_all_tests.sh` へ python(math+wait_for+capture_assert)/proto を配線し統合ゲート**194→210件(Win)**へ。
+  コミット 852e75f4d/1929ed6f4/c04cf137b/a1a089643/4f8aa3bd1。
+- **Codex 外部レビュー導入**(`/codex:review`、初回利用): 上記テスト拡充+README/tools READMEのdoc整合コミット
+  (83ff46741 の前身)に対し、ユーザー主導で Codex(別モデル)にレビューさせた。3件検出、全て修正:
+  (1) `run_all_tests.sh` が python/gcc/submodule欠如時にSKIPを無言で`ALL GREEN`へ含めていた(レンズ6違反の再発、
+  h-loop外でh-reviewer委譲が無かったため機械チェックを素通り)、(2) backlog `mcp-apps-widget` が録画ビューア
+  widgetを「実装済み」と記載していたが実装は別ブランチ`feat/mcp-recording-viewer-widget`のみに存在し本ブランチ
+  `feat/mcp-server`には無かった(git log で `mcp/src/client.ts` が分岐点`24b88fbe`以降無改修と確定)、(3) READMEの
+  非Windows向けテストコマンドがWindows専用`.exe`パスのままだった。→ 修正+SKIP明示計上(ALL GREEN/GREEN WITH SKIPS
+  の区別)をコミット83ff46741で出荷。
+- **MCP/SteamVR Adapter 設計決定**(ユーザーとの設計相談): (a) SteamVR Adapter対応にMCP/Server側の分岐は不要と判明
+  (Server は VirtualDeviceState/NDJSONを喋るAdapterに繋ぐだけの薄いクライアント設計のため)、旧backlog
+  vd5-mcp-routingは改革前設計の名残と判明し撤回。(b) legacy TS `mcp/` は廃止方向で確定(分岐点以降実質更新なし
+  と実測)、録画ビューアwidgetはPython版`tools/playspectra_mcp.py`へ移植する方針。backlog/README/memory
+  (`mcp-adapter-migration-decision`)へ反映、コミット7e240a5a3。
+
+**Learnings**:
+- **レンズ6の再発が示したもの**: review-checklist.md のレンズは h-reviewer への委譲時にのみ強制的に効く。
+  h-loop外の会話型セッションでは、既存レンズに反するコードを書いても機械チェックが自動的には走らない
+  ——今回はユーザーが `/codex:review` を明示的に起動したことで初めて検出された。恒久ルール化は時期尚早
+  (単発の観察)だが、今後同種の再発が続くならルール化を検討する。
+- **レンズ7の変種(ブランチ跨ぎ)**: 「実装済み」という主張はブランチ限定である。あるブランチで実装された
+  機能を別ブランチの記述に書くと、コミット時点では意図が正しくても、ブランチが分岐すればその主張は
+  そのブランチについて偽になる。git log(最終変更コミット・分岐点)で裏取りしてから書く。
+
+**→ processed (h-evolve 2026-07-24)**: レンズ6の出典行に本セッションの再発例を追記、レンズ7に
+ブランチ跨ぎ「実装済み」節を新設。h-loop外の自動チェック欠如は根拠1件のため見送り(次回再発時に再検討)。
+metrics: 新規h-loopタスクなし(29ループ不変)→ ドリフト提案なし。agent-memory: 変更なし(h-reviewer委譲なし)。

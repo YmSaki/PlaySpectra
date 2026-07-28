@@ -41,7 +41,10 @@ h-review が h-reviewer への委譲時に渡す。各レンズは実際に起�
 6. **テストが検証できない項目は明示 SKIP(理由出力+サマリ計上)。無言の素通しも、rc への混入も不可。**
    rc は FAIL のみで決める。SKIP が PASS に化ける経路がないかをレビューで確認する。
    逆に、一度 PASS が実証された SKIP 許容項目は FAIL 昇格を検討する(退行検知を殺さない)。
-   — 出典: journal L58 (M4, 注入到達を明示SKIP), M4 review 観察 (graceful ゲートが FAIL になり得ない設計への指摘)
+   — 出典: journal L58 (M4, 注入到達を明示SKIP), M4 review 観察 (graceful ゲートが FAIL になり得ない設計への指摘)、
+   2026-07-24 (h-loop外: scripts/run_all_tests.sh の初版が python/gcc/submodule 欠如時の SKIP を無言で
+   `ALL GREEN` に含めていた。h-reviewer 委譲が無く機械チェックを素通り、ユーザーの `/codex:review` で検出。
+   SKIP 明示計上 = `ALL GREEN`/`GREEN WITH SKIPS` の区別へ修正)
 
 7. **文書・仕様・README 中の技術主張は「リポジトリ内の実測ログ/一次ソースを指せるか」で仕分ける。**
    指せない主張は学習知識由来の仮説であり、仮説ラベル+検証方法なしで事実の顔をして書かれていたら
@@ -53,6 +56,14 @@ h-review が h-reviewer への委譲時に渡す。各レンズは実際に起�
    — 出典: journal 2026-07-18 (同一セッション3回再発: H1役割割当を仕様書に「決定」と記載 / README で
    Monado CA を実測と真逆に記載+開発中設計を実装済みと混在 / VD2 で H3 偽装を検証装置と明示せず実装。
    ユーザー指摘2回 → CLAUDE.md「検証済みと未検証を混ぜない」節新設)
+
+   **変種(ブランチ跨ぎ)**: backlog/status 文書の「実装済み」はブランチ限定の主張である。ある機能が別ブランチ
+   で実装されていても、それを今のブランチの記述にそのまま書かない——コミット時点では真でも、ブランチが
+   分岐すれば今のブランチにはその実装が存在しない(挙動が変わっていなくても主張が偽になる)。ブランチを
+   またぐ言及は明示的にブランチ名を書き、`git log`(最終変更コミット・分岐点)で裏取りしてから書く。
+   — 出典: 2026-07-24 (backlog `mcp-apps-widget` が「vr_view_recording新設…実装済み」と記載していたが、
+   実装は別ブランチ `feat/mcp-recording-viewer-widget` のみに存在し本ブランチ `feat/mcp-server` には無かった
+   〈`mcp/src/tools/recording.ts` は `vr_start_recording`/`vr_stop_recording` のみ〉。Codex review が指摘)
 
 8. **git status / .gitignore の可視性を額面どおり信じない — 未追跡ツリーと ignore 範囲は明示コマンドで確かめる。**
    (a) 素のディレクトリ名 ignore パターン(`build`/`bin` 等)は**全階層マッチ**で想定外の dir を無音で隠す。

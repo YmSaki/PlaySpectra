@@ -32,24 +32,55 @@ Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/pla
 - **[P2] M02/M03 swapchain-arrayindex-unchecked** — `capture.cpp:293` が `arraySize` を保存するが誰も検証せず、
   `capture_d3d11.cpp:178` の「防御的境界チェック」は x/y/w/h だけ見て **`arrayIndex` を `desc.ArraySize` と
   照合しない**。範囲外 index が素通りしうる。
-- **[P2] M08 setup-monado-extract-cannot-fail** — `setup_monado.sh:16` の展開処理が実質 FAIL になり得ない
-  (setup-scripts ルール1「DL 物には機械検査のバックストップ」違反)。
+- **[BEFORE-NEXT] M08 setup-monado-extract-cannot-fail** — 🚧 **次作業「実機稼働中に Monado 経路が通るか実測」
+  のゲート**。`setup_monado.sh:16-30` は展開ファイル数を `n` に数えるが **`n == 0` を確認せず**、
+  `${DEST}/openxr_monado.json` の存在も確かめないまま成功メッセージを出す。下流の `integration_test.sh:26` /
+  `integration_openvr_test.sh:15` は `XR_RUNTIME_JSON` をその json に向けるだけで存在確認しないため、
+  **古い/欠けた Monado ツリーが見えないまま**テストが走る = 「セットアップが正しい」という前提が未検証。
+  実測作業はこの前提の上に立つので、先に潰す。修正案: `n == 0` で exit、`[ -f "$DEST/openxr_monado.json" ]`
+  を成功宣言の前に置く。(setup-scripts ルール1「DL 物には機械検査のバックストップ」違反)
+  — h-triage 2026-07-28: **BEFORE-NEXT / 条件 B2**(計画中の作業が依存する能力が「主張されているだけで未検証」)。
+  記録 `.claude/harness/triage/setup-extract-cannot-fail.md`
 - **[P2] M10/M11/M24 return-value-discarded** — `playspectra_action_probe.c:204`(xrSyncActions 等の戻り値を全て
   捨てる)、`playspectra_mcp_verify.py:87`(戻り文字列が非空かだけ見て内容を見ない=ツールが常に文字列を返すので
   実質常に真)、`playspectra_headless_probe.c:95`(xrLocateSpace の結果を print するだけで判定しない)。
+  — h-triage 2026-07-28: **LATER / 条件 L2**(回避策が効いている)
 - **[P3] M04/M05 test-coverage-holes** — `test_capture_common.cpp:123` は `DominantEyeIndex()` の
   `PLAYSPECTRA_DOMINANT_EYE=left` 分岐がカバレッジゼロ、`test_pixel_convert.cpp:86` は sRGB べき乗枝を
   「0.5<v<1.0」の広区間でしか拘束せず係数・ガンマを検証していない。
 - **[P3] M15 haptic-log-limit-inverted** — `layer_state.cpp:149` で `limit <= 0` が「0件」ではなく**「無制限」に
   反転**する(全64件返る)。
+  — h-triage 2026-07-28: **LATER / 条件 L2**(呼び出し側が常に正値 20 or 200 を渡すため現状発火しない=
+  呼び出し規律による回避。規律が崩れた瞬間に露出する種類)
 - **[P3] M22 capture-rc-not-gated** — `playspectra_server.py:606` の `--cmd capture` が失敗しても rc 判定タプルに
   `"capture"` が無く **rc=0**。
 - **[P3] M16〜M20 weak-assertions-in-e2e** — 注入した3軸のうち1軸しか照合しない、`typeof x === "boolean"` だけで
   値を見ない、`if (path) {...}` に else が無く欠落が素通り、swapchain 情報が無いと寸法チェックが緩む等。
 - **[P3] M12/M14/M23 doc-drift** — M1 spec が「承認待ち」のまま M2 完了済み / `capture.cpp:226` のコメントが
   存在しない行を指す / `playspectra_server.py:16` の docstring が実装にない stick ramp を謳う。
-- **PLAUSIBLE 10件**(M25〜M34)は CSV 参照。sleep 固定待ちのレース、`HalfFloatSelfTest` の結果破棄、
-  `eq/ne` の None==None が PASS になりうる等。
+  — h-triage 2026-07-28: M14/M23 は **LATER / 条件 L1**(文章のみの問題で機構の判断を含まない)
+- **PLAUSIBLE 10件**(M25〜M34)は CSV 参照。h-triage 2026-07-28 の判定:
+  - M25/M26 `harness-fixed-sleep-readiness` — **LATER / L2**(`integration_test.sh:70` の `sleep 6`、
+    `integration_openvr_test.sh:43` の `sleep 5` が緩和として効いている。本筋の修正は
+    `lib_monado_stack.sh` の wait-for-port-free ループの再利用)
+  - M27 `vulkan-selftest-discarded` — **LATER / L1,L2**(`HalfFloatSelfTest` の結果は破棄されゲートとしては
+    死んでいるが、退行は `test_pixel_convert.cpp` の gtest が自動スイート内で押さえている)
+  - M29 `e2e-loop-readiness-probe` / M32 `client-deadline-falls-through` / M34 `waitfor-timing-tolerance`
+    — **LATER / 条件は1つも trip せず**(下記の注記を参照)
+
+> **h-triage 2026-07-28 の注記(条件表の欠落)**: 上記3件は**どの条件にも当てはまらないまま LATER** になった
+> (17件中3件)。h-triage の規定では「条件を1つも trip しない」のは*問題が軽い証拠ではなく、条件リストに
+> 欠けたケースがある証拠*。3件の共通形は「**テスト/クライアント側に閉じた緩さ**で、現タスクとの関係では
+> 測れないが、放置すると退行検知が効かなくなる」— 現行の N/B/L/D 条件にこの受け皿が無い。次回 h-evolve の
+> 入力とする。
+>
+> **DROP 8件について**: `e2e-oneshot-status-read`(M01/M09) / `swapchain-array-unvalidated`(M02/M03) /
+> `driver-connected-false-ignored`(M07) / `layer-test-coverage-holes`(M04/M05) /
+> `noca-override-single-profile`(M28) / `server-rc-and-assert-gaps`(M22/M33) / `e2e-loose-assertions`(M16〜M20,
+> M30/M31) / `spec-approval-stale`(M12) は **全件が条件 D1(既に追跡済み)** で DROP。これは本ファイルへ
+> **トリアージ前に起票してしまった**ことの直接の結果で、仕分けとしての情報を持たない(正しい順序は
+> 監査→トリアージ→起票)。上の各項目の優先度は監査時の severity のまま据え置く。再実行はしない
+> (得られるのがラベル名だけでコストに見合わないため)。記録は `.claude/harness/triage/*.md`。
 
 ## Open — 実エンジンアプリ E2E から出た課題 (2026-07-25、G1 実施中に実測)
 - **[P3] hello-xr-e2e-status-race** — `scripts/integration_hello_xr.mjs` が `{cmd:"status"}` を**1回しか取らず

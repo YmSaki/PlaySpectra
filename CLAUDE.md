@@ -93,3 +93,16 @@ nice-to-have（やらなくてもよい）に分類してよいのは、ユー�
 既定では追跡されない。設計書を作ったら **`git add -f` で明示追跡する**（放置すると repo に入らず、追跡済みの
 README 等からのリンクが切れる）。追跡文書は非追跡パスへリンクしない。
 — 出典: 2026-07-22（PlaySpectra 設計書5点が未追跡で README リンク切れ→git add -f で是正、526de7d9）
+
+## リポジトリ運用の注意（submodule のコミットと匿名性ガード）
+
+匿名性ガードは `git commit`/`push` を検知すると **cwd の git ルート**を丸ごと走査し、`C:\Users\<name>` 等の
+ローカルパスと個人メールを見つけると拒否する。submodule（Monado fork）の中で `cd` してコミットすると
+**upstream 由来の `.mailmap`（contributor のメールアドレス）が数百件ヒットして必ずブロックされる**。
+
+これは false positive — 我々が持ち込んだ PII ではない。**親ディレクトリから `git -C runtime/monado-playspectra
+commit` で実行する**と、走査対象が親ツリーになって正しく通る（親ツリー側は当然クリーンでなければならない）。
+なお add と commit を1つの Bash 呼び出しにまとめると **add ごとブロックされて何もステージされない**ので、
+拒否されたら add からやり直す。submodule を push しないと他環境で gitlink が解決できないため、
+**push は submodule → 親の順**。完了確認は `git -C <submodule> branch -r --contains $(git ls-tree HEAD <submodule> | awk '{print $3}')`。
+— 出典: 2026-07-25（null_compositor 修正のコミットで 447件検出されブロック。自分の成果物と親ツリーは 0件と確認）

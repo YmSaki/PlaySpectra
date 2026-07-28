@@ -567,3 +567,49 @@ review-checklist.md lens 3(gitignore/grep false-0 注意)、review-env-sandbox-q
 **→ processed (h-evolve 2026-07-24)**: レンズ6の出典行に本セッションの再発例を追記、レンズ7に
 ブランチ跨ぎ「実装済み」節を新設。h-loop外の自動チェック欠如は根拠1件のため見送り(次回再発時に再検討)。
 metrics: 新規h-loopタスクなし(29ループ不変)→ ドリフト提案なし。agent-memory: 変更なし(h-reviewer委譲なし)。
+
+## 2026-07-25 — 目標体系の再定義 + G1(実エンジンアプリE2E) + 画質根治 + 全域監査 (このセッション・h-loop外)
+
+**やったこと**:
+- **目的→目標定義→優先順位**: north star から「Playwright が実用品である条件」6項目へ写像し、達成/未達を仕分け。
+  未達が #2「実在のアプリで動く」に集中していると判明(実証は hello_xr=SDKサンプルのみ、実エンジン 0件)。
+  G1(実エンジンアプリ完走)を最優先と合意。G2'は「実機に映像を出す」ではなく**「実機が繋がっていても仮想
+  デバイス経由で操作でき混線しない」**とユーザーが訂正 → SteamVR Adapter(G3)と実質同一と整理。
+- **G1 完了 25/25**: VRAppDummyGame(Godot 4.7、兄弟dirの別repo)を Monado 経路で完走。
+  `tools/playspectra_vrapp{,_test}.py` / `playspectra_png_stats.py` / `scripts/run_vrapp_monado.sh` 新設、
+  `lib_monado_stack.sh` に `mstack_service_up/_down` を move-only 抽出(hello_xr 20/20 で回帰なし確認)。
+  **hello_xr との決定的差**: アプリが `[VRTEST]` 契約で受信内容を自己申告するため、観測経路がアプリ側にあり
+  「PlaySpectra 側が読み値を書き換えている」では説明できない検証になった。→ 60dd6680b
+- **画質根治**: swapchain が 320x240 だった真因 = `null_compositor.c` が xdev を受け取りながら解像度・フレーム
+  間隔だけ定数を返答(upstream 初出からのテストスタブ値)。main compositor と同じ xdev 由来へ是正 →
+  **1080x1200 / 90.0fps** を実測。env では回避不能(`OXR_VIEWPORT_SCALE_PERCENTAGE` は200%クランプで640x480が上限、
+  `XRT_COMPOSITOR_SCALE_PERCENTAGE` は null 経路で参照・構造体・リンクの3層とも到達不能)ことをサブエージェント
+  2体が独立に確定。→ submodule 2af03069c / 親 gitlink 60dd6680b
+- **全域監査(ultracode)**: 10領域×7レンズ、audit=sonnet→verify=opus(敵対的反証)、20エージェント。
+  **39件確定(CONFIRMED 24 / PLAUSIBLE 10 / REJECTED 5)** を `.claude/audit-meaningless-code.csv` に出力。
+  M06/M13/M21 は即修正、残りは backlog へ優先度付きで起票。→ bb7c4521c
+
+**Learnings**:
+- **「動くように見えて意味をなしていない」が今回の全不具合の共通形**だった: 受け取った値を無視して定数を返す /
+  上部しか測らない / 「変化した」だけ見て「命令どおりか」を見ない / 一度だけ問い合わせて待たない。これを
+  レンズ化して全域に当てたら、独立に同じ場所(hello_xr の status race)を指した = レンズの照準が正しい証拠。
+- **監査自身にも盲点があった**: 「宣言されたパス・成果物が実在するか」を問うレンズが無く、`run_vrdevapp.sh` の
+  参照先 exe 不在と `layer_log.cpp` の cwd フォールバックを取りこぼした。**事前に自分の候補を控えておいたから
+  取りこぼしを測れた** — 監査を回すときは期待リストを先に作ると監査自体を評価できる。
+- **誤診を1回した**: 解像度を上げた直後に非退化判定が落ち「描画が壊れた」と判断しかけたが、実際は測定側が
+  画像上部しか見ていなかっただけ。**症状と原因の取り違え**。測定器を疑う順序を先に置くべきだった。
+- **主張範囲の線引き**: 実証済みはネイティブ OpenXR と Godot 4.7 のみで Unity/Unreal は未検証、と README に
+  明記。「エンジン非依存」を実績のように書くのは CLAUDE.md が止めようとしてきた失敗の4回目になるところだった。
+
+**→ processed (h-evolve 2026-07-28)**: レンズ9〜13 を review-checklist に新設(ignored-input / weak-assertion /
+race-no-retry / partial-observation / 宣言パスの実在)、CLAUDE.md に submodule×匿名性ガードの運用節を追加、
+agent-memory(review-env-sandbox-quirks)に python の Windows パス要件と scratchpad 揮発性を追記。
+
+## 2026-07-28 — h-evolve 実行記録 (6回目)
+
+入力: journal(2026-07-24 まで全て processed 済み・未処理ゼロ) / agent-memory 3件 / git log -20 / metrics.jsonl。
+metrics は **2026-07-17 で停止(29ループ)** し新規ループなし → review_rejections のキャリブレーションは対象外
+(データ不変)。よって蒸留源は本セッション(証拠= git log 3コミット・監査CSV 39件・実測ログ)。
+適用: **A** レンズ9〜12(監査由来4本) / **B** レンズ13(監査の盲点) / **C** sandbox-quirks 2行 / **D** CLAUDE.md に
+submodule×匿名性ガード節。**E は不採用**(h-loop 外運用の機械チェック欠如。2回連続の観察だが、h-loop の使用を
+運用へ押し付ける形になるため見送り。再発したら代替経路〈定例 review 等〉として再提案する)。

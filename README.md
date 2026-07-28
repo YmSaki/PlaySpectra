@@ -4,7 +4,9 @@
 
 Playwright がブラウザに合成入力を注入して DOM / スクリーンショットを観察するのと同じことを、VRアプリに対して行う。VRコントローラーと HMD を「触ったのと同じ入力」を注入し、レンダリング結果を画像として取得し、シナリオとして記録・再生し、画面や状態を assert する。
 
-MCP は製品本体ではなく、**複数ある操作インターフェースの1つ**（他に CLI / JSON シナリオ実行）。**エンジン非依存**（OpenXR 抽象に介入するため Unity / Unreal / Godot / ネイティブ OpenXR アプリを問わない）。実機 HMD 不要のヘッドレス動作を志向する。
+MCP は製品本体ではなく、**複数ある操作インターフェースの1つ**（他に CLI / JSON シナリオ実行）。**エンジン非依存**（OpenXR 抽象に介入するため、個々のエンジン向けプラグインを書かずに済む設計）。実機 HMD 不要のヘッドレス動作を志向する。
+
+> **エンジン非依存の検証範囲**（2026-07-25 時点）: 実測で E2E が成立しているのは **ネイティブ OpenXR（hello_xr）** と **Godot 4.7（VRAppDummyGame）** の2つ。**Unity / Unreal は未検証**。「エンジン非依存」は OpenXR 抽象に介入するという*設計上の性質*であり、全エンジンでの動作実績を意味しない（CLAUDE.md「検証済みと未検証を混ぜない」）。
 
 > リポジトリ名 (`VR-MCP`) は歴史的経緯で据え置き。製品名は PlaySpectra（旧 VR-MCP から 2026-07-19 に再定義）。設計の正典は [`.claude/playspectra-architecture.md`](.claude/playspectra-architecture.md)。
 
@@ -63,11 +65,13 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。**live Windows Monado + hello_xr 相手に実 MCP クライアントで 14/14**（全13ツールを実測: HMD操作/両コントローラー move_controller・set_input・set_trigger/walk_forward・strafe/press/wait_for/screenshot 実画像/run_scenario/reset。arg マッピングも確認） | `tools/playspectra_mcp.py`、`scripts/run_mcp_verify_monado.sh`（要 `pip install mcp`・**venv 推奨**、2026-07-22） |
 | **end-to-end Playwright ループ**（操作シナリオ→再描画→視覚回帰） | ✅ **Windows・実GPU**: server.py が `capture_assert_demo` シナリオを実行 operate(:52702)→観測(:52700)→視覚 assert（no-op stable / head 移動で changed）3/3。＋ WSL2 で 2/2 | `scripts/run_scenario_e2e_monado.sh`（Windows）、`scripts/e2e_playwright_loop.sh`（WSL2）、`tools/scenarios/{capture_assert_demo,big_view_change}.json` |
 | **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → **D3D11 / D3D12 / Vulkan の全3API** で実描画 → capture レイヤー(:52700) が非退化観測。各 20/20 | `scripts/run_hello_xr_monado.sh [D3D11\|D3D12\|Vulkan\|all]`（各 20/20＋coupling 2/2、`all` で3API一括回帰、2026-07-22） |
+| **実エンジンアプリ E2E: VRAppDummyGame（Godot 4.7）× Windows Monado × capture** | ✅ Windows・実GPU headless で **24/24**。SDK サンプルではない実エンジン製アプリで、**アプリ自身の申告**（`[VRTEST]` JSON 契約）を機械値に使う: OpenXR 初期化・`oculus/touch_controller` へのプロファイル解決・**頭部/コントローラーが命令座標に誤差 0.000 で着地**・全入力種別（float/vec2/bool/pose・両手）がエンジンのアクションシステムへ到達・**入力注入のみ（カメラ不動）で画面が再描画**（negative control 付き）・**アプリのゲームロジック実行**（ボタン toggle / キューブを掴んで投げる / レバー角度駆動） | `scripts/run_vrapp_monado.sh`、`tools/playspectra_vrapp{,_test}.py`（24/24、2026-07-25）。アプリは**別リポジトリ**（既定は兄弟ディレクトリ、`PLAYSPECTRA_VRAPP_EXE` で上書き。未ビルドなら明示 SKIP） |
 | **operate 到達（runtime レベル）** | ✅ layer override ではなく **:52702 で Monado 仮想 HMD を駆動 → 実アプリの xrLocateViews が追従**（override クリア状態で dz=−2.5 を 1:1 反映、x/y 不変）。「注入のアプリ到達」を runtime 経路で実証。2/2 | `tools/playspectra_coupling_probe.py`（`run_hello_xr_monado.sh` のゲート、2026-07-22） |
 | MCP サーバー（レガシー・TypeScript） | 📋 **廃止方向で決定（2026-07-24）**。改革前の設計（layer :52700 直結）のまま分岐点以降実質更新なし。録画ビューアwidget（未マージ）のアイデアを現行 Python 版へ移植後に削除予定 | `mcp/src/`、backlog `mcp-ts-retire` |
-| VRDevApp（実 Godot アプリ・Windows） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転） | `scripts/run_vrdevapp.sh`（未追跡）、memory `vrdevapp-test-target` |
+| VRDevApp（旧・実 Godot アプリ） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転）。**参照先 `bin/VRDevApp.exe` は現在このツリーに存在せず**、実エンジン検証は上記 VRAppDummyGame へ移行済み | `scripts/run_vrdevapp.sh`、memory `vrdevapp-test-target` |
 | OpenVR アプリ | 🟡 OpenComposite（OpenVR→OpenXR 変換）経由で観察・姿勢注入（統合テスト 15 PASS / 1 SKIP）。openvr **v1.8.19** 世代でビルド | `scripts/integration_openvr_test.sh` |
-| **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/`（未追跡）に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |
+| **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/` に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |
+| headless キャプチャの解像度 | ✅ headless でも**仮想 HMD が申告した解像度**（現状 `1080x1200/eye`）でキャプチャできる。以前は null compositor が xdev を無視して 320x240 固定を返していた（`null_compositor.c` を main compositor と同じ xdev 由来の算出に是正）。hello_xr / VRAppDummyGame の両方で 1080x1200 を実測 | submodule `src/xrt/compositor/null/null_compositor.c`、backlog `monado-headless-swapchain-resolution` |
 | Windows Monado の**メイン（表示）compositor** session | 📋 上の実アプリ E2E は null compositor（headless）で実証済み。実 HMD へ提示する表示 compositor 経路は未検証 | `run_hello_xr_monado.sh` は `XRT_COMPOSITOR_NULL=1` |
 | Frame-synchronized Mode の「決定性」 | 🔬 delta time / GPU scheduling / physics 等が揺れるため未検証。実測してから "Deterministic" へ昇格 | 正典 §4 |
 
@@ -80,7 +84,11 @@ tools/                    PlaySpectra 本体ツール群（Python）
   playspectra_server.py     Server: 高水準命令の解釈・補間・シナリオ・assert・capture-assert
   playspectra_mcp.py        現行 MCP サーバー（FastMCP、Server をラップ）
   playspectra_record.py     Recorder + Replay
-  playspectra_*_test.py     制御チャネル E2E（multiobs / frame / reset）
+  playspectra_{multiobs,frame,reset}_test.py  制御チャネル E2E
+  playspectra_vrapp.py      実エンジンアプリ（VRAppDummyGame）ドライバ。`[VRTEST]` 契約（stdout イベント
+                            ＋ stdin リクエスト）を話し、STAGE↔GLOBAL 変換を持つ
+  playspectra_vrapp_test.py 実エンジンアプリ E2E（起動 / 姿勢・入力 / キャプチャ / インタラクション）
+  playspectra_png_stats.py  キャプチャが「実際に描画された絵か、単色塗りか」を実測（stdlib のみ）
   playspectra_*_probe.c     Monado デバイス列挙 / action 到達の検証プローブ
   scenarios/*.json          シナリオ（walk_and_look / assert_demo / capture_assert_demo / …）
 runtime/
@@ -91,7 +99,7 @@ layer/                    OpenXR API Layer（Instrumentation 軸・C++/CMake）
                             （capture_{vulkan,d3d11,d3d12}.cpp。D3D は WIN32 条件、Vulkan は Linux 可）
   tests/                    ユニットテスト（gtest、92件 Windows / 83件 非Windows。DXGI判定9件はWIN32限定）
 mcp/                      レガシー TypeScript MCP（layer :52700 直結・改革前）
-driver/                   改革前 SteamVR 仮想ドライバースケルトン（未追跡・SteamVR Adapter の素材）
+driver/                   改革前 SteamVR 仮想ドライバースケルトン（SteamVR Adapter の素材）
 scripts/                  セットアップ・E2E ハーネス（e2e_playwright_loop.sh 等）
 third_party/             外部ランタイム / SDK 取得先（非コミット）
 ```
@@ -131,6 +139,7 @@ WSL2 と同じ Monado 経路が Windows でも動く（capture/operate/record-re
 
 ```bash
 scripts/run_hello_xr_monado.sh all       # 実アプリ×Windows Monado×capture: D3D11/D3D12/Vulkan 各20/20 + coupling 2/2
+scripts/run_vrapp_monado.sh              # 実エンジンアプリ(Godot 4.7)×Monado×capture: 24/24（要アプリのエクスポート）
 scripts/run_scenario_e2e_monado.sh       # VR-Playwright ループ: 操作シナリオ→再描画→視覚回帰 3/3
 PY=<venv-python> scripts/run_mcp_verify_monado.sh   # MCP 全13ツール 14/14（mcp は venv 隔離必須）
 ```

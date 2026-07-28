@@ -13,6 +13,51 @@ Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/pla
 ## Open — move-only refactors (auto-pickable / 優先度・依存順)
 (全消化済み)
 
+## Open — 全域監査「無意味なコード」から起票 (2026-07-25、ultracode 10領域×7レンズ)
+> 詳細は **`.claude/audit-meaningless-code.csv`**(39件。id/verdict/severity/lens/file/line/evidence/fix/verify_note)。
+> audit=sonnet → verify=opus の敵対的反証を通した確定値で、REJECTED 5件も却下理由付きで残してある。
+> レンズはすべて本 repo で実際に起きた事故から一般化(推測由来ゼロ)。M06/M13/M21 は起票時点で修正済み。
+> **監査の穴も実測済み**: 「宣言されたパス・成果物が実在するか」を見るレンズが無く、`run_vrdevapp.sh` の
+> 参照先 exe 不在と `layer_log.cpp` の cwd フォールバックを取りこぼした(次回はこのレンズを足す)。
+
+- **[P1] M01 hello-xr-e2e-status-race** — `scripts/integration_hello_xr.mjs:150` が `{cmd:"status"}` /
+  `{cmd:"actions"}` を接続直後に**1回だけ**取りリトライしないため、アプリが描画を始める前に assert して
+  `frames=0 proj=false views=0` / `sets=0` で6件 FAIL する(rc=2)。負荷が引けば 20/20 で通るので**退行では
+  なくレース**。frames>0 / action set attached をリトライ付きで待ってから assert すべき。**監査の CONFIRMED
+  high はこの1件のみ**で、2026-07-25 に実際に踏んだ事象と独立に一致した。 — src: 実測 2026-07-25 + 監査 M01
+- **[P2] M09 openvr-e2e-status-race** — `scripts/integration_openvr.mjs:150` に同型の one-shot status。M01 と同時に直す。
+- **[P2] M07 driver-connected-false-ignored** — `playspectra_control.c:347` で `set_state` に
+  `"connected":false` を明示送信しても `apply_ctrl` が即 return し共有 state は不変なのに、応答は
+  `ok:true`/`applied:true`。**嘘の成功応答**で、切断シナリオが書けない。
+- **[P2] M02/M03 swapchain-arrayindex-unchecked** — `capture.cpp:293` が `arraySize` を保存するが誰も検証せず、
+  `capture_d3d11.cpp:178` の「防御的境界チェック」は x/y/w/h だけ見て **`arrayIndex` を `desc.ArraySize` と
+  照合しない**。範囲外 index が素通りしうる。
+- **[P2] M08 setup-monado-extract-cannot-fail** — `setup_monado.sh:16` の展開処理が実質 FAIL になり得ない
+  (setup-scripts ルール1「DL 物には機械検査のバックストップ」違反)。
+- **[P2] M10/M11/M24 return-value-discarded** — `playspectra_action_probe.c:204`(xrSyncActions 等の戻り値を全て
+  捨てる)、`playspectra_mcp_verify.py:87`(戻り文字列が非空かだけ見て内容を見ない=ツールが常に文字列を返すので
+  実質常に真)、`playspectra_headless_probe.c:95`(xrLocateSpace の結果を print するだけで判定しない)。
+- **[P3] M04/M05 test-coverage-holes** — `test_capture_common.cpp:123` は `DominantEyeIndex()` の
+  `PLAYSPECTRA_DOMINANT_EYE=left` 分岐がカバレッジゼロ、`test_pixel_convert.cpp:86` は sRGB べき乗枝を
+  「0.5<v<1.0」の広区間でしか拘束せず係数・ガンマを検証していない。
+- **[P3] M15 haptic-log-limit-inverted** — `layer_state.cpp:149` で `limit <= 0` が「0件」ではなく**「無制限」に
+  反転**する(全64件返る)。
+- **[P3] M22 capture-rc-not-gated** — `playspectra_server.py:606` の `--cmd capture` が失敗しても rc 判定タプルに
+  `"capture"` が無く **rc=0**。
+- **[P3] M16〜M20 weak-assertions-in-e2e** — 注入した3軸のうち1軸しか照合しない、`typeof x === "boolean"` だけで
+  値を見ない、`if (path) {...}` に else が無く欠落が素通り、swapchain 情報が無いと寸法チェックが緩む等。
+- **[P3] M12/M14/M23 doc-drift** — M1 spec が「承認待ち」のまま M2 完了済み / `capture.cpp:226` のコメントが
+  存在しない行を指す / `playspectra_server.py:16` の docstring が実装にない stick ramp を謳う。
+- **PLAUSIBLE 10件**(M25〜M34)は CSV 参照。sleep 固定待ちのレース、`HalfFloatSelfTest` の結果破棄、
+  `eq/ne` の None==None が PASS になりうる等。
+
+## Open — 実エンジンアプリ E2E から出た課題 (2026-07-25、G1 実施中に実測)
+- **[P3] hello-xr-e2e-status-race** — `scripts/integration_hello_xr.mjs` が `{cmd:"status"}` を**1回しか取らず
+  リトライしない**ため、負荷時にアプリが描画を始める前に assert して `frames=0 proj=false views=0` /
+  `sets=0` 等 **6件 FAIL** する flake を観測(rc=2)。負荷が引いた状態での再実行は 20/20・rc=0 で、退行ではなく
+  レース。frames>0 / action set attached をリトライ付きで待ってから assert すべき(レンズ5「機械値で判定」は
+  満たしているが、待ちが無いので偽陰性が出る)。 — src: 2026-07-25(T6 連続実行直後に再現、再実行で解消)
+
 ## Open — harness 改善
 - **[P3] worktree-join-exclude-claude** — worktree fan-out → join (cherry-pick/merge) 時に tracked `.claude/` ファイルが混入して working tree の harness state を上書きする。join フローで `.claude/` を除外する仕組みが必要。 — src: h-evolve 2026-07-17 (journal L85)
 
@@ -64,6 +109,40 @@ Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/pla
 - **設計書の git 追跡 + doc 整合** — 正典 architecture 等 .claude/ 設計書5点を git add -f、README/rules の stale 数値・ツール列挙・壊れた参照・旧識別子を是正。 → 526de7d9 / 6f53669d(feat/mcp-server)。 — src: 本セッション 2026-07-22
 
 ## Doing
+
+## Done — headless キャプチャ解像度の是正 (2026-07-25)
+- **[P2] monado-headless-swapchain-resolution** — headless(`XRT_COMPOSITOR_NULL=1`)経路でアプリが作る
+  swapchain が **320x240** に固定される問題を根治。**真因**: `src/xrt/compositor/null/null_compositor.c:39-43`
+  の `RECOMMENDED_VIEW_WIDTH=320`/`RECOMMENDED_VIEW_HEIGHT=240` がハードコードで、`:315-320` が **xdev を
+  無視して**これを代入していた(同じ関数が `view_count` は `xdev->hmd->view_count` から取っているのに解像度
+  だけ定数)。main compositor は `comp_compositor.c:1216` で `xdev->hmd->views[i].display.w_pixels` から算出
+  しており、**headless 経路だけの欠落**。この経路に解像度用 env は存在しない(null_compositor.c の
+  `DEBUG_GET_ONCE` は `XRT_COMPOSITOR_LOG` のみ)。
+  **修正**: null を main と同じ xdev 由来へ。panel size 未報告デバイス用に従来定数をフォールバックで温存。
+  **実測**: 320x240(PNG 6.6KB) → **1080x1200(153KB)** = 仮想HMDの申告値どおり。VRAppDummyGame E2E 24/24・
+  hello_xr E2E も回帰なし。
+  **副次の発見(自前バグ)**: `tools/playspectra_png_stats.py` が画像**上部300行しか**サンプリングしない設計
+  だったため、解像度を上げた途端に「暗い天井だけ」を掴んで `distinctColors=1` を返し、正常な描画を flat-fill
+  と誤判定した(全1200行では 2926色)。**解像度が上がるほど誤検出しやすくなる**性質だったので全高へ散らす
+  サンプリングへ修正(全行 unfilter しても実測 0.3s)。
+  **暫定策として実測した別経路**: `OXR_VIEWPORT_SCALE_PERCENTAGE`(oxr_system.c:36、既定100)は効くが
+  **200%クランプ**があり 640x480 が上限 → 根治にはならない。 — src: 本セッション 2026-07-25
+
+## Done — G1 実エンジンアプリでコアループ完走 (2026-07-25)
+- **[P0] g1-real-engine-app-e2e** — SDK サンプル(hello_xr)しか無かった検証対象に、**実エンジン製アプリ**
+  VRAppDummyGame(Godot 4.7 / OpenXR / D3D12、別リポジトリ)を追加し **24/24** で完走。hello_xr と違い
+  **アプリ自身が受信内容を申告する**(`[VRTEST]` JSON 契約 + stdin リクエスト)ため、観測経路がアプリ側に
+  あり「PlaySpectra 側が読み値を書き換えている」では説明できない検証になった。実測: OpenXR 初期化 /
+  `oculus/touch_controller` へのプロファイル解決 / **頭部・コントローラーが命令座標に誤差 0.000 で着地**
+  (origin 補正込みの絶対比較) / 全入力種別(float・vec2・bool・pose)両手がエンジンのアクションシステムへ到達 /
+  **入力注入のみ(カメラ不動)で画面が再描画**(negative control で2枚が完全同一hashを確認) / アプリのゲーム
+  ロジック実行(ボタン toggle・キューブを掴んで投げる velocity付き・レバー角度駆動)。
+  成果物: `tools/playspectra_vrapp.py`(アプリドライバ) / `tools/playspectra_vrapp_test.py`(スイート) /
+  `tools/playspectra_png_stats.py`(非退化の実測・stdlib) / `scripts/run_vrapp_monado.sh`(1コマンド) /
+  `lib_monado_stack.sh` に `mstack_service_up`/`_down` を抽出(app を自前で起動する harness 用。move-only、
+  hello_xr E2E 20/20+coupling 2/2 で回帰なしを確認)。
+  **主張の範囲**: 実証されたエンジンは **ネイティブ OpenXR と Godot 4.7 の2つのみ。Unity/Unreal は未検証**
+  (README に明記済み)。 — src: 本セッション 2026-07-25
 
 ## Done
 - **[P3] unit-tests-registry-capture** — HandTopFromBindingPath inline化+EyeToIndex抽出+テスト14件。78/78 PASS。レビュー pass。 → resolved 0728461。 — src: journal 2026-07-17 (L91)

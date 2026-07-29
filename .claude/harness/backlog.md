@@ -32,14 +32,19 @@ Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/pla
 - **[P2] M02/M03 swapchain-arrayindex-unchecked** — `capture.cpp:293` が `arraySize` を保存するが誰も検証せず、
   `capture_d3d11.cpp:178` の「防御的境界チェック」は x/y/w/h だけ見て **`arrayIndex` を `desc.ArraySize` と
   照合しない**。範囲外 index が素通りしうる。
-- **[BEFORE-NEXT] M08 setup-monado-extract-cannot-fail** — 🚧 **次作業「実機稼働中に Monado 経路が通るか実測」
-  のゲート**。`setup_monado.sh:16-30` は展開ファイル数を `n` に数えるが **`n == 0` を確認せず**、
-  `${DEST}/openxr_monado.json` の存在も確かめないまま成功メッセージを出す。下流の `integration_test.sh:26` /
-  `integration_openvr_test.sh:15` は `XR_RUNTIME_JSON` をその json に向けるだけで存在確認しないため、
-  **古い/欠けた Monado ツリーが見えないまま**テストが走る = 「セットアップが正しい」という前提が未検証。
-  実測作業はこの前提の上に立つので、先に潰す。修正案: `n == 0` で exit、`[ -f "$DEST/openxr_monado.json" ]`
-  を成功宣言の前に置く。(setup-scripts ルール1「DL 物には機械検査のバックストップ」違反)
-  — h-triage 2026-07-28: **BEFORE-NEXT / 条件 B2**(計画中の作業が依存する能力が「主張されているだけで未検証」)。
+- **[P2] M08 setup-monado-extract-cannot-fail** — `setup_monado.sh:16-30` は展開ファイル数を `n` に数えるが
+  **`n == 0` を確認せず**、`${DEST}/openxr_monado.json` の存在も確かめないまま成功メッセージを出す。下流の
+  `integration_openvr_test.sh` は `XR_RUNTIME_JSON` をその json に向けるだけで存在確認しないため、
+  **古い/欠けた Monado ツリーが見えないまま**テストが走る。(setup-scripts ルール1「DL 物には機械検査の
+  バックストップ」違反)。修正案: `n == 0` で exit、`[ -f "$DEST/openxr_monado.json" ]` を成功宣言の前に置く。
+  — h-triage 2026-07-28 は **BEFORE-NEXT / 条件 B2** と判定したが、**その前提を一次ソースで検証したところ誤り**
+  だったため P2 へ差し戻し(判定は書き換えず、不同意の理由を残す = h-triage 規定)。**根拠**: (a) `setup_monado.sh`
+  の DEST は `third_party/monado/`(GitLab CI アーティファクト取得)で、次作業が使う経路は
+  `runtime/monado-playspectra/build-win/`(自前ビルド、`lib_monado_stack.sh:19-20` が `MSTACK_SVC`/
+  `MSTACK_MANIFEST` をそこへ固定)。(b) `setup_monado.sh` を参照するのは `integration_openvr_test.sh` と
+  `setup_hellovr.sh` のみで、**`run_vrapp_monado.sh` / `run_hello_xr_monado.sh` は呼ばない**。(c) その2本は
+  2026-07-25 に 25/25・20/20 で実測済み = 「Monado が正しくセットアップされている」は既に実証済みで、
+  B2 の「主張されているだけで未検証」に当たらない。**影響範囲は OpenVR/hellovr 系ハーネスに限定**。
   記録 `.claude/harness/triage/setup-extract-cannot-fail.md`
 - **[P2] M10/M11/M24 return-value-discarded** — `playspectra_action_probe.c:204`(xrSyncActions 等の戻り値を全て
   捨てる)、`playspectra_mcp_verify.py:87`(戻り文字列が非空かだけ見て内容を見ない=ツールが常に文字列を返すので

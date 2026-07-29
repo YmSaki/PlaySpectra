@@ -37,5 +37,27 @@ Downstream: `integration_test.sh:26` and `integration_openvr_test.sh:15` set `XR
 ## Why this label
 Planned work (a) depends on "Monado is correctly set up", which is currently claimed but unverified. The setup script satisfies B2: a planned design depends on it, and the claimed capability (successful extraction) has no verification check. This must be settled before the measurement work proceeds.
 
+## Caller's disagreement (recorded, label left as issued — 2026-07-28)
+
+The label stands as written; this section records why the caller did not route it as BEFORE-NEXT.
+
+B2 was answered YES on the premise that planned work (a) "measure whether the Monado path still passes
+while the real HMD is running" depends on this script. Checked against primary sources, that premise is
+false:
+
+- `setup_monado.sh` installs into `third_party/monado/` from a GitLab CI artifact. The planned work runs
+  against `runtime/monado-playspectra/build-win/` — a locally built tree that `lib_monado_stack.sh:19-20`
+  pins as `MSTACK_SVC` / `MSTACK_MANIFEST`.
+- `grep -l setup_monado scripts/*` matches only `integration_openvr_test.sh` and `setup_hellovr.sh`.
+  Neither `run_vrapp_monado.sh` nor `run_hello_xr_monado.sh` — the harnesses the planned work uses —
+  references it.
+- Those two harnesses passed 25/25 and 20/20 on 2026-07-25, so "Monado is correctly set up" for that path
+  is measured, not merely claimed, which is what B2 asks about.
+
+The defect is real and stays open at P2; its blast radius is the OpenVR/hellovr harnesses, which the
+planned work does not touch. Verifying which setup path the planned work actually uses is the caller's
+job, not the triage agent's — the agent applies the condition table to the text it is given, and the text
+did not say which Monado tree was involved.
+
 ## What the caller must do
 Add to `.claude/harness/plan.md` Findings for the next task (measurement or G3), or to `.claude/harness/backlog.md` as a BEFORE-NEXT entry. Suggested fix: (1) add `if n == 0: sys.exit(...)` after line 29, (2) add `[ -f "$DEST/openxr_monado.json" ] || exit 1` after line 30 and before line 32 success messages.

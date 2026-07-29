@@ -4,10 +4,64 @@
 （レビュー時の実装注意は旧 refactor-plan-review.md 由来、同じく削除済み）。
 **auto実行のスコープは move-only リファクタのみ**。挙動変更(下記 Deferred)は human approval まで自動着手しない。
 
-現況(2026-07-22): **Monado PoC → PlaySpectra 大改革(2026-07-19) → M0.5 改名 / M1 仕様 / M2 Monado 仮想HMD+Touch /
-Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/playspectra-architecture.md`、進捗
-`.claude/playspectra-m2-status.md`、memory [[windows-monado-unified-stack]]。**以下 Open は改革前(〜2026-07-18)の
-起票**で、SteamVR/OpenVR 系は architecture §9 で「SteamVR Adapter」に再位置づけ済み。優先度の再付けは M2 後の
+---
+
+# 現況スナップショット (2026-07-29 セッション終了時点)
+
+> **期限**: ユーザーからの期日指定は**無い**(2026-07-29 時点)。よって下記は締切ではなく**依存順序**で並べる。
+> 期日が決まったらこの節に書き足すこと。「いつまでに」を推測で書かない(CLAUDE.md 検証規律)。
+
+## north star に対する現在地
+
+「VR版Playwright」= 触ったのと同じ入力を注入し、画面を観察する。**Playwright が実用品である条件**への写像:
+
+| # | 条件 | 状態 |
+|---|---|---|
+| 1 | 実在のランタイムで動く | Monado ✅ / SteamVR 📋 |
+| 2 | **実在のアプリで動く** | ✅ **Godot 4.7 で 25/25**(2026-07-25 達成。長らく 0件だった穴) |
+| 3 | 全入力を打てる | ✅ 全種別(float/vec2/bool/pose)両手・誤差 0.000 |
+| 4 | どんな画面でも取れる | ✅ D3D11/D3D12/Vulkan、headless で 1080x1200/90fps |
+| 5 | 誰の環境でも再現する | ❌ hosted CI は課金ブロックで休眠。ローカルゲート 210件のみ |
+| 6 | 失敗原因を追える | ✅ record/replay/assert/capture-assert |
+
+**残る本丸は #1 の SteamVR 側 = G3**。他は達成済みか、達成の質を上げる段階。
+
+## 次セッションの再開手順(そのまま実行できる形)
+
+1. **実機同居の実測**(G2' の Monado 側・**最優先・低コスト**) — ユーザーが Horizon Link を起動できる時のみ。
+   `bash scripts/run_vrapp_monado.sh` と `bash scripts/run_hello_xr_monado.sh D3D12` を実機稼働中に流し、
+   (a) 仮想デバイス経由の操作が通る (b) 実機のポーズ・入力が仮想側へ漏れない、を機械値で確認する。
+   → 通れば **G2' の Monado 側が「構造的に分離されているはず」という推論から実測へ昇格**する。
+   **ゲートは無い**(2026-07-28 に M08 をゲートと誤判定したが前提誤りと判明・取り消し済み)。
+2. **G3 = SteamVR Adapter**(残る唯一の大領域) — 実機 SteamVR が要る。着手前に「実機なしで進められる設計調査」と
+   「実機が要る検証」の切り分けから。vd1〜vd4 は改革前起票なので新 Core 前提で読み直すこと。
+3. 監査由来の技術的負債(下記 Open)は G3 の作業中に**関連するものから**潰す。まとめて消化する価値は薄い。
+
+## 直近セッションで完了したこと (2026-07-25〜29)
+
+- **G1 実エンジンアプリ E2E**: VRAppDummyGame(Godot 4.7、別repo)で 25/25。`tools/playspectra_vrapp{,_test}.py`
+  `playspectra_png_stats.py` `scripts/run_vrapp_monado.sh` 新設。→ 60dd6680b
+- **headless 解像度/ペーシング根治**: null compositor が xdev を無視していた定数を是正。320x240/20FPS →
+  **1080x1200/90.0fps**。→ submodule 2af03069c / 親 60dd6680b
+- **全域監査**: 10領域×7レンズ・20エージェント → 39件確定。`.claude/audit-meaningless-code.csv`。→ bb7c4521c
+- **h-evolve(6回目)**: review-checklist にレンズ9〜13 を新設(8→13本)。→ d23c85ddf
+- **h-triage(初回)**: 17問題を仕分け。NOW 0件。**正味の収穫はほぼ無く、手順欠陥2件の実測が成果**
+  (起票順ミス / エージェント判定の前提未検証)。→ c99a2a41e, 7646d03cc
+
+## 未検証のまま残っている主張(勝手に事実化しないこと)
+
+- 🔬 **実機同居での非混線**(G2'): 「`XR_RUNTIME_JSON` はプロセス単位なので実機に無影響」は**設計上の推論**で、
+  実機稼働中の E2E 実測は無い。上記「再開手順1」で埋まる。
+- 🔬 **エンジン非依存**: 実証済みは**ネイティブ OpenXR と Godot 4.7 のみ。Unity/Unreal は未検証**(README 明記済)。
+- 🔬 **表示 compositor 経路**: 実証は null compositor(headless)のみ。実 HMD へ提示する経路は未検証。
+- ❌ **hosted CI**: private repo の課金ブロックで休眠(run 29966605494)。green は未証明。
+
+---
+
+現況(〜2026-07-22 の経緯): **Monado PoC → PlaySpectra 大改革(2026-07-19) → M0.5 改名 / M1 仕様 / M2 Monado
+仮想HMD+Touch / Windows 統一スタックまで完了**（下 Done 節）。正典 `.claude/playspectra-architecture.md`、進捗
+`.claude/playspectra-m2-status.md`、memory [[windows-monado-unified-stack]]。**以下 Open のうち SteamVR/OpenVR 系は
+改革前(〜2026-07-18)の起票**で、architecture §9 で「SteamVR Adapter」に再位置づけ済み。優先度の再付けは M2 後の
 ユーザー留保事項(architecture §8「順不同・M2 後に再優先度付け」)。
 
 ## Open — move-only refactors (auto-pickable / 優先度・依存順)

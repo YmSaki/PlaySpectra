@@ -4,9 +4,9 @@ name: CI
 # when a developer manually opted in:
 #   - mcp/   : node:test suite for the pure quaternion/vector math (no layer, no socket) -- ubuntu
 #   - layer/ : gtest suite for the pure helper functions (capture_common / pixel_convert /
-#              pose_animator + header-only xr_math / action_registry). Built with only the
-#              playspectra_test target so it needs no Vulkan SDK / D3D / third_party -- windows,
-#              matching where these 78 tests are validated.
+#              pose_animator / dxgi_formats / action_helpers / pose_override + header-only
+#              xr_math). Built with only the playspectra_test target so it needs no Vulkan SDK /
+#              D3D / third_party -- windows, matching where these 92 tests are validated.
 # Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
 # service and cannot run on a hosted runner.
 
@@ -44,8 +44,11 @@ jobs:
       # Configure with our host-unit-test knob on. The BUILD_TESTING=OFF seed in layer/CMakeLists.txt
       # keeps the fetched OpenXR SDK from registering its own loader_test; we still pass -E loader_test
       # below as belt-and-suspenders (a stale tree once leaked it as a "Not Run" ctest failure).
+      # No -G pin: windows-latest rotates its VS version (2026-07 the image moved to
+      # windows-2025-vs2026, VS2022 was removed and "Visual Studio 17 2022" stopped resolving).
+      # cmake auto-detects the newest installed VS; the test build is generator-agnostic.
       - name: Configure
-        run: cmake -S layer -B layer/build -G "Visual Studio 17 2022" -A x64 -DPLAYSPECTRA_BUILD_TESTS=ON
+        run: cmake -S layer -B layer/build -DPLAYSPECTRA_BUILD_TESTS=ON
       # Only the test target -- this deliberately avoids building playspectra_layer, so no Vulkan
       # headers (third_party/, gitignored) or D3D are needed. FetchContent pulls googletest / OpenXR
       # headers / nlohmann_json / lodepng.

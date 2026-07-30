@@ -49,7 +49,7 @@ source scripts/lib_monado_stack.sh
 mstack_env D3D11
 mstack_up D3D11 120
 trap mstack_down EXIT
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
 **WSL2またはUbuntu（bash）**
@@ -62,7 +62,7 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-python3 - <<'PY'
+python - <<'PY'
 import socket, sys, time
 for _ in range(60):
     with socket.socket() as sock:
@@ -72,7 +72,7 @@ for _ in range(60):
     time.sleep(0.3)
 raise SystemExit("PlaySpectra control channel :52702 did not become ready")
 PY
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
 このScenarioは、頭の移動、視線の回転、右手トリガーの入力、状態assert、仮想デバイスのresetを順番に実行します。すべてのassertが成功すると、runnerは終了コード0で終了します。
@@ -80,8 +80,8 @@ python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
 CLIで個別操作する場合は、次を実行してください。
 
 ~~~bash
-python3 tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
-python3 tools/playspectra_server.py --cmd get_state
+python tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
+python tools/playspectra_server.py --cmd get_state
 ~~~
 
 ## 対応状況
@@ -203,8 +203,8 @@ Windows nativeとWSL2/Ubuntuのbuild directory、CMake cache、`node_modules`は
 `tools/playspectra_server.py`は、`move_head`、`look`、`press`、`get_state`などの操作命令を実行し、デバイス状態を読み取るServer兼CLIです。
 
 ~~~bash
-python3 tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
-python3 tools/playspectra_server.py --cmd get_state
+python tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
+python tools/playspectra_server.py --cmd get_state
 ~~~
 
 詳細は[CLI and Server details](../tools/README.md)を参照してください。
@@ -228,7 +228,7 @@ JSON Scenarioは、操作とassertを順番に実行するファイルです。�
 次のコマンドで実行してください。assertが失敗するとrunnerはnon-zeroで終了します。
 
 ~~~bash
-python3 tools/playspectra_server.py tools/scenarios/walk_and_look.json
+python tools/playspectra_server.py tools/scenarios/walk_and_look.json
 ~~~
 
 完全な形式は[Scenario format](scenario-format.md)、同梱例は[`tools/scenarios/`](../tools/scenarios/)を参照してください。
@@ -239,7 +239,7 @@ PlaySpectra-MCPは、AIエージェントがXRアプリを操作・観測する�
 
 次の順番で実行してください。
 
-1. `python3 -m venv .venv-mcp`を実行して専用環境を作成してください。
+1. `python -m venv .venv-mcp`を実行して専用環境を作成してください。
 2. `.venv-mcp/bin/python -m pip install -r tools/requirements.txt`を実行してください。
 3. `.venv-mcp/bin/python tools/playspectra_mcp.py`を実行してください。Windows Git Bashでは`.venv-mcp/Scripts/python.exe`を使用してください。
 

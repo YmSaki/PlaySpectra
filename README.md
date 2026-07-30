@@ -202,6 +202,7 @@ The [roadmap](docs/roadmap.md) keeps these boundaries separate from current feat
 
 ## Documentation index
 
+- [日本語版README（概要）](docs/readme.ja.md)
 - [Architecture](docs/architecture.md)
 - [Linux / WSL2 setup](docs/getting-started-linux.md)
 - [Windows setup](docs/getting-started-windows.md)

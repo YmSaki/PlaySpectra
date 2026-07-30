@@ -191,7 +191,6 @@ Driver は高水準命令を理解しない「状態配信装置」に保つ。
   `*_client.mjs`)・`.claude/settings.json` の allow ルール・taskfile を**全数追従**させる
   (本体ビルドだけの DoD はテスト/スクリプトのリンク切れ・パス切れをすり抜ける)。
 - 完了条件は機械値: 旧識別子の `grep` 0件(意図的に残す許容形があれば列挙)。
-- GitHub リポジトリは現在 `YmSaki/PlaySpectra`（公開、default branch は `master`）。旧 `VR-MCP` 表記と PR #6 は履歴上の参照として残る。
 
 ### コンポーネント名 (§14 資料の整理)
 

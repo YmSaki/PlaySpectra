@@ -2,6 +2,7 @@
 
 The top-level README is the user-facing entry point. These pages hold the detailed material that should remain auditable without turning the README into a verification journal.
 
+- [Japanese README overview](readme.ja.md)
 - [Architecture](architecture.md)
 - [Windows setup](getting-started-windows.md)
 - [Linux / WSL2 setup](getting-started-linux.md)

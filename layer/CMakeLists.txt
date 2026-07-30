@@ -8,6 +8,14 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Our sources carry UTF-8 (Japanese) comments. Without /utf-8 MSVC decodes them as the system ANSI
+# code page -- CP1252 on CI runners, CP932 on JA dev boxes -- which raises C4819 and can cascade into
+# phantom parse errors. /utf-8 makes the build locale-independent (same fix the Monado submodule got
+# in cdd429f88). Harmless for the ASCII/UTF-8-clean fetched dependencies below.
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 include(FetchContent)
 
 # OpenXR-SDK-Source include(CTest)s, which would otherwise cache BUILD_TESTING=ON and register the
@@ -130,12 +138,18 @@ if(PLAYSPECTRA_BUILD_TESTS)
     tests/test_pixel_convert.cpp
     tests/test_pose_animator.cpp
     tests/test_xr_math.cpp
+    tests/test_pose_override_pure.cpp
     # Tests require the source files they are testing.
     src/capture_common.cpp
     src/pixel_convert.cpp
     src/pose_animator.cpp
     ${lodepng_SOURCE_DIR}/lodepng.cpp
   )
+  # DXGI format helpers need dxgiformat.h (Windows-only). Matches the layer's per-platform D3D guard:
+  # a non-Windows runtime only ever hands a Vulkan binding, so there is no DXGI classification there.
+  if(WIN32)
+    target_sources(playspectra_test PRIVATE tests/test_dxgi_formats.cpp)
+  endif()
 
   target_include_directories(playspectra_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

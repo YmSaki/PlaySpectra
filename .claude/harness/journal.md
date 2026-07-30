@@ -401,3 +401,272 @@ D3D 系キャプチャの既知欠落(MSAA/HDR/TYPELESS)は全て解消、3バ�
   (R10 リンク切れ/R17 冪等性) — レビュー健全、ドリフト提案なし。plateau 0。
 - agent-memory: h-reviewer が R17 教訓を review-checklist-patch-idempotency として自律蒸留済み(検出側)。
   本 h-evolve の setup-scripts (6) は書き手側の規則で相補 — 重複でなく役割分担、整理不要。
+
+## 2026-07-17 — scripts-nits-batch (setup-curl-fsl + setup-hellovr-nits + openvr-test-graceful-promote)  [outcome: done]
+
+**What shipped**: 3つの独立したスクリプト改善をワークツリー並列 fan-out で一括実行。
+1. curl -sL → -fSL 統一(setup_monado.sh, setup_opencomposite.sh) — HTTP エラー早期失敗
+2. MSBuild edition preflight(setup_hellovr.sh) — BuildTools/Community/Enterprise/Professional 4版自動探索 + `.git` clone guard
+3. graceful teardown SKIP→FAIL 昇格(integration_openvr_test.sh) — PASS 実証済みのため退行検知有効化 + rc=1 反映 + scs[1] 寸法チェック(integration_openvr.mjs)
+
+→ resolved 1b9aa0e。レビュー pass(findings なし)。
+
+**L84 (procedure that worked)**: ワークツリー並列 fan-out が初めて正常動作。3エージェント × worktree isolation で独立ファイルの mechanical fix を同時実行。マージはコンフリクトなし。ただし cherry-pick 時に tracked .claude/ ファイルが混入する問題あり — `git checkout -- .claude/` で手動復元が必要だった。
+**L85 (friction)**: ワークツリーブランチのマージ時、tracked .claude/harness/ ファイル(state.json 等)が cherry-pick に含まれて working tree の state を上書きする。worktree fan-out 後の join フローで .claude/ を除外する仕組みが欲しい。
+
+## 2026-07-17 — doc-cleanup-batch (R21 stale-comments + layer-log-unused-string)  [outcome: done]
+
+**What shipped**: コメント是正(3ファイル) + 未使用 include 除去(1ファイル)。
+1. openxr_agent_layer.cpp: 冒頭コメントを現状反映(全バックエンド実装済み、単一 XrInstance 設計)
+2. capture.cpp: stale「not implemented error」記述を除去
+3. capture_backends.h: 「Vulkan stays inline in capture.cpp」→ capture_vulkan.cpp 分離済みに修正
+4. layer_log.h: 未使用 `#include <string>` 除去(ビルド green + 64/64 テスト PASS で検証)
+
+→ resolved 99b991c。レビュー pass(2 notes、non-blocking)。
+
+**L86 (reviewer finding, not a defect)**: capture.cpp:516 のランタイムエラー文字列 "not implemented" はコメントではなく正当なコード。コントラクトの grep 検証コマンドがコメントと区別できなかった。DoD チェックは grep のスコープを明確にすべき。
+**L87 (procedure that worked)**: 小粒タスク(コメント数行+include 1行)では、ワークツリー並列の cmake configure オーバーヘッドが作業量を上回るため、inline sequential の方が効率的。scripts-nits-batch(ビルド不要の script 変更)とは異なるパターン。
+
+## 2026-07-17 — R19 layer-state-split  [outcome: done]
+
+**What shipped**: control_channel の公開状態ストア(5 mutex+globals グループ)を layer_state.{h,cpp} に分離。control_channel は transport+protocol 専任に。型5個 + API 15個超を移動。ClearAllStickyPoses / GetStatus / GetHapticLog を追加して直接 mutex アクセスを解消。消費者9ファイルの include を追従。
+
+→ resolved 9b8efda。レビュー needs-fix(dead include 3件)→修正→pass。
+
+**L88 (recurring finding, R04/R05 と同型)**: API リネーム（ControlChannel* → LayerState*）時に sed で関数呼び出しは置換したが #include 行は元ファイル名のまま残った。コメント部分がリネーム済みで見た目 OK に見えるが、実際は dead include + transitive 依存で成立している脆い状態。API リネームを伴う move-only リファクタでは、sed 後に `grep -rn '#include "旧ヘッダ"'` で全数確認すべき。
+**L89 (procedure that worked)**: 大きめ move-only リファクタ(13ファイル +306/-324)でも sequential 実行で品質を保てた。レビュアーが dead include(Lens 1, R04/R05 再発パターン)を1回で検出し、修正は mechanical。
+
+## 2026-07-17 — R20 server-ts-split  [outcome: done]
+
+**What shipped**: mcp/src/server.ts (815行、21ツール) を client.ts / math.ts / tools/{observe,input,pose,head,recording}.ts に分割。server.ts は 19行(import + 登録 + transport のみ)に。
+
+→ resolved 63609d2。レビュー needs-fix(コメント40行欠落、review-checklist lens 1)→復元→pass。
+
+**L90 (recurring finding, lens 1 三度目)**: TS の move-only 分割でもコメントが欠落(C++ の R04/R05/R19 と同型)。言語に関係なくコード移動時のコメント追従は普遍的な罠。Write で新ファイルを作成する際に元コメントを含めて verbatim コピーする習慣が必要。
+
+## 2026-07-17 — unit-tests-registry-capture  [outcome: done]
+
+**What shipped**: HandTopFromBindingPath (action_registry) を inline 化 + EyeToIndex/DominantEyeIndex (capture.cpp anonymous ns) を capture_common に抽出し、テスト14件追加(合計78件)。
+
+→ resolved 0728461。レビュー pass(findings なし)。
+
+**L91 (procedure that worked)**: テスト対象のリンク依存が重い場合、関数を header-only inline 化(HandTopFromBindingPath、R12 パターン)または既にリンク済みの TU に移動(EyeToIndex → capture_common)することでテストターゲットへの追加リンクなしでテスト可能にする。R11 の「スコープ外」判定を覆す正当な手法。
+
+**L84〜L91 → processed (h-evolve 2026-07-17)**。8件を2資産へ蒸留(ユーザー承認済み A+B):
+- `.claude/rules/review-checklist.md` lens 1 強化 — API リネーム後の grep 全数確認 + Write 時コメント verbatim コピー(言語非依存) ← L88/L90
+- `.claude/harness/backlog.md` — worktree-join-exclude-claude ← L85
+- 蒸留対象外: L84(記録のみ・初動作報告)、L86(タスク固有)、L87(判断基準・汎化不要)、L89(記録のみ)、L91(手法知識・規則化不要)
+- metrics 所見: 29ループ・rejections 平均0.34(直近5=0.40)。直近2件の rejection はいずれも lens 1 の既知パターン(dead include/コメント欠落) — レビュー健全、ドリフト提案なし。plateau 0。
+- 2026-07-18 (steamvr-driver VD1/VD2 準備中): **未検証知識を事実として文書化する失敗が同一セッションで3回再発**(H1 役割割当を仕様書に「決定」と記載 / README で Monado CA を実測と真逆に記載+開発中設計を実装済みと混在 / VD2 で H3 偽装を検証装置と明示せず実装)。ユーザー指摘 2回。恒久対策として CLAUDE.md に「検証済みと未検証を混ぜない」節を新設(仮説ラベル+検証方法の義務化、README 3段階凡例、判別法=リポジトリ内の実測ログを指させるか)。h-evolve 候補: review-checklist に「文書中の技術主張は実測ログ/一次ソースを指せるか」レンズ追加を検討。
+  → processed (h-evolve 2026-07-18): review-checklist.md lens 7「技術主張の検証可能性」新設 + CLAUDE.md「検証済みと未検証を混ぜない」節。出典=2026-07-18 の3連発(H1/Monado CA/H3)。
+
+## 2026-07-22 — h-evolve 実行記録 (4回目) + PlaySpectra asset drift 是正
+
+**入力の状態**: journal は 2026-07-18 で全項目 processed・未処理なし。metrics.jsonl は 2026-07-17
+(29ループ) 以降エントリなし = **PlaySpectra 改革 (7/19〜22) は h-loop 外 (cron/手動) で実施され
+journal/metrics 未記録**。蒸留対象は本セッションの実測 friction + 既存資産の drift。
+
+**適用 (P1・stale asset 是正)**: M0.5 改名 (2026-07-19) の DoD「grep 0件」が **.claude/rules +
+agent-memory で未達**だった (vr_agent_layer/vr_agent_test/vr_agent_openvr が残存)。根因は ripgrep が
+gitignore の .claude/ をスキップし rename 時の確認 grep が false 0 を返したこと ([[review-env-sandbox-quirks]]
+L15 の既知癖)。全て ground truth (layer/CMakeLists=playspectra_layer/playspectra_test、
+scripts=playspectra_openvr_/playspectra_integration、capture.cpp の vr_capture_N.png は改名対象外の出力名)
+と照合し是正 → 明示パス grep 0件を確認。対象: native-win-interop.md(L27/L30)、review-checklist.md
+(vr_agent_test×2)、setup-scripts.md(例パス)、review-checklist-frame-capture.md(memory・4トークン)。
+
+**提案 (P2〜P4・要ユーザー承認、未適用)**:
+- P2: review-checklist lens 3 に「grep 完了確認は gitignore 対象 (.claude/ 等) も明示パスで —
+  ripgrep は gitignore をスキップし false 0 を出す」を追記。出典=本 P1 の根因。
+- P3: review-env-sandbox-quirks memory に「Read tool が捏造/stale なファイル内容を返すことがある —
+  doc/impl の相違を報告/編集する前に grep で実文字列を確認」を追記。出典=本セッション2件
+  (playspectra_mcp.py/tools/README.md の初回 Read が架空内容→grep で否定→誤 finding 寸前)。
+- P4: CLAUDE.md に「.claude/ はユーザー global gitignore 対象 — 設計書は git add -f で追跡し、
+  追跡文書は非追跡パスへリンクしない」を追記。出典=本セッション (正典 architecture 等5点が未追跡で
+  README リンク切れ、526de7d9 で是正)。
+
+**metrics 所見**: rejections 平均 ~0.31 (29ループ)・plateau 0・新規ループなし → review 健全・ドリフト提案なし。
+
+**訂正(append-only)**: 上記 P2〜P4 は「提案・未適用」と書いたが、ユーザー4度目の授権
+(「機械的に進めれるところは進める…質問を控え…」)を承認とみなし **2026-07-22 に適用済み**:
+review-checklist.md lens 3(gitignore/grep false-0 注意)、review-env-sandbox-quirks memory
+(Read tool の捏造/stale 内容)、CLAUDE.md「リポジトリ運用の注意(.claude/ の git 追跡)」節。
+= h-evolve 4回目 完了(P1〜P4 全適用・二重蒸留防止マーク済み)。
+
+## 2026-07-22 — 文書claim の実走再検証 (このセッション・Windows 実GPU)
+
+「検証済み/未検証を混ぜない」規律の最深部として、文書の ✅ を**この Windows マシンで実走**して独立再現した
+(doc-trust → verified-here-now)。すべて claim と一致:
+- **自己完結(ハードウェア/ライブMonado/pip 不要)**: gtest `layer/build/playspectra_test.exe` **78/78** /
+  `waitfor_test.py`(MockAdapter) **9/9** / `capture_assert_test.py`(Mock×2) **7/7**。
+- **ライブ Monado(build-win の monado-service.exe/monado-cli.exe・:52702・null compositor)**:
+  probe=XRT_SUCCESS(HMD+L/R 3デバイス) / `server --verify` **9/9** / `record --verify` **5/5** /
+  frame_test **10/10** / reset_test **20/20** / multiobs **中核8/8**(haptics broadcast 3件は host app 前提で
+  期待どおり FAIL=回帰でない)。各制御セマンティクステストは fresh service で実行(writer切断の状態保持による順序汚染回避)。
+- 未実行(環境依存): 実アプリE2E(run_hello_xr_monado.sh)は openxr_monado-dev.json 未生成(build-win に openxr_monado
+  ターゲット未ビルド)+hello_xr 要 / mcp_verify は要 venv+mcp。回帰でなく未ビルド/未セットアップ。
+- サービスは1呼び出し内でライフサイクルを閉じ taskkill で後片付け(ゾンビ0を tasklist で確認)。
+
+## 2026-07-23 — h-evolve 実行記録 (5回目) + テストカバレッジ/CI 着手 (このセッション・h-loop 外)
+
+**このセッションの作業** (ユーザー主導・h-loop 外なので metrics 未記録):
+- **A(driver/scripts 整理コミット)**: .gitignore の素パターン整理(/build/・driver/build/・bin/ に錨、素の
+  build/.claude/harness 除去) + .gitattributes/.mcp.json/.vscode 追跡 (cbeb7e9d4)。SteamVR driver スケルトン
+  driver_playspectra (vd1/vd2 土台・未ビルド/未検証・SteamVR実機不在) + 入力プロファイル2点 (1e3466320/9a35e9be9)。
+  VRDevApp 検証ハーネス scripts/run_vrdevapp.sh+vrdevapp_client.mjs (70b4cd201)。
+- **テストカバレッジ item 1**: mcp/src/math.ts の node:test 42件 (5f2e00209)。node:test+tsx 採用・tsconfig で
+  *.test.ts を build 除外。ローカル 42/42。
+- **item 6 CI**: .github/workflows/ci.yml (mcp=ubuntu/layer=windows) + layer に /utf-8 (2026e1d7a)。push → CI は
+  **課金ブロックで起動せず** (run 29966605494・private repo)。→ ローカル代替 scripts/run_all_tests.sh 120テスト green (c7218ca7f)。
+
+**蒸留 (h-evolve 5回目・ユーザー承認 P1/P2/P3、P4見送り)**:
+- P1 → auto-memory `ci-and-test-gate` 新規: 課金ブロック現況 + ローカルゲート + mcp テスト規約。 → processed
+- P2 → `.claude/rules/build-cmake.md` 新規(paths: **/CMakeLists.txt): 新規MSVCターゲットは /utf-8 必須(2回発生:
+  Monado cdd429f88 / layer 2026e1d7a)。配置は既存rule(scripts/**・layer/src/**)が CMakeLists 編集で発火しない
+  ため専用rule=global最適と判断(ユーザーが global最適を条件に承認)。 → processed
+- P3 → review-checklist.md lens 8 追記: git status/.gitignore の可視性を明示コマンドで確認(素パターン全階層マッチ・
+  未追跡ツリー畳み込み)。出典 cbeb7e9d4 / 9a35e9be9(resources/ 露出 near-miss)。 → processed
+- P4(purpose-first の feedback memory)は**見送り**: 根拠が本セッション1回の指摘のみで状況固有、恒久規則化は早計
+  (メタ認知点検で自己格下げ→ユーザーも見送り承認)。
+- 記録のみ(非蒸留): loader_test/`-E loader_test` の保険は未検証前提(fresh build 拒否で fresh configure の
+  BUILD_TESTING=OFF シード挙動を未確認)→ commit/コメントに明記済み・fresh CI/ビルドが走ったら再評価。
+
+**metrics 所見**: 29ループ不変(平均 rejections ~0.31・plateau 0・新規ループなし = 本セッションは h-loop 外)
+→ review 健全・ドリフト提案なし。
+
+## 2026-07-24 — テストカバレッジ仕上げ + Codex外部レビュー導入 + MCP/SteamVR設計決定 (このセッション・h-loop外)
+
+**このセッションの作業**(ユーザー主導・会話型、h-loop外なので metrics 未記録):
+- **テストカバレッジ仕上げ**: mcp/src/math.ts 42件(既存)に加え、layer の DXGI フォーマット判定9件(+`dxgi_formats.h`
+  の非自己完結ヘッダ実バグを発見・修正)、pose_override純粋3関数(header-only inline抽出)+テスト5件、
+  tools/playspectra_math_test.py 17件、submodule proto の frame_synchronized/content_sig を33→43件へ拡充。
+  `scripts/run_all_tests.sh` へ python(math+wait_for+capture_assert)/proto を配線し統合ゲート**194→210件(Win)**へ。
+  コミット 852e75f4d/1929ed6f4/c04cf137b/a1a089643/4f8aa3bd1。
+- **Codex 外部レビュー導入**(`/codex:review`、初回利用): 上記テスト拡充+README/tools READMEのdoc整合コミット
+  (83ff46741 の前身)に対し、ユーザー主導で Codex(別モデル)にレビューさせた。3件検出、全て修正:
+  (1) `run_all_tests.sh` が python/gcc/submodule欠如時にSKIPを無言で`ALL GREEN`へ含めていた(レンズ6違反の再発、
+  h-loop外でh-reviewer委譲が無かったため機械チェックを素通り)、(2) backlog `mcp-apps-widget` が録画ビューア
+  widgetを「実装済み」と記載していたが実装は別ブランチ`feat/mcp-recording-viewer-widget`のみに存在し本ブランチ
+  `feat/mcp-server`には無かった(git log で `mcp/src/client.ts` が分岐点`24b88fbe`以降無改修と確定)、(3) READMEの
+  非Windows向けテストコマンドがWindows専用`.exe`パスのままだった。→ 修正+SKIP明示計上(ALL GREEN/GREEN WITH SKIPS
+  の区別)をコミット83ff46741で出荷。
+- **MCP/SteamVR Adapter 設計決定**(ユーザーとの設計相談): (a) SteamVR Adapter対応にMCP/Server側の分岐は不要と判明
+  (Server は VirtualDeviceState/NDJSONを喋るAdapterに繋ぐだけの薄いクライアント設計のため)、旧backlog
+  vd5-mcp-routingは改革前設計の名残と判明し撤回。(b) legacy TS `mcp/` は廃止方向で確定(分岐点以降実質更新なし
+  と実測)、録画ビューアwidgetはPython版`tools/playspectra_mcp.py`へ移植する方針。backlog/README/memory
+  (`mcp-adapter-migration-decision`)へ反映、コミット7e240a5a3。
+
+**Learnings**:
+- **レンズ6の再発が示したもの**: review-checklist.md のレンズは h-reviewer への委譲時にのみ強制的に効く。
+  h-loop外の会話型セッションでは、既存レンズに反するコードを書いても機械チェックが自動的には走らない
+  ——今回はユーザーが `/codex:review` を明示的に起動したことで初めて検出された。恒久ルール化は時期尚早
+  (単発の観察)だが、今後同種の再発が続くならルール化を検討する。
+- **レンズ7の変種(ブランチ跨ぎ)**: 「実装済み」という主張はブランチ限定である。あるブランチで実装された
+  機能を別ブランチの記述に書くと、コミット時点では意図が正しくても、ブランチが分岐すればその主張は
+  そのブランチについて偽になる。git log(最終変更コミット・分岐点)で裏取りしてから書く。
+
+**→ processed (h-evolve 2026-07-24)**: レンズ6の出典行に本セッションの再発例を追記、レンズ7に
+ブランチ跨ぎ「実装済み」節を新設。h-loop外の自動チェック欠如は根拠1件のため見送り(次回再発時に再検討)。
+metrics: 新規h-loopタスクなし(29ループ不変)→ ドリフト提案なし。agent-memory: 変更なし(h-reviewer委譲なし)。
+
+## 2026-07-25 — 目標体系の再定義 + G1(実エンジンアプリE2E) + 画質根治 + 全域監査 (このセッション・h-loop外)
+
+**やったこと**:
+- **目的→目標定義→優先順位**: north star から「Playwright が実用品である条件」6項目へ写像し、達成/未達を仕分け。
+  未達が #2「実在のアプリで動く」に集中していると判明(実証は hello_xr=SDKサンプルのみ、実エンジン 0件)。
+  G1(実エンジンアプリ完走)を最優先と合意。G2'は「実機に映像を出す」ではなく**「実機が繋がっていても仮想
+  デバイス経由で操作でき混線しない」**とユーザーが訂正 → SteamVR Adapter(G3)と実質同一と整理。
+- **G1 完了 25/25**: VRAppDummyGame(Godot 4.7、兄弟dirの別repo)を Monado 経路で完走。
+  `tools/playspectra_vrapp{,_test}.py` / `playspectra_png_stats.py` / `scripts/run_vrapp_monado.sh` 新設、
+  `lib_monado_stack.sh` に `mstack_service_up/_down` を move-only 抽出(hello_xr 20/20 で回帰なし確認)。
+  **hello_xr との決定的差**: アプリが `[VRTEST]` 契約で受信内容を自己申告するため、観測経路がアプリ側にあり
+  「PlaySpectra 側が読み値を書き換えている」では説明できない検証になった。→ 60dd6680b
+- **画質根治**: swapchain が 320x240 だった真因 = `null_compositor.c` が xdev を受け取りながら解像度・フレーム
+  間隔だけ定数を返答(upstream 初出からのテストスタブ値)。main compositor と同じ xdev 由来へ是正 →
+  **1080x1200 / 90.0fps** を実測。env では回避不能(`OXR_VIEWPORT_SCALE_PERCENTAGE` は200%クランプで640x480が上限、
+  `XRT_COMPOSITOR_SCALE_PERCENTAGE` は null 経路で参照・構造体・リンクの3層とも到達不能)ことをサブエージェント
+  2体が独立に確定。→ submodule 2af03069c / 親 gitlink 60dd6680b
+- **全域監査(ultracode)**: 10領域×7レンズ、audit=sonnet→verify=opus(敵対的反証)、20エージェント。
+  **39件確定(CONFIRMED 24 / PLAUSIBLE 10 / REJECTED 5)** を `.claude/audit-meaningless-code.csv` に出力。
+  M06/M13/M21 は即修正、残りは backlog へ優先度付きで起票。→ bb7c4521c
+
+**Learnings**:
+- **「動くように見えて意味をなしていない」が今回の全不具合の共通形**だった: 受け取った値を無視して定数を返す /
+  上部しか測らない / 「変化した」だけ見て「命令どおりか」を見ない / 一度だけ問い合わせて待たない。これを
+  レンズ化して全域に当てたら、独立に同じ場所(hello_xr の status race)を指した = レンズの照準が正しい証拠。
+- **監査自身にも盲点があった**: 「宣言されたパス・成果物が実在するか」を問うレンズが無く、`run_vrdevapp.sh` の
+  参照先 exe 不在と `layer_log.cpp` の cwd フォールバックを取りこぼした。**事前に自分の候補を控えておいたから
+  取りこぼしを測れた** — 監査を回すときは期待リストを先に作ると監査自体を評価できる。
+- **誤診を1回した**: 解像度を上げた直後に非退化判定が落ち「描画が壊れた」と判断しかけたが、実際は測定側が
+  画像上部しか見ていなかっただけ。**症状と原因の取り違え**。測定器を疑う順序を先に置くべきだった。
+- **主張範囲の線引き**: 実証済みはネイティブ OpenXR と Godot 4.7 のみで Unity/Unreal は未検証、と README に
+  明記。「エンジン非依存」を実績のように書くのは CLAUDE.md が止めようとしてきた失敗の4回目になるところだった。
+
+**→ processed (h-evolve 2026-07-28)**: レンズ9〜13 を review-checklist に新設(ignored-input / weak-assertion /
+race-no-retry / partial-observation / 宣言パスの実在)、CLAUDE.md に submodule×匿名性ガードの運用節を追加、
+agent-memory(review-env-sandbox-quirks)に python の Windows パス要件と scratchpad 揮発性を追記。
+
+## 2026-07-28 — h-evolve 実行記録 (6回目)
+
+入力: journal(2026-07-24 まで全て processed 済み・未処理ゼロ) / agent-memory 3件 / git log -20 / metrics.jsonl。
+metrics は **2026-07-17 で停止(29ループ)** し新規ループなし → review_rejections のキャリブレーションは対象外
+(データ不変)。よって蒸留源は本セッション(証拠= git log 3コミット・監査CSV 39件・実測ログ)。
+適用: **A** レンズ9〜12(監査由来4本) / **B** レンズ13(監査の盲点) / **C** sandbox-quirks 2行 / **D** CLAUDE.md に
+submodule×匿名性ガード節。**E は不採用**(h-loop 外運用の機械チェック欠如。2回連続の観察だが、h-loop の使用を
+運用へ押し付ける形になるため見送り。再発したら代替経路〈定例 review 等〉として再提案する)。
+
+## 2026-07-28 — h-triage 初回実行 (監査39件の仕分け・h-loop外)
+
+**やったこと**: 全域監査の CONFIRMED/PLAUSIBLE 31件(修正済み3件・REJECTED 5件を除外)を同型で17問題へ束ね、
+h-triage を1問題1エージェント(haiku)で17体並列実行。結果 **BEFORE-NEXT 1 / LATER 8 / DROP 8、NOW は 0件**。
+
+**収穫**: `setup-extract-cannot-fail`(M08) が **BEFORE-NEXT / 条件B2** に格上げ。`setup_monado.sh` が展開件数を
+数えるだけで `n==0` も対象 json の存在も確認せず、下流の integration テストも存在確認なしに `XR_RUNTIME_JSON`
+を向けるため、**「Monado が正しくセットアップされている」という次作業の前提が未検証**だと判明。実測作業の
+ゲートとして backlog に明記。
+
+**Learnings**:
+- **順序を間違えた**: 監査→**backlog起票**→トリアージ の順で回したため、DROP 8件が**全件 条件D1(既に追跡済み)**
+  になった。トリアージが自分の入力を「もう追跡されている」と見た形で、この8件は仕分けとして情報を持たない。
+  正しくは **監査→トリアージ→起票**。h-triage が警告する「1つの条件が大半を通す=素通し」状態を、条件表では
+  なく**入力の作り方**で発生させた。1件は根拠に監査CSV自体(`audit-meaningless-code.csv:73`)を挙げており、
+  問題一覧を「追跡記録」と見なす明確な誤適用も出た。
+- **再実行はしない判断**: DROP 8件の中身は既に severity 付きで backlog にあり、再実行で増えるのはラベル名だけ。
+  ただし**次に監査系を回すときは起票前にトリアージを通す**。
+- **条件表の欠落を実測**: 17件中3件(M29/M32/M34)が**どの条件にも当てはまらないまま LATER**。h-triage の規定
+  では「条件を1つも trip しない」のは条件リストに欠けたケースがある証拠。3件の共通形は「テスト/クライアント側に
+  閉じた緩さで、現タスクとの関係では測れないが放置すると退行検知が効かなくなる」。次回 h-evolve の入力とする。
+- **集計スクリプトを一度壊した**: 記録ファイルが条件表を全転記する形式なので、本文を正規表現で舐めると全条件idを
+  拾いラベルも見出しから誤検出する(probe-return-values が LATER なのに BEFORE-NEXT と出た)。**frontmatter の
+  `label:`/`conditions:` から読むのが正**。レンズ4「文書中の数値は生データから機械カウント」の実践中に、
+  その機械カウント自体を誤ったケース。
+
+**追記(同日・メタ認知チェックで発覚)**: 唯一の収穫だった **BEFORE-NEXT 判定の前提が誤り**だった。B2 は
+「計画中の作業が `setup_monado.sh` に依存する」を根拠にしていたが、一次ソースで確認すると (a) 同スクリプトの
+DEST は `third_party/monado/`(GitLab CI アーティファクト)で、次作業が使うのは `build-win/`(自前ビルド、
+`lib_monado_stack.sh:19-20` が固定)、(b) 参照元は `integration_openvr_test.sh` と `setup_hellovr.sh` のみで
+`run_vrapp_monado.sh`/`run_hello_xr_monado.sh` は呼ばない、(c) その2本は 25/25・20/20 で実測済み。
+→ backlog を P2 へ差し戻し、**ラベルは書き換えず**記録ファイルに不同意理由を追記(h-triage 規定)。
+**教訓**: h-triage は「与えられたテキストに条件表を当てる」のが役割で、*どの経路が実際に使われるか*の検証は
+**呼び出し側の仕事**。スキル自身が「N1 の主張を契約と DoD に照らしたら false だった、そのチェックが手本」と
+書いているのに、それを飛ばして作業順序まで提案しかけた。**エージェントの判定は入力の質までは保証しない。**
+これで本実行の収穫は実質ゼロ(BEFORE-NEXT 1件は前提誤り、DROP 8件は起票順ミス、LATER 8件は既知の据え置き)
+だが、**順序ミスと前提検証の欠落という2つの手順欠陥を実測できた**ことが成果。
+
+## 2026-07-29 — セッション終了・状態確定
+
+**確定した状態**: 作業ツリー/submodule ともクリーン、未 push ゼロ。本セッションのコミットは
+60dd6680b(G1) / bb7c4521c(監査+doc) / 5a7eb139a(harness繰越) / d23c85ddf(h-evolve 6回目) /
+c99a2a41e(h-triage) / 7646d03cc(前提誤りの訂正)、submodule は 2af03069c(解像度+ペーシング) /
+cfcf5aa68(.clangd)。
+
+**記録した現況**: `.claude/harness/backlog.md` **冒頭に「現況スナップショット」節を新設** —
+north star 6条件への現在地、次セッションの再開手順(そのまま実行できる形)、直近完了分、
+**未検証のまま残っている主張の一覧**。memory `project-status-2026-07-29` を索引として追加
+(MEMORY.md 先頭に★付きで配置。次セッションはここから backlog の現況節へ辿る)。
+
+**期限について**: ユーザーからの期日指定は無いことを確認し、その旨を明記した。締切ではなく
+**依存順序**で並べる形にし、「いつまでに」を推測で書かない(CLAUDE.md 検証規律)。期日が決まったら
+現況節に書き足す運用。
+
+**次の一手**: (1)実機同居の実測(Horizon Link 起動が要る・低コスト・ゲート無し) → (2)G3 SteamVR Adapter。
+新規設計調査は次セッションで行う方針をユーザーが明示。

@@ -24,10 +24,10 @@ paths:
 ## MinGW ビルドの流儀
 
 - COM の IID は `IID_Xxx` シンボル直接参照(CMake で dxguid リンク済み)。`__uuidof` は使わない。
-- レイヤーの単独リビルドは `cmake --build layer/build --target vr_agent_layer`(ゾンビ hello_xr.exe が
+- レイヤーの単独リビルドは `cmake --build layer/build --target playspectra_layer`(ゾンビ hello_xr.exe が
   exe の書込ロックを持ち全体ビルドの relink を塞ぐことがある。実行は可能・再起動で解消)。
 - 実行時に読まれる DLL は `layer/manifest/` のコピー(POST_BUILD で同期)。ビルドログの
-  「Syncing vr_agent_layer.dll next to the loader manifest」で同期を確認できる。
+  「Syncing the layer binary next to the loader manifest」で同期を確認できる。
 - **kill 不能ゾンビが exe をロックしていても、実行中 exe のリネームは通る**(上書き cp は
   "Device or resource busy"、mv は成功 — NTFS は open 中でも rename 可)。デプロイは
   `mv old.exe old.exe.z && cp new old.exe`、退避ファイルはプロセス消滅後に削除

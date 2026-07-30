@@ -7,6 +7,12 @@ import { readFile } from "node:fs/promises";
 export const HOST = "127.0.0.1";
 export const PORT = Number(process.env.PLAYSPECTRA_PORT ?? "52700");
 
+// A well-formed reply line is small JSON. Cap the accumulation buffer so anything holding the port
+// that streams bytes without a newline cannot grow it unbounded and exhaust memory. Reported by
+// Jules/Sentinel (PR #5); the read loop moved server.ts -> client.ts in the R20 split, so the fix
+// lands here.
+const MAX_LINE_BYTES = 1 << 20; // 1 MiB
+
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };
 
 class ControlClient {
@@ -62,6 +68,12 @@ class ControlClient {
       } catch (e) {
         req.reject(new Error(`bad reply from layer: ${line}`));
       }
+    }
+    // Only an incomplete tail remains after draining. If it alone exceeds the cap, no newline is
+    // coming: drop the connection (rejects pending, clears buffer) instead of growing without bound.
+    if (this.buffer.length > MAX_LINE_BYTES) {
+      this.socket?.destroy();
+      this.teardown(new Error("control channel: reply exceeded 1 MiB with no newline"));
     }
   }
 

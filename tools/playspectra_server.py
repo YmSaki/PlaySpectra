@@ -291,6 +291,32 @@ class Server:
         ctrl = self.model.hand(hand)
         self._stream(duration_ms, lambda t: ctrl.inputs.__setitem__("/input/trigger/value", value))
 
+    def move_controller(self, hand, to, duration_ms=400):
+        """Move a controller's grip+aim pose to a STAGE-space target ({position, optional orientation}),
+        interpolated. Grip and aim move together (the whole hand); use set_input for finer control."""
+        ctrl = self.model.hand(hand)
+        gp0 = list(ctrl.grip_pos); gq0 = list(ctrl.grip_quat)
+        ap0 = list(ctrl.aim_pos); aq0 = list(ctrl.aim_quat)
+        p1 = list(to.get("position", gp0))
+        q1 = quat_norm(list(to.get("orientation", gq0)))
+
+        def apply(t):
+            ctrl.grip_pos = lerp3(gp0, p1, t); ctrl.grip_quat = slerp(gq0, q1, t)
+            ctrl.aim_pos = lerp3(ap0, p1, t); ctrl.aim_quat = slerp(aq0, q1, t)
+        self._stream(duration_ms, apply)
+
+    def set_input(self, hand, path, value, duration_ms=0):
+        """Set an arbitrary controller input path (e.g. '/input/squeeze/value', '/button/a/touch') to a
+        value, held. Float for /value|/x|/y, bool for /click|/touch. duration_ms=0 = instant."""
+        ctrl = self.model.hand(hand)
+        if path not in ctrl.inputs:
+            raise ValueError("unknown input %r for %s hand (declared: %s)" % (path, hand, list(ctrl.inputs)))
+        if duration_ms > 0:
+            self._stream(duration_ms, lambda t: ctrl.inputs.__setitem__(path, value))
+        else:
+            ctrl.inputs[path] = value
+            self._emit()
+
     def press(self, hand="right", button="a", ms=120):
         """Press+hold a click button for ms then release (also sets its touch while held)."""
         ctrl = self.model.hand(hand)
@@ -345,14 +371,47 @@ class Server:
             return False
         return False
 
-    def assert_state(self, get, op="near", value=None, tol=1e-3, name=None):
-        """Read the live state (get_state) and check a field. Records the result; never raises."""
-        g = self.c.request({"cmd": "get_state", "request_id": "srv-assert%d" % (len(self.assertions) + 1)})
-        actual = self._resolve((g or {}).get("state", {}), get if isinstance(get, list) else [get])
-        ok = self._cmp(actual, op, value, tol)
+    def _poll_until(self, probe, timeout_ms, poll_ms):
+        """Playwright-style auto-wait core: call probe() -> (ok, detail) repeatedly until ok, or until
+        the timeout elapses. timeout_ms<=0 means a single shot (evaluate once) -- this keeps every
+        existing single-shot assertion byte-for-byte unchanged. Returns (ok, detail, elapsed_ms)."""
+        start = time.monotonic()
+        deadline = start + max(0, timeout_ms) / 1000.0
+        while True:
+            ok, detail = probe()
+            if ok:
+                return True, detail, int((time.monotonic() - start) * 1000)
+            if timeout_ms <= 0 or time.monotonic() >= deadline:
+                return False, detail, int((time.monotonic() - start) * 1000)
+            time.sleep(max(0.0, poll_ms) / 1000.0)
+
+    def _probe_state(self, path, op, value, tol, tag):
+        """Fetch get_state once and evaluate one field. Returns (ok, actual) for _poll_until."""
+        g = self.c.request({"cmd": "get_state", "request_id": "srv-%s%d" % (tag, len(self.assertions) + 1)})
+        actual = self._resolve((g or {}).get("state", {}), path if isinstance(path, list) else [path])
+        return self._cmp(actual, op, value, tol), actual
+
+    def assert_state(self, get, op="near", value=None, tol=1e-3, name=None, timeout_ms=0, poll_ms=50):
+        """Read the live state (get_state) and check a field. With timeout_ms>0 the check auto-retries
+        until it passes or the timeout elapses (Playwright's expect().toPass()); timeout_ms=0 (default)
+        is a single shot. Records the result; never raises."""
+        ok, actual, elapsed = self._poll_until(
+            lambda: self._probe_state(get or [], op, value, tol, "assert"), timeout_ms, poll_ms)
         label = name or ("%s %s %s" % (get, op, value))
         self.assertions.append((label, bool(ok), actual))
-        self.log("  assert: %s -> %s (actual=%s)" % (label, "PASS" if ok else "FAIL", actual))
+        waited = "" if timeout_ms <= 0 else " after %dms" % elapsed
+        self.log("  assert: %s -> %s (actual=%s%s)" % (label, "PASS" if ok else "FAIL", actual, waited))
+        return ok
+
+    def wait_for(self, get, op="true", value=None, tol=1e-3, timeout_ms=5000, poll_ms=50, name=None):
+        """Playwright-style auto-wait: poll get_state until the field satisfies (op, value) or the
+        timeout elapses. Records a pass/fail assertion so a scenario fails if the expected state never
+        arrives -- this replaces brittle fixed wait(ms) sleeps before an assert."""
+        ok, actual, elapsed = self._poll_until(
+            lambda: self._probe_state(get or [], op, value, tol, "wait"), timeout_ms, poll_ms)
+        label = name or ("wait %s %s %s" % (get, op, value))
+        self.assertions.append((label, bool(ok), actual))
+        self.log("  wait_for: %s -> %s in %dms (actual=%s)" % (label, "met" if ok else "TIMEOUT", elapsed, actual))
         return ok
 
     # -- capture assertions (visual regression): observe the SCREEN via the layer channel (:52700) --
@@ -386,21 +445,28 @@ class Server:
         self.log("  capture %s -> %s (%s)" % (name, "ok" if ok else "FAIL", s.get("hash") or s.get("error")))
         return ok
 
-    def assert_capture(self, ref, op="changed", eye="left", name=None):
+    def assert_capture(self, ref, op="changed", eye="left", name=None, timeout_ms=0, poll_ms=100):
         """Screenshot now and compare to a stored reference. op: 'changed' (visual regression detects a
-        difference after an operation) or 'stable' (no change expected)."""
+        difference after an operation) or 'stable' (no change expected). With timeout_ms>0 the compare
+        auto-retries until it holds or the timeout elapses -- useful for 'changed' to wait for the frame
+        to actually update; timeout_ms=0 (default) is a single shot."""
         base = self.captures.get(ref)
-        s = self._screenshot(eye)
         label = name or ("capture %s vs ref[%s]" % (op, ref))
-        if not s.get("ok") or base is None:
-            detail = s.get("error") or ("no reference %r" % ref)
-            self.assertions.append((label, False, detail))
-            self.log("  assert_capture: %s -> FAIL (%s)" % (label, detail))
+        if base is None:
+            self.assertions.append((label, False, "no reference %r" % ref))
+            self.log("  assert_capture: %s -> FAIL (no reference %r)" % (label, ref))
             return False
-        same = s["hash"] == base["hash"]
-        ok = (op == "stable" and same) or (op == "changed" and not same)
-        self.assertions.append((label, bool(ok), "now=%s ref=%s" % (s["hash"], base["hash"])))
-        self.log("  assert_capture: %s -> %s (now=%s ref=%s)" % (label, "PASS" if ok else "FAIL", s["hash"], base["hash"]))
+        def probe():
+            s = self._screenshot(eye)
+            if not s.get("ok"):
+                return False, s.get("error")
+            same = s["hash"] == base["hash"]
+            hit = (op == "stable" and same) or (op == "changed" and not same)
+            return hit, "now=%s ref=%s" % (s["hash"], base["hash"])
+        ok, detail, elapsed = self._poll_until(probe, timeout_ms, poll_ms)
+        self.assertions.append((label, bool(ok), detail))
+        waited = "" if timeout_ms <= 0 else " after %dms" % elapsed
+        self.log("  assert_capture: %s -> %s (%s%s)" % (label, "PASS" if ok else "FAIL", detail, waited))
         return ok
 
     def run_step(self, step):
@@ -408,16 +474,20 @@ class Server:
         args = {k: v for k, v in step.items() if k != "cmd"}
         fn = {
             "hello": lambda role="writer", **_: self.hello(role),
-            "assert": lambda get=None, op="near", value=None, tol=1e-3, name=None, **_:
-                self.assert_state(get or [], op, value, tol, name),
+            "assert": lambda get=None, op="near", value=None, tol=1e-3, name=None, timeout_ms=0, poll_ms=50, **_:
+                self.assert_state(get or [], op, value, tol, name, timeout_ms, poll_ms),
+            "wait_for": lambda get=None, op="true", value=None, tol=1e-3, timeout_ms=5000, poll_ms=50, name=None, **_:
+                self.wait_for(get or [], op, value, tol, timeout_ms, poll_ms, name),
             "capture": lambda name="ref", eye="left", **_: self.capture_ref(name, eye),
-            "assert_capture": lambda ref="ref", op="changed", eye="left", name=None, **_:
-                self.assert_capture(ref, op, eye, name),
+            "assert_capture": lambda ref="ref", op="changed", eye="left", name=None, timeout_ms=0, poll_ms=100, **_:
+                self.assert_capture(ref, op, eye, name, timeout_ms, poll_ms),
             "move_head": lambda to=None, duration_ms=500, **_: self.move_head(to or {}, duration_ms),
             "look": lambda yaw_deg=0.0, duration_ms=500, **_: self.look(yaw_deg, duration_ms),
             "walk_forward": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.walk_forward(speed, duration_ms, hand),
             "strafe": lambda speed=1.0, duration_ms=1000, hand="left", **_: self.strafe(speed, duration_ms, hand),
             "trigger": lambda hand="right", value=1.0, duration_ms=200, **_: self.set_trigger(hand, value, duration_ms),
+            "move_controller": lambda hand="right", to=None, duration_ms=400, **_: self.move_controller(hand, to or {}, duration_ms),
+            "set_input": lambda hand="right", path=None, value=0.0, duration_ms=0, **_: self.set_input(hand, path, value, duration_ms),
             "press": lambda hand="right", button="a", ms=120, **_: self.press(hand, button, ms),
             "wait": lambda ms=100, **_: self.wait(ms),
             "reset": lambda **_: self.reset(),
@@ -490,6 +560,15 @@ def verify_run(host, port, rate):
     g = c.request({"cmd": "get_state", "request_id": "vq4"})
     ac = g["state"]["right"]["inputs"]["/button/a/click"]
     check("press releases button (a/click false at end)", ac is False, "a=%s" % ac)
+    # Playwright-style auto-wait: after moving the head, wait_for confirms the state via polling, and an
+    # impossible condition times out (returns False) instead of hanging. Same get_state path, no fixed sleep.
+    srv.move_head({"position": [0.0, 1.6, -2.0]}, 200)
+    met = srv.wait_for(["hmd", "head", "position", 2], "near", -2.0, tol=1e-2, timeout_ms=1500, poll_ms=40)
+    check("wait_for confirms move_head -> z~-2 (auto-wait)", met, "met=%s" % met)
+    to = srv.wait_for(["hmd", "head", "position", 2], "near", 999.0, timeout_ms=250, poll_ms=40)
+    check("wait_for times out on impossible condition (no hang)", to is False, "returned=%s" % to)
+    ra = srv.assert_state(["hmd", "head", "position", 2], "near", -2.0, tol=1e-2, timeout_ms=500)
+    check("retrying assert passes when condition holds", ra, "ok=%s" % ra)
     srv.reset()
     zr = _read_head_z(c)
     check("reset -> head back to z~0", zr is not None and abs(zr) < 1e-3, "z=%s" % zr)
@@ -497,6 +576,34 @@ def verify_run(host, port, rate):
     npass = sum(1 for _, ok in results if ok)
     print("\n=== %d/%d PASS ===" % (npass, len(results)))
     return 0 if npass == len(results) else 1
+
+
+def run_single(host, port, rate, cmd, args_json, capture_port=0):
+    """CLI operate interface (architecture §2: MCP / CLI / Scenario are peer operation interfaces).
+    Connect, run ONE scenario-step command, print the resulting device state as JSON, tear down.
+    Reuses run_step so the CLI vocabulary is exactly the scenario vocabulary. State persists in the
+    adapter between calls, so CLI commands compose (each hello re-seeds the model from get_state)."""
+    try:
+        step_args = json.loads(args_json)
+    except ValueError as e:
+        print("bad --args JSON: %s" % e); return 2
+    if not isinstance(step_args, dict):
+        print("--args must be a JSON object, e.g. '{\"yaw_deg\":90}'"); return 2
+    c = ControlClient(host, port)
+    cap = ControlClient(host, capture_port) if capture_port else None
+    # Progress ("step:", "wait_for:", ...) goes to STDERR so STDOUT stays clean JSON for piping/parsing.
+    srv = Server(c, rate_hz=rate, capture=cap, log=lambda *a: print(*a, file=sys.stderr))
+    srv.hello("writer")
+    # get_state/status are observe-only (not run_step verbs): the state is printed either way.
+    result = None if cmd in ("get_state", "status") else srv.run_step({"cmd": cmd, **step_args})
+    g = c.request({"cmd": "get_state", "request_id": "cli-gs"})
+    c.close()
+    if cap:
+        cap.close()
+    print(json.dumps({"cmd": cmd, "result": result, "state": (g or {}).get("state", {})},
+                     ensure_ascii=False))
+    # An assert/wait_for that did not hold is a non-zero exit (scriptable pass/fail, like the runner).
+    return 1 if (cmd in ("assert", "wait_for", "assert_capture") and result is False) else 0
 
 
 def main():
@@ -509,10 +616,18 @@ def main():
                     help="layer capture channel (:52700) for capture/assert_capture steps; 0 = disabled")
     ap.add_argument("--demo", action="store_true", help="run the built-in demo scenario")
     ap.add_argument("--verify", action="store_true", help="self-checking run (asserts effects via get_state)")
+    ap.add_argument("--cmd", help="CLI operate interface: run ONE command (a scenario-step cmd, e.g. "
+                                  "move_head / look / walk_forward / get_state / wait_for) and print the "
+                                  "state, instead of a whole scenario")
+    ap.add_argument("--args", default="{}",
+                    help="JSON object of args for --cmd, e.g. '{\"to\":{\"position\":[0,1.6,-1]},\"duration_ms\":400}'")
     a = ap.parse_args()
 
     if a.verify:
         return verify_run(a.host, a.port, a.rate)
+
+    if a.cmd:
+        return run_single(a.host, a.port, a.rate, a.cmd, a.args, a.capture_port)
 
     if a.demo:
         scenario = DEMO

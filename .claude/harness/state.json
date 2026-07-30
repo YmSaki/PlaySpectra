@@ -1,20 +1,20 @@
 {
   "version": 1,
   "active": false,
-  "task": "R17 d3d11-typeless: D3D11 guard で 8bit TYPELESS を受理(同族 UNORM 解釈) — backlog Deferred(ユーザー承認済み、最終)",
+  "task": "unit-tests-registry-capture: HandTopFromBindingPath/EyeToIndex 等のテスト追加",
   "phase": "done",
-  "iteration": 4,
+  "iteration": 5,
   "max_iterations": 30,
   "work_retry": 0,
   "max_work_retry": 3,
-  "review_rejections": 1,
+  "review_rejections": 0,
   "max_review_rejections": 3,
-  "review_files_history": [["scripts/setup_helloxr_msvc.sh"]],
-  "last_nudge_iteration": 3,
-  "auto_remaining": 1,
+  "review_files_history": [],
+  "last_nudge_iteration": 4,
   "workflow": {
     "phases": ["inv", "plan", "work", "review", "ship"],
     "parallel_groups": []
   },
-  "updated_at": "2026-07-16T18:05:00Z"
+  "auto_remaining": 0,
+  "updated_at": "2026-07-17T11:15:00Z"
 }

@@ -6,6 +6,9 @@
 using namespace playspectra;
 
 static constexpr float kEps = 1e-6f;
+// M_PI is a POSIX/GNU extension -- MSVC's <cmath> only defines it under
+// _USE_MATH_DEFINES, which is include-order fragile. Use a local constant.
+static constexpr float kPi = 3.14159265358979323846f;
 
 // --- QMul ---
 
@@ -31,8 +34,8 @@ TEST(XrMathTest, QMul_IdentityRight) {
 
 TEST(XrMathTest, QMul_90DegYaw) {
   // 90 degrees around Y: (0, sin(45), 0, cos(45))
-  const float s = std::sin(M_PI / 4.0f);
-  const float c = std::cos(M_PI / 4.0f);
+  const float s = std::sin(kPi / 4.0f);
+  const float c = std::cos(kPi / 4.0f);
   XrQuaternionf q{0, s, 0, c};
   // q*q = 180 degrees around Y: (0, 1, 0, 0)
   auto r = QMul(q, q);
@@ -83,8 +86,8 @@ TEST(XrMathTest, QRot_Identity) {
 
 TEST(XrMathTest, QRot_90DegAroundY) {
   // 90 degrees around Y rotates +X to -Z
-  const float s = std::sin(M_PI / 4.0f);
-  const float c = std::cos(M_PI / 4.0f);
+  const float s = std::sin(kPi / 4.0f);
+  const float c = std::cos(kPi / 4.0f);
   XrQuaternionf q{0, s, 0, c};
   XrVector3f v{1, 0, 0};
   auto r = QRot(q, v);

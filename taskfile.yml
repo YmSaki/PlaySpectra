@@ -13,15 +13,15 @@ tasks:
       - npm ci --prefix mcp
 
   configure:
-    desc: Configure PlaySpectra C++ components
+    desc: Configure the OpenXR layer (unit tests on; there is no top-level CMakeLists)
     cmds:
-      - cmake -S . -B {{.BUILD_DIR}} -DCMAKE_BUILD_TYPE=Debug
+      - cmake -S layer -B layer/build -DPLAYSPECTRA_BUILD_TESTS=ON
 
   build:
-    desc: Build PlaySpectra C++ components
+    desc: Build the OpenXR layer + its unit tests
     deps: [configure]
     cmds:
-      - cmake --build {{.BUILD_DIR}} --parallel
+      - cmake --build layer/build --parallel
 
   build:mcp:
     desc: Build MCP server
@@ -47,10 +47,10 @@ tasks:
       - build:monado
 
   test:
-    desc: Run unit tests
+    desc: Run unit tests (the full local gate is scripts/run_all_tests.sh)
     deps: [build]
     cmds:
-      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
+      - ctest --test-dir layer/build -E loader_test --output-on-failure
 
   test:integration:
     desc: Run PlaySpectra integration tests
@@ -78,6 +78,7 @@ tasks:
   monado:proto:test:
     desc: Compile+run the standalone PlaySpectra NDJSON protocol parser test (no Monado build needed)
     cmds:
+      - mkdir -p {{.BUILD_DIR}}
       - gcc -Wall -Wextra -I {{.MONADO_DIR}}/src/external/cjson -I {{.MONADO_DIR}}/src/xrt/drivers/playspectra {{.MONADO_DIR}}/src/xrt/drivers/playspectra/playspectra_proto_test.c {{.MONADO_DIR}}/src/xrt/drivers/playspectra/playspectra_proto.c {{.MONADO_DIR}}/src/external/cjson/cjson/cJSON.c -o {{.BUILD_DIR}}/playspectra_proto_test -lm
       - '{{.BUILD_DIR}}/playspectra_proto_test{{if eq OS "windows"}}.exe{{end}}'
 

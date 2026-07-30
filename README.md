@@ -48,7 +48,7 @@ source scripts/lib_monado_stack.sh
 mstack_env D3D11
 mstack_up D3D11 120
 trap mstack_down EXIT
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
 **WSL2 or Ubuntu (bash)**
@@ -61,7 +61,7 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-python3 - <<'PY'
+python - <<'PY'
 import socket, sys, time
 for _ in range(60):
     with socket.socket() as sock:
@@ -71,7 +71,7 @@ for _ in range(60):
     time.sleep(0.3)
 raise SystemExit("PlaySpectra control channel :52702 did not become ready")
 PY
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
 The Scenario moves the head, turns it, presses a right trigger, asserts the resulting state, and resets the virtual devices. When all assertions pass, the runner exits with status 0.
@@ -79,8 +79,8 @@ The Scenario moves the head, turns it, presses a right trigger, asserts the resu
 To issue individual operations through PlaySpectra-CLI, run:
 
 ~~~bash
-python3 tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
-python3 tools/playspectra_server.py --cmd get_state
+python tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
+python tools/playspectra_server.py --cmd get_state
 ~~~
 
 ## Current support
@@ -235,8 +235,8 @@ Set `VK_ICD_FILENAMES` when the default Vulkan ICD is not the intended one. See 
 `tools/playspectra_server.py` is both the shared Server and a one-command CLI. It executes commands such as `move_head`, `look`, `press`, and `get_state`, and can read the resulting device state back.
 
 ~~~bash
-python3 tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
-python3 tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
+python tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
+python tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
 ~~~
 
 See [CLI and Server details](tools/README.md).
@@ -260,8 +260,8 @@ A JSON Scenario is an ordered sequence of operations and assertions. Its minimum
 The checked-in examples cover movement, controller input, state assertions, visual assertions, and waiting. A failing assertion makes the runner exit non-zero.
 
 ~~~bash
-python3 tools/playspectra_server.py tools/scenarios/walk_and_look.json
-python3 tools/playspectra_record.py --verify
+python tools/playspectra_server.py tools/scenarios/walk_and_look.json
+python tools/playspectra_record.py --verify
 ~~~
 
 See the [scenario format](docs/scenario-format.md) and [sample scenarios](tools/scenarios/).
@@ -273,7 +273,7 @@ PlaySpectra-MCP is the interface that lets an AI agent operate and observe an XR
 Set it up in a dedicated environment:
 
 ~~~bash
-python3 -m venv .venv-mcp
+python -m venv .venv-mcp
 .venv-mcp/bin/python -m pip install -r tools/requirements.txt
 .venv-mcp/bin/python tools/playspectra_mcp.py
 ~~~

@@ -7,11 +7,9 @@
 #   - submodule playspectra_proto (gcc standalone: frame verdict + content_sig)       -> 43 cases
 # Dep-complete total: 210 (Windows) / 201 (non-Windows, DXGI excluded).
 #
-# WHY: GitHub Actions (.github/workflows/ci.yml) is billing-blocked on this private repo, so nothing
-# auto-runs these. This script is the local stand-in -- it recovers CI's "one command runs everything"
-# plus a correct pass/fail gate (a pre-push hook can call it later). It does NOT give a clean,
-# independent environment, so it cannot catch "works on my machine" issues (locale/dep/platform) --
-# that property only comes back with hosted CI once billing is fixed, or by making the repo public.
+# WHY: GitHub Actions runs the environment-independent MCP and layer suites, while this script adds
+# the Python-tool and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
+# independent environment, so it cannot catch every "works on my machine" issue (locale/dep/platform).
 #
 # SKIP discipline (review-checklist.md lens 6 / rules/setup-scripts.md #4): a missing python/gcc/
 # submodule SKIPs only that suite -- it never fails the run (rc is decided by fail alone) -- but it

@@ -1,250 +1,341 @@
 # PlaySpectra
 
-> **VRアプリ版の Playwright。** XRアプリを *操作*（入力注入）・*観察*（画面キャプチャ）・*記録*・*再生*・*検証（assert）* するための自動化基盤。
+[![CI](https://github.com/YmSaki/PlaySpectra/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/YmSaki/PlaySpectra/actions/workflows/ci.yml)
 
-Playwright がブラウザに合成入力を注入して DOM / スクリーンショットを観察するのと同じことを、VRアプリに対して行う。VRコントローラーと HMD を「触ったのと同じ入力」を注入し、レンダリング結果を画像として取得し、シナリオとして記録・再生し、画面や状態を assert する。
+[English](README.md) | [日本語](docs/readme.ja.md)
 
-MCP は製品本体ではなく、**複数ある操作インターフェースの1つ**（他に CLI / JSON シナリオ実行）。**エンジン非依存**（OpenXR 抽象に介入するため、個々のエンジン向けプラグインを書かずに済む設計）。実機 HMD 不要のヘッドレス動作を志向する。
+> **A virtual headset and controllers that AI agents can use.**
 
-> **エンジン非依存の検証範囲**（2026-07-25 時点）: 実測で E2E が成立しているのは **ネイティブ OpenXR（hello_xr）** と **Godot 4.7（VRAppDummyGame）** の2つ。**Unity / Unreal は未検証**。「エンジン非依存」は OpenXR 抽象に介入するという*設計上の性質*であり、全エンジンでの動作実績を意味しない（CLAUDE.md「検証済みと未検証を混ぜない」）。
+PlaySpectra is an XR operation adapter that connects AI agents to VR, AR, and MR applications.
 
-> リポジトリ名 (`VR-MCP`) は歴史的経緯で据え置き。製品名は PlaySpectra（旧 VR-MCP から 2026-07-19 に再定義）。設計の正典は [`.claude/playspectra-architecture.md`](.claude/playspectra-architecture.md)。
+With PlaySpectra-MCP, an AI agent can enter an XR application without a physical headset, operate the application, and observe its state and rendered world.
 
----
+When a procedure needs to be fixed and repeated, PlaySpectra can be used through PlaySpectra-CLI or JSON Scenarios. The same operation path can therefore be used for headless automated testing.
 
-## アーキテクチャ
+The current end-to-end evidence covers a native OpenXR application and a Godot 4.7 application. VR/AR/MR is the target domain; an AR/MR-specific application path is not yet verified.
 
-```text
-  ┌─ 操作インターフェース ─────────────────────────────┐
-  │   MCP  /  CLI  /  JSON Scenario Runner             │
-  └───────────────────────┬───────────────────────────┘
-                          ▼
-                 PlaySpectra Server            高水準命令 (walk_forward / look_at …) を
-        (高水準命令 → デバイス状態へ解釈・補間)   デバイス状態の列へ解釈・補間する
-                          ▼
-              Virtual Device Core              Runtime 非依存の VirtualDeviceState
-          (protocol_version / sequence / HMD / L / R)
-                          ▼
-        ┌──────── Device Backend (Runtime Adapter) ────────┐
-        │   Monado Adapter        SteamVR Adapter          │
-        │   (OpenXR / headless)   (SteamVR 実ゲーム・計画)  │
-        └───────────┬───────────────────┬──────────────────┘
-                    ▼                    ▼
-                 Monado              SteamVR Runtime
-                    ▼                    ▼
-             OpenXR アプリ        OpenVR / OpenXR アプリ
+## What PlaySpectra enables
 
-  ── Instrumentation（別軸・Device Backend ではない）──
-     OpenXR API Layer:  screenshot / recording / action discovery /
-                        diagnostics /（自動テスト用の override のみ）
-```
+| Use case | What PlaySpectra enables |
+| --- | --- |
+| AI-agent XR operation and observation | An AI agent operates an XR application and observes its state and rendered output. |
+| XR application development | Check whether head and controller input reaches an application without wearing a headset. |
+| Reproducible interaction | Repeat the same head movement, walking, and controller actions. |
+| Headless operation | Run an XR application from a server, CI job, WSL2 environment, or Linux machine. |
+| Automated testing | Assert that an application's state and rendered output match expectations after fixed actions. |
 
-**設計の骨子**（詳細は正典 §2）:
+## Minimal example
 
-- **共通汎用 Driver ABI は存在しない**。OpenXR が標準化するのは「アプリ ⇔ Runtime」の間だけで、その下の「Runtime ⇔ Driver」は Runtime ごとに固有。よって単一 DLL が全ランタイムに刺さる構造にはならず、**「共通デバイスモデル（Virtual Device Core）＋ Runtime 別 Adapter」** が骨格になる。
-- **PlaySpectra Server** が高水準命令の解釈・補間を担い、Driver/Adapter は「状態配信装置」に保つ（`walk_forward` を Driver に持たせない）。
-- **OpenXR Layer は Instrumentation（観測軸）** であり、Monado/SteamVR と同種の Device Backend としては扱わない。本番の入力経路は Adapter 側で、Layer の入力 override は自動テスト補助に限定する。
+The PlaySpectra Server/CLI connects to an OpenXR application that is already running on a Monado Runtime Adapter; it does not start the runtime or application by itself. Choose the environment in which you want to try it, complete that platform's build steps, and then use one of the existing bring-up commands below. Those bring-up scripts start the runtime and sample application for you.
 
-## 実装・検証状況
+These commands are intentionally shown here as well as in the platform guides: they are the shortest path from a completed build to a running sample application.
 
-凡例: ✅ 本環境で実装・E2E 検証済み / 🟡 実機・別環境で部分検証済み / 📋 設計・開発中 / 🔬 仮説（検証法付き）
-
-本環境で verifiable な主軸（操作 / 観察 / 記録 / 再生 / assert）は WSL2 上で end-to-end に成立し、さらに **Windows・実GPU でも、Windows ビルドの Monado 上で実アプリ（hello_xr）相手に E2E 成立**している（下表・末尾行）。検証環境は末尾の「検証環境」節を参照。
-
-| 領域 | 状況 | 根拠（リポジトリ内） |
+| Environment | Start the verified sample run | What the command starts and checks |
 | --- | --- | --- |
-| **Monado Adapter**: Virtual HMD + 左右コントローラー | ✅ Monado がデバイス列挙（head/left/right）・OpenXR アプリが pose 取得・`set_state` で pose/入力が遷移 | submodule `runtime/monado-playspectra` `src/xrt/drivers/playspectra/`、`tools/playspectra_{headless,action}_probe.c` |
-| Monado 制御チャネル（NDJSON/TCP :52702） | ✅ feature-complete: `set_state`/`get_state`/haptics broadcast/複数 observer/writer 排他/`frame_synchronized`/`reset`。**live Windows でも frame 10/10・reset 20/20・multiobs 中核 8/8 実測**（haptics broadcast の3件は host app 前提＝`integration_hello_xr` の grab→buzz 0→22 で別途実証） | `tools/playspectra_{multiobs,frame,reset}_test.py`（E2E 11/11・10/10・20/20、Windows 実測 2026-07-22） |
-| **PlaySpectra Server**: 高水準命令＋補間 | ✅ `move_head`/`look`/`walk_forward`/`strafe`/`trigger`/`press`/`set_input`/`move_controller`/`reset`/`get_state`。**live Windows で operate 面を全アクション・両手 完全実測**: `--verify` 9/9（HMD+auto-wait）+ `controller_ops` 7/7 + `operate_completeness` 7/7（両手の trigger/move_controller/set_input + strafe） | `tools/playspectra_server.py`、`tools/scenarios/{controller_ops,operate_completeness}.json`（Windows 2026-07-22） |
-| **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生。**live Windows Monado で 5/5**（42フレーム記録・軌跡 z→-2・reset 後 replay が head z を再現） | `tools/playspectra_record.py`（`--verify --port 52702`、2026-07-22） |
-| **Scenario Runner + assert（状態）** | ✅ `run_scenario` + `assert`（get_state のパス比較、失敗で exit 1、negative control 実証） | `tools/scenarios/assert_demo.json` |
-| **capture-assert（視覚回帰）** | ✅ 参照 screenshot の PNG hash を取り `changed`/`stable` を assert | `tools/scenarios/capture_assert_demo.json`（3/3、negative control FAIL rc=1） |
-| **キャプチャ: Vulkan** | ✅ Windows・実GPU で full E2E 20/20（fmt=43・深度パス present）＋ Linux で本番 Vulkan readback 394 PNG | `scripts/integration_test.sh Vulkan`（metasim, 2026-07-22）／ Linux 移植＝`layer/`（`CMakeLists.txt` の `if(WIN32)` で D3D/winsock を条件化した Vulkan-only ビルド・POSIX socket 化、committed） |
-| **キャプチャ: D3D11** | ✅ Windows・実GPU で full E2E 20/20（screenshot 1680x1760 fmt=29・非退化・録画） | `scripts/integration_test.sh D3D11`（metasim + MSVC hello_xr、2026-07-22） |
-| **キャプチャ: D3D12** | ✅ Windows・実GPU で full E2E 20/20（395フレーム・fmt=29・非退化・録画） | `scripts/integration_test.sh D3D12`（metasim + MSVC hello_xr、2026-07-22） |
-| **MCP サーバー（現行・Python）** | ✅ FastMCP が Server をラップ（operate→:52702 / capture→:52700）。**live Windows Monado + hello_xr 相手に実 MCP クライアントで 14/14**（全13ツールを実測: HMD操作/両コントローラー move_controller・set_input・set_trigger/walk_forward・strafe/press/wait_for/screenshot 実画像/run_scenario/reset。arg マッピングも確認） | `tools/playspectra_mcp.py`、`scripts/run_mcp_verify_monado.sh`（要 `pip install mcp`・**venv 推奨**、2026-07-22） |
-| **end-to-end Playwright ループ**（操作シナリオ→再描画→視覚回帰） | ✅ **Windows・実GPU**: server.py が `capture_assert_demo` シナリオを実行 operate(:52702)→観測(:52700)→視覚 assert（no-op stable / head 移動で changed）3/3。＋ WSL2 で 2/2 | `scripts/run_scenario_e2e_monado.sh`（Windows）、`scripts/e2e_playwright_loop.sh`（WSL2）、`tools/scenarios/{capture_assert_demo,big_view_change}.json` |
-| **実アプリ E2E: hello_xr × Windows Monado × capture** | ✅ Windows・実GPU headless（null compositor）: hello_xr が Windows ビルドの Monado(:52702) に **client↔service IPC 接続** → **D3D11 / D3D12 / Vulkan の全3API** で実描画 → capture レイヤー(:52700) が非退化観測。各 20/20 | `scripts/run_hello_xr_monado.sh [D3D11\|D3D12\|Vulkan\|all]`（各 20/20＋coupling 2/2、`all` で3API一括回帰、2026-07-22） |
-| **実エンジンアプリ E2E: VRAppDummyGame（Godot 4.7）× Windows Monado × capture** | ✅ Windows・実GPU headless で **24/24**。SDK サンプルではない実エンジン製アプリで、**アプリ自身の申告**（`[VRTEST]` JSON 契約）を機械値に使う: OpenXR 初期化・`oculus/touch_controller` へのプロファイル解決・**頭部/コントローラーが命令座標に誤差 0.000 で着地**・全入力種別（float/vec2/bool/pose・両手）がエンジンのアクションシステムへ到達・**入力注入のみ（カメラ不動）で画面が再描画**（negative control 付き）・**アプリのゲームロジック実行**（ボタン toggle / キューブを掴んで投げる / レバー角度駆動） | `scripts/run_vrapp_monado.sh`、`tools/playspectra_vrapp{,_test}.py`（24/24、2026-07-25）。アプリは**別リポジトリ**（既定は兄弟ディレクトリ、`PLAYSPECTRA_VRAPP_EXE` で上書き。未ビルドなら明示 SKIP） |
-| **operate 到達（runtime レベル）** | ✅ layer override ではなく **:52702 で Monado 仮想 HMD を駆動 → 実アプリの xrLocateViews が追従**（override クリア状態で dz=−2.5 を 1:1 反映、x/y 不変）。「注入のアプリ到達」を runtime 経路で実証。2/2 | `tools/playspectra_coupling_probe.py`（`run_hello_xr_monado.sh` のゲート、2026-07-22） |
-| MCP サーバー（レガシー・TypeScript） | 📋 **廃止方向で決定（2026-07-24）**。改革前の設計（layer :52700 直結）のまま分岐点以降実質更新なし。録画ビューアwidget（未マージ）のアイデアを現行 Python 版へ移植後に削除予定 | `mcp/src/`、backlog `mcp-ts-retire` |
-| VRDevApp（旧・実 Godot アプリ） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転）。参照先 `bin/VRDevApp.exe` は**リポジトリに含まれない**（`.gitignore` の `bin/`。fresh clone には無い）。実エンジン検証は上記 VRAppDummyGame へ移行済み | `scripts/run_vrdevapp.sh`、memory `vrdevapp-test-target` |
-| OpenVR アプリ | 🟡 OpenComposite（OpenVR→OpenXR 変換）経由で観察・姿勢注入（統合テスト 15 PASS / 1 SKIP）。openvr **v1.8.19** 世代でビルド | `scripts/integration_openvr_test.sh` |
-| **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/` に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |
-| headless キャプチャの解像度 | ✅ headless でも**仮想 HMD が申告した解像度**（現状 `1080x1200/eye`）でキャプチャできる。以前は null compositor が xdev を無視して 320x240 固定を返していた（`null_compositor.c` を main compositor と同じ xdev 由来の算出に是正）。hello_xr / VRAppDummyGame の両方で 1080x1200 を実測 | submodule `src/xrt/compositor/null/null_compositor.c`、backlog `monado-headless-swapchain-resolution` |
-| Windows Monado の**メイン（表示）compositor** session | 📋 上の実アプリ E2E は null compositor（headless）で実証済み。実 HMD へ提示する表示 compositor 経路は未検証 | `run_hello_xr_monado.sh` は `XRT_COMPOSITOR_NULL=1` |
-| Frame-synchronized Mode の「決定性」 | 🔬 delta time / GPU scheduling / physics 等が揺れるため未検証。実測してから "Deterministic" へ昇格 | 正典 §4 |
+| Windows native | `scripts/run_scenario_e2e_monado.sh D3D11` | Windows Monado service, `hello_xr`, the capture layer, and `capture_assert_demo.json`; exits non-zero on failure. |
+| Windows WSL2 | `MONADO_BUILD="$PWD/build/monado" HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" LAYER_SO="$PWD/layer/build/playspectra_layer.so" bash scripts/e2e_playwright_loop.sh` | Linux Monado and `hello_xr` inside WSL2; injects a pose and checks that the captured frame changes. |
+| Ubuntu Linux | `MONADO_BUILD="$PWD/build/monado" HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" LAYER_SO="$PWD/layer/build/playspectra_layer.so" bash scripts/e2e_playwright_loop.sh` | Native Linux Monado and `hello_xr`; injects a pose and checks that the captured frame changes. |
 
-> **グラフィックスAPIの完全性（D3D11 / D3D12 / Vulkan）はコア必須要件**（「VR版Playwrightが全キーを打てる」ため）。いずれのバックエンドも未対応フォーマットでは「無言で壊れた画像」を返さず、必ず明示的にエラーを返す。深度マップのみ nice-to-have（ユーザーが許容表現で明示）。
+The Windows command must be run from Git Bash after the [Windows setup](docs/getting-started-windows.md). The WSL2 and Ubuntu command must be run from the repository root after the [Linux/WSL2 setup](docs/getting-started-linux.md). Those commands start the runtime and sample application in the required order, so you do not need to start `monado-service` or `hello_xr` separately for this first run.
 
-## 構成
+If you want to run the JSON Scenario directly, run one of the following blocks in a terminal. Each block starts the runtime and sample application, waits for the control channel, runs the Scenario, and then stops the application.
 
-```text
-tools/                    PlaySpectra 本体ツール群（Python）
-  playspectra_server.py     Server: 高水準命令の解釈・補間・シナリオ・assert・capture-assert
-  playspectra_mcp.py        現行 MCP サーバー（FastMCP、Server をラップ）
-  playspectra_record.py     Recorder + Replay
-  playspectra_{multiobs,frame,reset}_test.py  制御チャネル E2E
-  playspectra_vrapp.py      実エンジンアプリ（VRAppDummyGame）ドライバ。`[VRTEST]` 契約（stdout イベント
-                            ＋ stdin リクエスト）を話し、STAGE↔GLOBAL 変換を持つ
-  playspectra_vrapp_test.py 実エンジンアプリ E2E（起動 / 姿勢・入力 / キャプチャ / インタラクション）
-  playspectra_png_stats.py  キャプチャが「実際に描画された絵か、単色塗りか」を実測（stdlib のみ）
-  playspectra_*_probe.c     Monado デバイス列挙 / action 到達の検証プローブ
-  scenarios/*.json          シナリオ（walk_and_look / assert_demo / capture_assert_demo / …）
-runtime/
-  monado-playspectra/       Monado fork（submodule）。src/xrt/drivers/playspectra が Monado Adapter
-                            = Virtual HMD + 左右コントローラー + 制御チャネル :52702
-layer/                    OpenXR API Layer（Instrumentation 軸・C++/CMake）
-  src/                      フック・制御チャネル(:52700)・状態ストア・キャプチャ
-                            （capture_{vulkan,d3d11,d3d12}.cpp。D3D は WIN32 条件、Vulkan は Linux 可）
-  tests/                    ユニットテスト（gtest、92件 Windows / 83件 非Windows。DXGI判定9件はWIN32限定）
-mcp/                      レガシー TypeScript MCP（layer :52700 直結・改革前）
-driver/                   改革前 SteamVR 仮想ドライバースケルトン（SteamVR Adapter の素材）
-scripts/                  セットアップ・E2E ハーネス（e2e_playwright_loop.sh 等）
-third_party/             外部ランタイム / SDK 取得先（非コミット）
-```
+**Windows native (Git Bash)**
 
-## Getting Started
+~~~bash
+set -e
+source scripts/lib_monado_stack.sh
+mstack_env D3D11
+mstack_up D3D11 120
+trap mstack_down EXIT
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
+~~~
 
-PlaySpectra は2つの検証経路がある。
+**WSL2 or Ubuntu (bash)**
 
-### A. Monado 経路（操作＋観察の主軸）
+~~~bash
+set -e
+export PLAYSPECTRA_ENABLE=1 XRT_COMPOSITOR_NULL=1
+export XR_RUNTIME_JSON="$PWD/build/monado/openxr_monado-dev.json"
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}"
+sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
+APP_PID=$!
+trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
+python - <<'PY'
+import socket, sys, time
+for _ in range(60):
+    with socket.socket() as sock:
+        sock.settimeout(0.3)
+        if sock.connect_ex(("127.0.0.1", 52702)) == 0:
+            sys.exit(0)
+    time.sleep(0.3)
+raise SystemExit("PlaySpectra control channel :52702 did not become ready")
+PY
+python tools/playspectra_server.py tools/scenarios/assert_demo.json
+~~~
 
-**WSL2 Ubuntu 22.04（下記）と Windows・実GPU（末尾に別記）の両方で検証済み**。Monado のビルドには glslang / Vulkan SDK が要る。WSL2 は GPU 不要（lavapipe / llvmpipe の CPU Vulkan で完走を実証済み）。
+The Scenario moves the head, turns it, presses a right trigger, asserts the resulting state, and resets the virtual devices. When all assertions pass, the runner exits with status 0.
 
-```bash
-# 1. submodule（Monado fork）を取得
-git submodule update --init runtime/monado-playspectra
+To issue individual operations through PlaySpectra-CLI, run:
 
-# 2. Monado（PlaySpectra ドライバー入り）をビルド
-#    Enabled drivers に playspectra が入ることを configure ログで確認
-cmake -S runtime/monado-playspectra -B runtime/monado-playspectra/build -G Ninja
-cmake --build runtime/monado-playspectra/build
+~~~bash
+python tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
+python tools/playspectra_server.py --cmd get_state
+~~~
 
-# 3. PlaySpectra ドライバーを有効化して Monado を起動（制御チャネル :52702）
-PLAYSPECTRA_ENABLE=1 runtime/monado-playspectra/build/src/xrt/targets/service/monado-service
+## Current support
 
-# 4. OpenXR アプリを headless で起動（例: hello_xr -g Vulkan2）
-#    lavapipe を単体強制すると複数 ICD の device_select 由来 hang を回避できる
-#    このフル bring-up は committed の scripts/e2e_playwright_loop.sh（lavapipe 単体強制込み）が自動化
+The tables below use one classification axis per table. Status is shown for each item instead of grouping different kinds of items by status.
 
-# 5. Server / MCP からアプリを操作・観察
-python3 tools/playspectra_server.py --verify        # 9/9
-python3 tools/playspectra_mcp_verify.py             # 14/14（要 pip install mcp・venv 隔離必須 — 共有 python に入れると pydantic/starlette を上書きし他アプリを壊す）
-```
+Legend: ✅ verified, ⚠️ partially verified, 🔍 not yet verified, 🚧 planned or not implemented. 🔍 means that the current operation path or target exists but the specific condition has not yet been checked.
 
-#### Windows・実GPU（本セッションで Monado 経路の全層を E2E 検証）
+### Execution environments
 
-WSL2 と同じ Monado 経路が Windows でも動く（capture/operate/record-replay/MCP 全層。詳細は検証境界表＋memo）。ビルドは **VS2022 同梱 vcpkg ツールチェーン**で `--target monado-service cli openxr_monado`（`/utf-8` は submodule に導入済み。手順の詳細は各 `scripts/run_*_monado.sh` のヘッダ prereqs）。フル E2E は1コマンド:
-
-```bash
-scripts/run_hello_xr_monado.sh all       # 実アプリ×Windows Monado×capture: D3D11/D3D12/Vulkan 各20/20 + coupling 2/2
-scripts/run_vrapp_monado.sh              # 実エンジンアプリ(Godot 4.7)×Monado×capture: 24/24（要アプリのエクスポート）
-scripts/run_scenario_e2e_monado.sh       # VR-Playwright ループ: 操作シナリオ→再描画→視覚回帰 3/3
-PY=<venv-python> scripts/run_mcp_verify_monado.sh   # MCP 全13ツール 14/14（mcp は venv 隔離必須）
-```
-
-### B. Layer 経路（Instrumentation＝観測・録画）
-
-Layer は対象アプリのプロセスに OpenXR ローダ経由で注入され、制御チャネル :52700 で screenshot / recording / action discovery を提供する。D3D バックエンドは Windows 専用、Vulkan は Linux でもビルド・検証可能。
-
-```bash
-# Windows（D3D11/D3D12 + Vulkan、MinGW-w64 + CMake ≥ 3.21）
-cd layer
-cmake -S . -B build -G "MinGW Makefiles"
-cmake --build build           # POST_BUILD で manifest/ に DLL が同期される
-
-# ユニットテスト（任意・既定 OFF）
-cmake -S . -B build -G "MinGW Makefiles" -DPLAYSPECTRA_BUILD_TESTS=ON
-cmake --build build --target playspectra_test && ctest --test-dir build --output-on-failure
-
-# 環境変数（Meta XR Sim ランタイム + レイヤー有効化）
-source scripts/env.sh
-```
-
-主要な環境変数:
-
-| 変数 | 既定 | 説明 |
+| Area | Status | Scope or boundary |
 | --- | --- | --- |
-| `PLAYSPECTRA_ENABLE` | — | Monado ドライバー側: `1` で PlaySpectra Virtual HMD/コントローラーを有効化 |
-| `XR_RUNTIME_JSON` | — | 使用する OpenXR ランタイム（Meta XR Simulator の JSON 等） |
-| `XR_API_LAYER_PATH` / `XR_ENABLE_API_LAYERS` | — | Layer manifest 探索ディレクトリ / `XR_APILAYER_playspectra` |
-| `PLAYSPECTRA_PORT` | `52700` | Layer 制御チャネルの TCP ポート |
-| `PLAYSPECTRA_CAPTURE_DIR` | `%TEMP%` | スクリーンショット / 録画の出力先 |
-| `PLAYSPECTRA_DISABLE_CA` | — | `1` で `XR_EXT_conformance_automation` の自動有効化を無効化し非 CA フォールバック経路で動作（診断用） |
+| Windows native | ✅ | Monado headless E2E on a real GPU. |
+| Windows WSL2 | ✅ | Linux Monado and software Vulkan inside WSL2. |
+| Ubuntu Linux | ✅ | Ubuntu 22.04 headless path. |
 
-## 使い方
+### Runtime adapters
 
-### Server / MCP（高水準命令）
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Monado Adapter | ✅ | Virtual HMD, controllers, control channel, and native OpenXR path. |
+| OpenVR via OpenComposite | ⚠️ | OpenVR-to-OpenXR conversion path only. |
+| SteamVR Adapter | 🚧 | Adapter for the current core is not implemented. |
 
-現行 MCP（`tools/playspectra_mcp.py`）はエージェント向けに、Server が持つ高水準命令を公開する:
+### Application targets
 
-- 操作: `move_head` / `look` / `walk_forward` / `strafe` / `press` / `set_trigger` / `move_controller` / `set_input` / `reset`
-- 観察: `get_state`（デバイス状態） / `wait_for`（状態が条件を満たすまで自動待機＝Playwright 流 auto-wait） / `screenshot`（画面を MCP Image で返す＝AI が画面を見る）
-- 実行: `run_scenario`（JSON シナリオを assert 込みで実行）
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Native OpenXR application | ✅ | Native OpenXR application path. |
+| Godot 4.7 application | ✅ | Separate verification application and its OpenXR path. |
+| Unity application | 🔍 | Unity application E2E is not yet verified. |
+| Unreal Engine application | 🔍 | Unreal application E2E is not yet verified. |
+| AR/MR-specific application | 🔍 | AR/MR application E2E is not yet verified. |
 
-Server は操作を `set_state`（完全スナップショット）の列へ補間して Monado Adapter（:52702）へ送り、capture は Layer（:52700）から取得する（`operate→:52702 / capture→:52700` の横断）。
+### Graphics and capture
 
-### シナリオ（記録・再生・assert）
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| D3D11 | ✅ | Windows capture backend. |
+| D3D12 | ✅ | Windows capture backend. |
+| Vulkan | ✅ | Windows and Linux/WSL2 capture paths. |
+| Physical-HMD display compositor | 🔍 | Headless null-compositor evidence does not cover physical display presentation. |
 
-```bash
-# 状態 assert 付きシナリオ
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+### Operation interfaces
 
-# 視覚回帰（capture-assert）: --capture-port で layer:52700 に接続
-python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| PlaySpectra-MCP | ✅ | AI-agent operation and observation through MCP. |
+| PlaySpectra-CLI | ✅ | Individual operation and state observation. |
+| JSON Scenario | ✅ | Repeatable operation procedures. |
 
-# 記録 → reset → 再生
-python3 tools/playspectra_record.py --verify
+### Verification and recording
 
-# end-to-end Playwright ループ（操作 → 再描画 → capture 変化）
-scripts/e2e_playwright_loop.sh
-```
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Device-state assertion | ✅ | State assertions from Server and scenarios. |
+| Screenshot / capture assertion | ✅ | Rendered-output assertions through the OpenXR layer. |
+| Recording / replay | ✅ | Device-state trajectories; this is not video replay. |
+| Deterministic application timing | 🔍 | GPU scheduling, physics, async loading, and dropped frames are not yet verified. |
 
-## テスト
+See the [full verification matrix](docs/verification.md) for test counts, dates, probes, graphics-API results, and negative controls.
 
-### 統合ユニットテストゲート（1コマンド・環境非依存）
+## Quick Start by platform
 
-```bash
-bash scripts/run_all_tests.sh   # mcp 42 + layer 92(Win)/83(非Win) + tools(python) 33 + submodule proto 43 = 210件(Win)/201件(非Win)
-```
+Choose the environment in which the XR runtime and application will actually run. Windows native and Linux are different build families; WSL2 uses the Linux family even though the host OS is Windows.
 
-依存(python/gcc/submodule)が揃っている前提の件数。**欠けているツールチェーンがあればそのスイートだけ明示 SKIP
-され、最終行に SKIP数とスイート名が出る**（`ALL GREEN` と `GREEN WITH SKIPS` を区別。rc は FAIL のみで決まり
-SKIP では非ゼロにならない）ので、SKIPが起きてもログを見れば気づける。
+| Environment | Runtime and app | Graphics path | Guide |
+| --- | --- | --- | --- |
+| Windows native | Windows Monado service + Windows OpenXR app | D3D11, D3D12, Vulkan | [Windows setup](docs/getting-started-windows.md) |
+| Windows WSL2 | Linux Monado + Linux OpenXR app inside WSL2 | Vulkan, usually lavapipe | [Linux/WSL2 setup](docs/getting-started-linux.md) |
+| Ubuntu Linux | Linux Monado + Linux OpenXR app | Vulkan, software or hardware ICD | [Linux/WSL2 setup](docs/getting-started-linux.md) |
 
-hosted CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)、mcp-tests=ubuntu / layer-tests=windows-latest）は
-push 済みだが **private repo の課金ブロックで現在休眠中**（run 29966605494 は両ジョブとも起動失敗。課金解消 or
-public化まで hosted CI の green は未証明）。`run_all_tests.sh` が「1コマンドで全部回して赤なら失敗」という CI の
-役割をローカル・課金ゼロで代替する（ただしクリーンな独立環境の担保＝複数OS再現性までは代替しない）。
+All paths require the Monado submodule. Do not reuse build directories, CMake caches, or node_modules between Windows native and WSL2/Ubuntu; they contain platform-specific paths or binaries.
 
-### 個別スイート
+<details>
+<summary>Windows native — Monado service + Windows OpenXR app</summary>
 
-```bash
-# 制御チャネル E2E（Monado Adapter）
-python3 tools/playspectra_multiobs_test.py      # 複数 observer 11/11
-python3 tools/playspectra_frame_test.py         # frame_synchronized 10/10
-python3 tools/playspectra_reset_test.py         # reset 20/20
+**Environment**
 
-# Server / MCP / Recorder
-python3 tools/playspectra_server.py --verify    # 9/9
-python3 tools/playspectra_record.py --verify    # 5/5
-python3 tools/playspectra_mcp_verify.py         # MCP 14/14（要 pip install mcp）
+- OS: Windows native.
+- Runtime: Windows Monado service.
+- Application: Windows OpenXR application.
+- Graphics: D3D11, D3D12, or Vulkan.
+- Prerequisites: Visual Studio 2022 with MSVC and the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang.
 
-# Layer（Instrumentation）
-scripts/integration_test.sh [Vulkan|D3D11|D3D12]           # hello_xr + Meta XR Sim
-PLAYSPECTRA_DISABLE_CA=1 scripts/integration_test.sh Vulkan # 非 CA フォールバック経路
-VR_RUNTIME=monado scripts/integration_test.sh Vulkan       # ランタイム切替
-scripts/integration_openvr_test.sh                         # OpenVR（OpenComposite + Monado）
-ctest --test-dir layer/build -E loader_test                # ユニットテスト 92件（Windows）/ 83件（非Windows）
-#   ※ 直接バイナリを叩く場合は拡張子が OS で違う: Windows=playspectra_test.exe / 非Windows=playspectra_test
-```
+**Steps**
 
-## 検証環境
+1. Clone the repository with `--recurse-submodules`.
+2. Follow the [Windows setup](docs/getting-started-windows.md) steps to build the Windows Monado targets and instrumentation layer.
+3. Run `bash scripts/setup_helloxr_msvc.sh` to prepare the Windows OpenXR sample application.
+4. Run `bash scripts/run_hello_xr_monado.sh D3D11`. The harness starts the runtime and application in the required order, injects virtual device input, captures frames, and checks assertions.
+5. Confirm `INTEGRATION_RC=0`. Use `D3D12`, `Vulkan`, or `all` for the other graphics paths.
 
-- **Monado / Server / MCP / capture(Vulkan) の E2E は WSL2 Ubuntu 22.04 で検証**。GPU 不要（lavapipe の CPU Vulkan で完走を実証）。旧「キャプチャは実 GPU 必須」は end-to-end で否定済み。
-- **D3D11 / D3D12 / Vulkan キャプチャは Windows・実 GPU で full E2E 検証済み**（各 20/20 = 60/60、2026-07-22、metasim CA 経路 + DoS 修正済み Layer DLL）。WSL2 が原理的に触れない D3D を含めコア必須マトリクスを Windows で完結。同ラン内で Layer CA 経路の head/controller override・durationMs グライド・haptic sync round-trip も緑。
-- **Windows での完全 graphics session（VRDevApp 実アプリ）・SteamVR Adapter は実機環境が要る**ため本環境では非優先。該当は上表で 🟡 / 📋。
-- 検証境界の規律（CLAUDE.md「検証済みと未検証を混ぜない」）に従い、本 README の各主張は上表の「根拠」列でリポジトリ内の実測ログ・テスト・一次ソースを指せるものだけを ✅ とし、実機依存・未検証は 🟡 / 📋 / 🔬 に分ける。
+See the complete [Windows setup](docs/getting-started-windows.md), including the Visual Studio/vcpkg paths and GPU-specific notes.
 
-> OpenComposite は GPLv3。third_party/ に取得するのみで、本リポジトリには含めず再配布もしない。
+</details>
+
+<details>
+<summary>Windows WSL2 — Linux binaries inside WSL2</summary>
+
+**Environment**
+
+- OS: Linux inside Windows WSL2.
+- Runtime: Linux Monado inside WSL2.
+- Application: Linux OpenXR application inside WSL2.
+- Graphics: Vulkan, usually software Vulkan (`lavapipe`).
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu/WSL2 build dependencies.
+
+**Steps**
+
+1. Clone the repository with `--recurse-submodules` inside WSL2.
+2. Run `task bootstrap:linux` to install Linux dependencies, initialize the submodule, and build Monado.
+3. Build the layer with the commands in [Linux / WSL2 setup](docs/getting-started-linux.md).
+4. Run `scripts/e2e_playwright_loop.sh` with the Monado build, `hello_xr`, and layer paths.
+5. Confirm `PASS` lines for distinct captured contents and the post-injection frame difference.
+
+This path does not use the Windows Monado service or Windows OpenXR application. It uses Linux binaries inside WSL2.
+
+On WSL2, use the GCC/G++ installed inside the Linux distribution. Do not substitute a Windows MSYS2 compiler for the Linux build.
+
+See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
+
+</details>
+
+<details>
+<summary>Ubuntu Linux — native Linux</summary>
+
+**Environment**
+
+- OS: native Ubuntu Linux.
+- Runtime: native Linux Monado.
+- Application: Linux OpenXR application.
+- Graphics: Vulkan through a software or hardware ICD.
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu build dependencies.
+
+**Steps**
+
+1. Clone the repository with `--recurse-submodules`.
+2. Run `task bootstrap:linux` to install dependencies, initialize the submodule, and build Monado.
+3. Build the layer with Ninja as described in [Linux / WSL2 setup](docs/getting-started-linux.md).
+4. Run the headless E2E loop with the Monado build, OpenXR application, and layer paths.
+5. Confirm the `PASS` lines for captured output and the post-injection frame difference.
+
+Set `VK_ICD_FILENAMES` when the default Vulkan ICD is not the intended one. See the complete [Linux / WSL2 setup](docs/getting-started-linux.md) for Ubuntu prerequisites, Monado build details, and headless constraints.
+
+</details>
+
+## Usage
+
+### CLI / Server
+
+`tools/playspectra_server.py` is both the shared Server and a one-command CLI. It executes commands such as `move_head`, `look`, `press`, and `get_state`, and can read the resulting device state back.
+
+~~~bash
+python tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
+python tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
+~~~
+
+See [CLI and Server details](tools/README.md).
+
+### JSON Scenario Runner
+
+A JSON Scenario is an ordered sequence of operations and assertions. Its minimum structure is:
+
+~~~json
+{
+  "name": "assert_demo",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "move_head", "to": {"position": [0.0, 1.6, -1.5]}, "duration_ms": 300},
+    {"cmd": "assert", "get": ["hmd", "head", "position", 2], "op": "near", "value": -1.5, "tol": 0.02},
+    {"cmd": "reset"}
+  ]
+}
+~~~
+
+The checked-in examples cover movement, controller input, state assertions, visual assertions, and waiting. A failing assertion makes the runner exit non-zero.
+
+~~~bash
+python tools/playspectra_server.py tools/scenarios/walk_and_look.json
+python tools/playspectra_record.py --verify
+~~~
+
+See the [scenario format](docs/scenario-format.md) and [sample scenarios](tools/scenarios/).
+
+### MCP
+
+PlaySpectra-MCP is the interface that lets an AI agent operate and observe an XR application. It uses the same operation model as PlaySpectra-CLI and JSON Scenarios. The current server uses stdio and is implemented in `tools/playspectra_mcp.py`.
+
+Set it up in a dedicated environment:
+
+~~~bash
+python -m venv .venv-mcp
+.venv-mcp/bin/python -m pip install -r tools/requirements.txt
+.venv-mcp/bin/python tools/playspectra_mcp.py
+~~~
+
+On Windows Git Bash, use .venv-mcp/Scripts/python.exe instead. The server exposes movement/input, state observation, auto-wait, screenshot, reset, and run_scenario tools. See [MCP tools](docs/mcp-tools.md) for the exact list and the live verification command.
+
+## Architecture overview
+
+The user-facing model is an AI agent operating and observing an XR application through a virtual headset and controllers.
+
+Internally, the operation path is separated from the in-process observation path:
+
+~~~mermaid
+flowchart TD
+  I[AI agent / CLI / JSON Scenario] --> M[PlaySpectra-MCP / Server]
+  M --> A[Common operation model]
+  A --> V[Virtual HMD / controllers]
+  V --> R[Runtime Adapter]
+  R --> X[OpenXR application]
+  L[OpenXR Instrumentation Layer] --> X
+  L --> O[State / screenshot / recording observation]
+~~~
+
+- The common operation model represents actions such as head movement, gaze rotation, and controller input.
+- A Runtime Adapter delivers those actions through a runtime's device path. Monado is the current working adapter.
+- The OpenXR layer observes the application process; it is not a replacement for the Runtime Adapter.
+- The same operation model supports AI operation, CLI/JSON replay, and automated assertions.
+
+The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is `127.0.0.1:52700`. Detailed design rationale is documented in [Architecture](docs/architecture.md).
+
+## Development and testing
+
+The representative local gate is:
+
+~~~bash
+bash scripts/run_all_tests.sh
+~~~
+
+It runs the MCP, layer, Python-tool, and Monado-protocol unit suites. A missing toolchain is reported as a named SKIP; ALL GREEN and GREEN WITH SKIPS are intentionally distinct. Live Monado/app E2E is separate because it needs a runtime and application process. GitHub Actions runs the environment-independent MCP suite on Ubuntu and layer suite on Windows; the workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+See [Testing](docs/testing.md) for individual commands, suite counts, CI boundaries, and skip conditions.
+
+## Project status and roadmap
+
+The [support tables above](#current-support) are the authoritative status summary.
+
+Roadmap items are separate from current capabilities:
+
+- SteamVR Adapter: implement the adapter for the current Virtual Device Core and verify it on Windows.
+- Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
+- Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
+- Legacy TypeScript MCP in `mcp/`: retire it after the current MCP interface has fully replaced it.
+
+The [roadmap](docs/roadmap.md) keeps these boundaries separate from current features.
+
+## Documentation index
+
+- [Architecture](docs/architecture.md)
+- [Linux / WSL2 setup](docs/getting-started-linux.md)
+- [Windows setup](docs/getting-started-windows.md)
+- [Scenario format](docs/scenario-format.md)
+- [MCP tools](docs/mcp-tools.md)
+- [Verification matrix](docs/verification.md)
+- [Testing](docs/testing.md)
+- [Roadmap](docs/roadmap.md)

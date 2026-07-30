@@ -2,11 +2,13 @@
 
 [![CI](https://github.com/YmSaki/PlaySpectra/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/YmSaki/PlaySpectra/actions/workflows/ci.yml)
 
+[English](README.md) | [日本語](docs/readme.ja.md)
+
 > **Playwright for XR applications.** PlaySpectra drives an OpenXR app with a virtual HMD and controllers, observes the rendered result, and turns the interaction into repeatable tests.
 
 PlaySpectra can inject HMD/controller poses and input, capture screenshots and recordings, replay device-state trajectories, and assert on device state or rendered output. The same PlaySpectra Server can be reached through a CLI, JSON scenarios, or MCP. The primary target is headless testing without a physical HMD.
 
-The current end-to-end evidence covers a native OpenXR sample (hello_xr) and Godot 4.7 (VRAppDummyGame). “Engine-independent” describes the OpenXR-level design; it does not mean that every engine has been verified. Unity and Unreal are not yet verified.
+The current end-to-end evidence covers a native OpenXR application and a Godot 4.7 application. “Engine-independent” describes the OpenXR-level design; it does not mean that every engine has been verified. Unity and Unreal are not yet verified.
 
 ## What PlaySpectra can do
 
@@ -20,13 +22,16 @@ The current end-to-end evidence covers a native OpenXR sample (hello_xr) and God
 
 ## Minimal example
 
-With a PlaySpectra Monado adapter listening on 127.0.0.1:52702, run the checked-in scenario:
+Run the following steps from a second terminal after starting the Monado adapter and an OpenXR application with the [Windows](docs/getting-started-windows.md) or [Linux / WSL2](docs/getting-started-linux.md) guide:
+
+1. Start the PlaySpectra Monado adapter. Its operation channel normally listens on `127.0.0.1:52702`.
+2. From the repository root, run the checked-in scenario:
 
 ~~~bash
 python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
-assert_demo.json moves the head, turns it, presses a trigger, checks the resulting state, and resets the virtual devices. A successful run exits with code 0 and reports the assertion summary.
+3. Confirm the assertion summary. A successful run exits with code 0. The scenario moves the head, turns it, presses a trigger, checks the resulting state, and resets the virtual devices.
 
 The CLI exposes the same operation vocabulary one command at a time:
 
@@ -43,53 +48,70 @@ python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --c
 
 ## Architecture overview
 
-~~~text
- CLI / JSON Scenario Runner / MCP
-                 |
-                 v
-        PlaySpectra Server
-   high-level commands -> state frames
-                 |
-                 v
-        Virtual Device Core
-                 |
-       Runtime Adapter(s)
-          |             |
-       Monado      SteamVR (planned)
-          |             |
-    OpenXR app   OpenVR/OpenXR app
+PlaySpectra separates the device-operation path from the in-process application-observation path.
 
- OpenXR Instrumentation Layer (separate axis)
-        screenshot / recording / diagnostics
-                 |
-           rendered frames
+~~~mermaid
+flowchart TD
+  I[CLI / JSON Scenario / MCP] --> S[PlaySpectra Server]
+  S --> C[Virtual Device Core]
+  C --> A[Runtime Adapter]
+  A --> M[Monado]
+  M --> O[OpenXR application]
+  L[OpenXR Instrumentation Layer] --> O
+  L --> V[Screenshot / recording / diagnostics]
 ~~~
 
-In the current implementation, operation and state observation use the Monado adapter on :52702; screenshot and recording use the OpenXR layer on :52700. The layer is instrumentation, not a second runtime backend. The rationale for runtime-specific adapters, the absence of a common driver ABI, and the separation of instrumentation is documented in [Architecture](docs/architecture.md).
+- CLI, JSON scenarios, and MCP call the same PlaySpectra Server.
+- The Server converts high-level commands into virtual HMD/controller state frames.
+- A Runtime Adapter translates that state into a runtime's native device path. Monado is the current working backend.
+- The OpenXR layer observes the application process; it is instrumentation, not a second runtime backend.
+
+The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is `127.0.0.1:52700`. The rationale for runtime-specific adapters, the absence of a common driver ABI, and the separation of instrumentation is documented in [Architecture](docs/architecture.md).
 
 ## Current support
 
-These labels describe the current evidence boundary, not just what the interfaces were designed to support.
+These labels describe the current evidence boundary, not just what the interfaces were designed to support. If an item has not been measured in an application or runtime path, it is not presented as verified.
+
+### Environments and runtimes
 
 | Area | Status | Scope or boundary |
 | --- | --- | --- |
-| Windows | **Verified** | Monado headless E2E on a real GPU; D3D11, D3D12, and Vulkan capture paths are covered. |
-| WSL2 / Linux headless | **Verified** | Ubuntu 22.04 path with Monado and software Vulkan (lavapipe/llvmpipe). |
-| Monado | **Verified** | Virtual HMD, left/right controllers, control channel, and native OpenXR app path. |
-| SteamVR Adapter | **Planned** | The repository contains an earlier driver skeleton; reconnection to the current core and Windows verification remain. |
-| OpenVR via OpenComposite | **Partially verified** | The OpenVR-to-OpenXR integration path has recorded passes and a skip; this is not SteamVR Adapter completion. |
-| Native OpenXR application | **Verified** | hello_xr is the primary cross-engine smoke target. |
-| Godot 4.7 | **Verified** | VRAppDummyGame in a separate repository; the executable is supplied through PLAYSPECTRA_VRAPP_EXE or the default sibling path. |
-| Unity | **Not yet verified** | No Unity application E2E result is claimed. |
-| Unreal Engine | **Not yet verified** | No Unreal application E2E result is claimed. |
+| Windows native | **Verified** | Monado headless E2E on a real GPU. |
+| Windows WSL2 | **Verified** | Linux Monado and software Vulkan inside WSL2. |
+| Ubuntu Linux headless | **Verified** | Ubuntu 22.04 headless path. |
+| Monado virtual-device backend | **Verified** | Virtual HMD, controllers, control channel, and native OpenXR path. |
+| SteamVR Adapter | **Planned** | Reconnection to the current core and Windows verification remain. |
+| OpenVR via OpenComposite | **Partially verified** | OpenVR-to-OpenXR conversion path only; this is not SteamVR Adapter completion. |
+
+### Application targets
+
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Native OpenXR application | **Verified** | Native OpenXR application path. |
+| Godot 4.7 application | **Verified** | Separate verification application and its OpenXR path. |
+| Unity application | **Not yet verified** | No Unity application E2E result is claimed. |
+| Unreal Engine application | **Not yet verified** | No Unreal application E2E result is claimed. |
+
+### Graphics APIs
+
+| API | Status | Scope or boundary |
+| --- | --- | --- |
 | D3D11 | **Verified** | Windows capture backend. |
 | D3D12 | **Verified** | Windows capture backend. |
 | Vulkan | **Verified** | Windows and Linux/WSL2 capture paths. |
-| MCP | **Verified** | Current Python/FastMCP server against the live Monado path. |
-| Scenario / assert | **Verified** | JSON state assertions and capture-assert are implemented. |
-| Recording / replay | **Verified** | Device-state trajectory recording and replay on the Monado control channel; this is not video replay. |
 
-The physical-HMD display compositor path and deterministic frame timing are not yet verified. See the [full verification matrix](docs/verification.md) for test counts, dates, probes, graphics-API results, and negative controls.
+### Interfaces and test features
+
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Python MCP server | **Verified** | Current Python/FastMCP server against the live Monado path. MCP is one operation interface. |
+| Scenario / state assert | **Verified** | JSON state assertions. |
+| Screenshot / capture assert | **Verified** | OpenXR-layer capture assertions. |
+| Recording / replay | **Verified** | Device-state trajectory recording and replay; this is not video replay. |
+| Physical-HMD display compositor | **Not yet verified** | Headless null-compositor evidence does not cover physical display presentation. |
+| Deterministic application timing | **Not yet verified** | GPU scheduling, physics, async loading, and dropped-frame behavior need separate evidence. |
+
+See the [full verification matrix](docs/verification.md) for test counts, dates, probes, graphics-API results, and negative controls.
 
 ## Quick Start by platform
 
@@ -106,9 +128,21 @@ All paths require the Monado submodule. Do not reuse build directories, CMake ca
 <details>
 <summary>Windows native — Monado service + Windows OpenXR app</summary>
 
-Prerequisites are Windows, Visual Studio 2022 with the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang. Clone with `--recurse-submodules`, build the Windows Monado targets and the instrumentation layer, then run `bash scripts/setup_helloxr_msvc.sh` followed by `bash scripts/run_hello_xr_monado.sh D3D11`.
+**Environment**
 
-The harness starts the runtime and sample app in the required order, injects virtual device input, captures frames, and checks assertions. Success ends with `INTEGRATION_RC=0`. Use `D3D12`, `Vulkan`, or `all` for the other graphics paths.
+- OS: Windows native.
+- Runtime: Windows Monado service.
+- Application: Windows OpenXR application.
+- Graphics: D3D11, D3D12, or Vulkan.
+- Prerequisites: Visual Studio 2022 with the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang.
+
+**Steps**
+
+1. Clone the repository with `--recurse-submodules`.
+2. Follow the [Windows setup](docs/getting-started-windows.md) steps to build the Windows Monado targets and instrumentation layer.
+3. Run `bash scripts/setup_helloxr_msvc.sh` to prepare the Windows OpenXR sample application.
+4. Run `bash scripts/run_hello_xr_monado.sh D3D11`. The harness starts the runtime and application in the required order, injects virtual device input, captures frames, and checks assertions.
+5. Confirm `INTEGRATION_RC=0`. Use `D3D12`, `Vulkan`, or `all` for the other graphics paths.
 
 See the complete [Windows setup](docs/getting-started-windows.md), including the Visual Studio/vcpkg paths and GPU-specific notes.
 
@@ -117,9 +151,23 @@ See the complete [Windows setup](docs/getting-started-windows.md), including the
 <details>
 <summary>Windows WSL2 — Linux binaries inside WSL2</summary>
 
-WSL2 uses the Linux build procedure. Install Git, Python 3, CMake, Ninja, Go Task, and the Ubuntu/WSL2 build prerequisites; clone with `--recurse-submodules`; run `task bootstrap:linux`; build the layer; then run `scripts/e2e_playwright_loop.sh` with the Monado build, `hello_xr`, and layer paths.
+**Environment**
 
-The default path uses Linux software Vulkan (`lavapipe`) and does not use the Windows Monado service or Windows `hello_xr`. Success is reported by `PASS` lines for captured output and the post-injection frame difference.
+- OS: Linux inside Windows WSL2.
+- Runtime: Linux Monado inside WSL2.
+- Application: Linux OpenXR application inside WSL2.
+- Graphics: Vulkan, usually software Vulkan (`lavapipe`).
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, and the Ubuntu/WSL2 build dependencies.
+
+**Steps**
+
+1. Clone the repository with `--recurse-submodules` inside WSL2.
+2. Run `task bootstrap:linux` to install Linux dependencies, initialize the submodule, and build Monado.
+3. Build the layer with the commands in [Linux / WSL2 setup](docs/getting-started-linux.md).
+4. Run `scripts/e2e_playwright_loop.sh` with the Monado build, `hello_xr`, and layer paths.
+5. Confirm `PASS` lines for distinct captured contents and the post-injection frame difference.
+
+This path does not use the Windows Monado service or Windows OpenXR application. It uses Linux binaries inside WSL2.
 
 See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
 
@@ -128,9 +176,23 @@ See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
 <details>
 <summary>Ubuntu Linux — native Linux</summary>
 
-Ubuntu uses the same Linux procedure as WSL2: clone with `--recurse-submodules`, run `task bootstrap:linux`, build the layer with Ninja, and run the headless E2E loop. It uses Vulkan through the selected software or hardware ICD; set `VK_ICD_FILENAMES` when the default ICD is not the intended one.
+**Environment**
 
-See the complete [Linux/WSL2 setup](docs/getting-started-linux.md) for Ubuntu prerequisites, Monado build details, and headless constraints.
+- OS: native Ubuntu Linux.
+- Runtime: native Linux Monado.
+- Application: Linux OpenXR application.
+- Graphics: Vulkan through a software or hardware ICD.
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, and the Ubuntu build dependencies.
+
+**Steps**
+
+1. Clone the repository with `--recurse-submodules`.
+2. Run `task bootstrap:linux` to install dependencies, initialize the submodule, and build Monado.
+3. Build the layer with Ninja as described in [Linux / WSL2 setup](docs/getting-started-linux.md).
+4. Run the headless E2E loop with the Monado build, OpenXR application, and layer paths.
+5. Confirm the `PASS` lines for captured output and the post-injection frame difference.
+
+Set `VK_ICD_FILENAMES` when the default Vulkan ICD is not the intended one. See the complete [Linux / WSL2 setup](docs/getting-started-linux.md) for Ubuntu prerequisites, Monado build details, and headless constraints.
 
 </details>
 
@@ -138,7 +200,7 @@ See the complete [Linux/WSL2 setup](docs/getting-started-linux.md) for Ubuntu pr
 
 ### CLI / Server
 
-tools/playspectra_server.py is the shared Server and one-command CLI. It sends interpolated full device states to the adapter and can read state back.
+`tools/playspectra_server.py` is both the shared Server and a one-command CLI. It turns high-level HMD/controller operations into device-state frames and can read the resulting state back.
 
 ~~~bash
 python3 tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
@@ -149,7 +211,21 @@ See [CLI and Server details](tools/README.md).
 
 ### JSON Scenario Runner
 
-Scenarios are {"name": ..., "steps": [...]} files. The checked-in examples cover movement, controller input, state assertions, visual assertions, and waiting.
+A JSON Scenario is an ordered sequence of operations and assertions. Its minimum structure is:
+
+~~~json
+{
+  "name": "assert_demo",
+  "steps": [
+    {"cmd": "hello", "role": "writer"},
+    {"cmd": "move_head", "to": {"position": [0.0, 1.6, -1.5]}, "duration_ms": 300},
+    {"cmd": "assert", "get": ["hmd", "head", "position", 2], "op": "near", "value": -1.5, "tol": 0.02},
+    {"cmd": "reset"}
+  ]
+}
+~~~
+
+The checked-in examples cover movement, controller input, state assertions, visual assertions, and waiting. A failing assertion makes the runner exit non-zero.
 
 ~~~bash
 python3 tools/playspectra_server.py tools/scenarios/walk_and_look.json
@@ -160,7 +236,9 @@ See the [scenario format](docs/scenario-format.md) and [sample scenarios](tools/
 
 ### MCP
 
-MCP is one operation interface over the same Server; it is not a separate product path. The current implementation is the Python server in tools/playspectra_mcp.py and uses stdio:
+MCP is one operation interface over the same Server; it is not a separate product path. The current implementation is the Python server in `tools/playspectra_mcp.py` and uses stdio.
+
+Set it up in a dedicated environment:
 
 ~~~bash
 python3 -m venv .venv-mcp

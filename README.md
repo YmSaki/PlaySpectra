@@ -64,7 +64,7 @@ flowchart TD
 ~~~
 
 - CLI, JSON scenarios, and MCP call the same PlaySpectra Server.
-- The Server converts high-level commands into virtual HMD/controller state frames.
+- The Server converts operations such as head movement, gaze rotation, and controller input into virtual HMD/controller state frames.
 - A Runtime Adapter translates that state into a runtime's native device path. Monado is the current working backend.
 - The OpenXR layer observes the application process; it is instrumentation, not a second runtime backend.
 
@@ -136,7 +136,7 @@ All paths require the Monado submodule. Do not reuse build directories, CMake ca
 - Runtime: Windows Monado service.
 - Application: Windows OpenXR application.
 - Graphics: D3D11, D3D12, or Vulkan.
-- Prerequisites: Visual Studio 2022 with the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang.
+- Prerequisites: Visual Studio 2022 with MSVC and the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang.
 
 **Steps**
 

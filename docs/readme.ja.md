@@ -27,10 +27,11 @@ OpenXR Instrumentation Layerは、アプリ内の描画結果をキャプチャ�
 
 先に、下の「Quick Start：実行環境を選ぶ」で実行環境を選び、MonadoとOpenXRアプリを起動してください。
 
-次のコマンドは、PlaySpectra Serverを起動するターミナルとは別のターミナルで実行してください。
+Quick Startの手順を完了して、MonadoのPlaySpectra adapterとOpenXRアプリを起動してください。
+その後、次のコマンドをPlaySpectra Serverとは別のターミナルで実行してください。
 
-1. [Windows native](getting-started-windows.md)または[Linux / WSL2](getting-started-linux.md)の手順に従い、MonadoのPlaySpectra adapterとOpenXRアプリを起動してください。操作用のcontrol channelは通常`127.0.0.1:52702`です。
-2. リポジトリのルートディレクトリで、同梱のassertシナリオを実行してください。
+1. リポジトリのルートディレクトリへ移動してください。
+2. 同梱のassertシナリオを実行してください。操作用のcontrol channelは通常`127.0.0.1:52702`です。
 
 ~~~bash
 python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
@@ -104,7 +105,7 @@ XR runtimeとアプリを実際に動かす環境を選んでください。Wind
 前提ソフトウェアを用意してください。
 
 - Windows
-- Visual Studio 2022（C++ workload）
+- Visual Studio 2022（MSVCとC++ workload）
 - CMake、Git Bash、Python 3
 - glslangを含むVulkan SDK
 
@@ -205,7 +206,7 @@ flowchart TD
 ~~~
 
 - CLI、JSON Scenario、MCPは、同じPlaySpectra Serverを呼び出します。
-- Serverは高水準命令をデバイス状態へ変換します。
+- Serverは、頭部移動、視線回転、コントローラー入力などの操作をデバイス状態へ変換します。
 - Runtime AdapterはRuntimeごとの入力経路を担当します。現在の動作backendはMonadoです。
 - OpenXR Instrumentation Layerはアプリ内の描画結果を観測します。Runtime Adapterの代替ではありません。
 

@@ -4,114 +4,142 @@
 
 [English](README.md) | [日本語](docs/readme.ja.md)
 
-> **Playwright for XR applications.**
+> **A virtual headset and controllers that AI agents can use.**
 
-PlaySpectra is an XR test automation tool that injects virtual HMD/controller input into an OpenXR application and verifies device state and rendered output.
+PlaySpectra is an XR operation adapter that connects AI agents to VR, AR, and MR applications.
 
-PlaySpectra targets headless testing without a physical HMD. The same Server is operated through the CLI, JSON scenarios, or MCP.
+With PlaySpectra-MCP, an AI agent can enter an XR application without a physical headset, operate the application, and observe its state and rendered world.
 
-The current end-to-end evidence covers a native OpenXR application and a Godot 4.7 application. “Engine-independent” describes the OpenXR-level design; it does not mean that every engine has been verified. Unity and Unreal are not yet verified.
+When a procedure needs to be fixed and repeated, PlaySpectra can be used through PlaySpectra-CLI or JSON Scenarios. The same operation path can therefore be used for headless automated testing.
 
-## How PlaySpectra works
+The current end-to-end evidence covers a native OpenXR application and a Godot 4.7 application. VR/AR/MR is the target domain; an AR/MR-specific application path is not yet verified.
 
-The PlaySpectra Server receives operations from the CLI, JSON Scenario Runner, or MCP and converts them into virtual HMD/controller state.
+## What PlaySpectra enables
 
-The Monado Runtime Adapter delivers that state through the normal runtime path used by the OpenXR application.
-
-The OpenXR Instrumentation Layer observes the application process and provides screenshots, recordings, and rendered-output assertions.
-
-Together, these paths let one test procedure inject input, inspect device state, and verify rendered output in a headless environment.
+| Use case | What PlaySpectra enables |
+| --- | --- |
+| AI-agent XR operation and observation | An AI agent operates an XR application and observes its state and rendered output. |
+| XR application development | Check whether head and controller input reaches an application without wearing a headset. |
+| Reproducible interaction | Repeat the same head movement, walking, and controller actions. |
+| Headless operation | Run an XR application from a server, CI job, WSL2 environment, or Linux machine. |
+| Automated testing | Assert that an application's state and rendered output match expectations after fixed actions. |
 
 ## Minimal example
 
-Complete one of the platform guides below first. Then run the following steps from a second terminal:
+The PlaySpectra Server/CLI connects to an OpenXR application that is already running on a Monado Runtime Adapter; it does not start the runtime or application by itself. Choose the environment in which you want to try it, complete that platform's build steps, and then use one of the existing bring-up commands below. Those bring-up scripts start the runtime and sample application for you.
 
-1. Start the PlaySpectra Monado adapter. Its operation channel normally listens on `127.0.0.1:52702`.
-2. From the repository root, run the checked-in scenario:
+These commands are intentionally shown here as well as in the platform guides: they are the shortest path from a completed build to a running sample application.
+
+| Environment | Start the verified sample run | What the command starts and checks |
+| --- | --- | --- |
+| Windows native | `scripts/run_scenario_e2e_monado.sh D3D11` | Windows Monado service, `hello_xr`, the capture layer, and `capture_assert_demo.json`; exits non-zero on failure. |
+| Windows WSL2 | `MONADO_BUILD="$PWD/build/monado" HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" LAYER_SO="$PWD/layer/build/playspectra_layer.so" bash scripts/e2e_playwright_loop.sh` | Linux Monado and `hello_xr` inside WSL2; injects a pose and checks that the captured frame changes. |
+| Ubuntu Linux | `MONADO_BUILD="$PWD/build/monado" HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" LAYER_SO="$PWD/layer/build/playspectra_layer.so" bash scripts/e2e_playwright_loop.sh` | Native Linux Monado and `hello_xr`; injects a pose and checks that the captured frame changes. |
+
+The Windows command must be run from Git Bash after the [Windows setup](docs/getting-started-windows.md). The WSL2 and Ubuntu command must be run from the repository root after the [Linux/WSL2 setup](docs/getting-started-linux.md). Those commands start the runtime and sample application in the required order, so you do not need to start `monado-service` or `hello_xr` separately for this first run.
+
+If you want to run the JSON Scenario directly, run one of the following blocks in a terminal. Each block starts the runtime and sample application, waits for the control channel, runs the Scenario, and then stops the application.
+
+**Windows native (Git Bash)**
 
 ~~~bash
+set -e
+source scripts/lib_monado_stack.sh
+mstack_env D3D11
+mstack_up D3D11 120
+trap mstack_down EXIT
 python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
 ~~~
 
-3. Confirm the assertion summary. A successful run exits with code 0. The scenario moves the head, turns it, presses a trigger, checks the resulting state, and resets the virtual devices.
+**WSL2 or Ubuntu (bash)**
 
-The CLI exposes the same operation vocabulary one command at a time:
+~~~bash
+set -e
+export PLAYSPECTRA_ENABLE=1 XRT_COMPOSITOR_NULL=1
+export XR_RUNTIME_JSON="$PWD/build/monado/openxr_monado-dev.json"
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}"
+sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
+APP_PID=$!
+trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
+python3 - <<'PY'
+import socket, sys, time
+for _ in range(60):
+    with socket.socket() as sock:
+        sock.settimeout(0.3)
+        if sock.connect_ex(("127.0.0.1", 52702)) == 0:
+            sys.exit(0)
+    time.sleep(0.3)
+raise SystemExit("PlaySpectra control channel :52702 did not become ready")
+PY
+python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+~~~
+
+The Scenario moves the head, turns it, presses a right trigger, asserts the resulting state, and resets the virtual devices. When all assertions pass, the runner exits with status 0.
+
+To issue individual operations through PlaySpectra-CLI, run:
 
 ~~~bash
 python3 tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
 python3 tools/playspectra_server.py --cmd get_state
 ~~~
 
-When the application also has the PlaySpectra OpenXR layer loaded on 127.0.0.1:52700, the visual-regression example is:
-
-~~~bash
-python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
-~~~
-
-## Architecture overview
-
-PlaySpectra separates the device-operation path from the in-process application-observation path.
-
-~~~mermaid
-flowchart TD
-  I[CLI / JSON Scenario / MCP] --> S[PlaySpectra Server]
-  S --> C[Virtual Device Core]
-  C --> A[Runtime Adapter]
-  A --> M[Monado]
-  M --> O[OpenXR application]
-  L[OpenXR Instrumentation Layer] --> O
-  L --> V[Screenshot / recording / diagnostics]
-~~~
-
-- CLI, JSON scenarios, and MCP call the same PlaySpectra Server.
-- The Server converts operations such as head movement, gaze rotation, and controller input into virtual HMD/controller state frames.
-- A Runtime Adapter translates that state into a runtime's native device path. Monado is the current working backend.
-- The OpenXR layer observes the application process; it is instrumentation, not a second runtime backend.
-
-The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is `127.0.0.1:52700`. The rationale for runtime-specific adapters, the absence of a common driver ABI, and the separation of instrumentation is documented in [Architecture](docs/architecture.md).
-
 ## Current support
 
-The status tables below show the execution results currently available for each area. Detailed test counts, environments, graphics-API results, and negative controls are in the [full verification matrix](docs/verification.md).
+The tables below use one classification axis per table. Status is shown for each item instead of grouping different kinds of items by status.
 
-### Environments and runtimes
+Legend: ✅ verified, ⚠️ partially verified, 🔍 not yet verified, 🚧 planned or not implemented. 🔍 means that the current operation path or target exists but the specific condition has not yet been checked.
+
+### Execution environments
 
 | Area | Status | Scope or boundary |
 | --- | --- | --- |
-| Windows native | **Verified** | Monado headless E2E on a real GPU. |
-| Windows WSL2 | **Verified** | Linux Monado and software Vulkan inside WSL2. |
-| Ubuntu Linux headless | **Verified** | Ubuntu 22.04 headless path. |
-| Monado virtual-device backend | **Verified** | Virtual HMD, controllers, control channel, and native OpenXR path. |
-| SteamVR Adapter | **Planned** | Reconnection to the current core and Windows verification remain. |
-| OpenVR via OpenComposite | **Partially verified** | OpenVR-to-OpenXR conversion path only; this is not SteamVR Adapter completion. |
+| Windows native | ✅ | Monado headless E2E on a real GPU. |
+| Windows WSL2 | ✅ | Linux Monado and software Vulkan inside WSL2. |
+| Ubuntu Linux | ✅ | Ubuntu 22.04 headless path. |
+
+### Runtime adapters
+
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Monado Adapter | ✅ | Virtual HMD, controllers, control channel, and native OpenXR path. |
+| OpenVR via OpenComposite | ⚠️ | OpenVR-to-OpenXR conversion path only. |
+| SteamVR Adapter | 🚧 | Adapter for the current core is not implemented. |
 
 ### Application targets
 
 | Area | Status | Scope or boundary |
 | --- | --- | --- |
-| Native OpenXR application | **Verified** | Native OpenXR application path. |
-| Godot 4.7 application | **Verified** | Separate verification application and its OpenXR path. |
-| Unity application | **Not yet verified** | No Unity application E2E result is claimed. |
-| Unreal Engine application | **Not yet verified** | No Unreal application E2E result is claimed. |
+| Native OpenXR application | ✅ | Native OpenXR application path. |
+| Godot 4.7 application | ✅ | Separate verification application and its OpenXR path. |
+| Unity application | 🔍 | Unity application E2E is not yet verified. |
+| Unreal Engine application | 🔍 | Unreal application E2E is not yet verified. |
+| AR/MR-specific application | 🔍 | AR/MR application E2E is not yet verified. |
 
-### Graphics APIs
-
-| API | Status | Scope or boundary |
-| --- | --- | --- |
-| D3D11 | **Verified** | Windows capture backend. |
-| D3D12 | **Verified** | Windows capture backend. |
-| Vulkan | **Verified** | Windows and Linux/WSL2 capture paths. |
-
-### Interfaces and test features
+### Graphics and capture
 
 | Area | Status | Scope or boundary |
 | --- | --- | --- |
-| MCP Server | **Verified** | Current MCP Server against the live Monado path. MCP is one operation interface. |
-| Scenario / state assert | **Verified** | JSON state assertions. |
-| Screenshot / capture assert | **Verified** | OpenXR-layer capture assertions. |
-| Recording / replay | **Verified** | Device-state trajectory recording and replay; this is not video replay. |
-| Physical-HMD display compositor | **Not yet verified** | Headless null-compositor evidence does not cover physical display presentation. |
-| Deterministic application timing | **Not yet verified** | GPU scheduling, physics, async loading, and dropped-frame behavior need separate evidence. |
+| D3D11 | ✅ | Windows capture backend. |
+| D3D12 | ✅ | Windows capture backend. |
+| Vulkan | ✅ | Windows and Linux/WSL2 capture paths. |
+| Physical-HMD display compositor | 🔍 | Headless null-compositor evidence does not cover physical display presentation. |
+
+### Operation interfaces
+
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| PlaySpectra-MCP | ✅ | AI-agent operation and observation through MCP. |
+| PlaySpectra-CLI | ✅ | Individual operation and state observation. |
+| JSON Scenario | ✅ | Repeatable operation procedures. |
+
+### Verification and recording
+
+| Area | Status | Scope or boundary |
+| --- | --- | --- |
+| Device-state assertion | ✅ | State assertions from Server and scenarios. |
+| Screenshot / capture assertion | ✅ | Rendered-output assertions through the OpenXR layer. |
+| Recording / replay | ✅ | Device-state trajectories; this is not video replay. |
+| Deterministic application timing | 🔍 | GPU scheduling, physics, async loading, and dropped frames are not yet verified. |
 
 See the [full verification matrix](docs/verification.md) for test counts, dates, probes, graphics-API results, and negative controls.
 
@@ -240,7 +268,7 @@ See the [scenario format](docs/scenario-format.md) and [sample scenarios](tools/
 
 ### MCP
 
-MCP is one operation interface over the same Server; it is not a separate product path. The current implementation is the Python server in `tools/playspectra_mcp.py` and uses stdio.
+PlaySpectra-MCP is the interface that lets an AI agent operate and observe an XR application. It uses the same operation model as PlaySpectra-CLI and JSON Scenarios. The current server uses stdio and is implemented in `tools/playspectra_mcp.py`.
 
 Set it up in a dedicated environment:
 
@@ -251,6 +279,30 @@ python3 -m venv .venv-mcp
 ~~~
 
 On Windows Git Bash, use .venv-mcp/Scripts/python.exe instead. The server exposes movement/input, state observation, auto-wait, screenshot, reset, and run_scenario tools. See [MCP tools](docs/mcp-tools.md) for the exact list and the live verification command.
+
+## Architecture overview
+
+The user-facing model is an AI agent operating and observing an XR application through a virtual headset and controllers.
+
+Internally, the operation path is separated from the in-process observation path:
+
+~~~mermaid
+flowchart TD
+  I[AI agent / CLI / JSON Scenario] --> M[PlaySpectra-MCP / Server]
+  M --> A[Common operation model]
+  A --> V[Virtual HMD / controllers]
+  V --> R[Runtime Adapter]
+  R --> X[OpenXR application]
+  L[OpenXR Instrumentation Layer] --> X
+  L --> O[State / screenshot / recording observation]
+~~~
+
+- The common operation model represents actions such as head movement, gaze rotation, and controller input.
+- A Runtime Adapter delivers those actions through a runtime's device path. Monado is the current working adapter.
+- The OpenXR layer observes the application process; it is not a replacement for the Runtime Adapter.
+- The same operation model supports AI operation, CLI/JSON replay, and automated assertions.
+
+The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is `127.0.0.1:52700`. Detailed design rationale is documented in [Architecture](docs/architecture.md).
 
 ## Development and testing
 
@@ -266,19 +318,14 @@ See [Testing](docs/testing.md) for individual commands, suite counts, CI boundar
 
 ## Project status and roadmap
 
-Current:
+The [support tables above](#current-support) are the authoritative status summary.
 
-- Monado virtual-device backend: working and verified on Windows headless and Linux/WSL2 headless paths.
-- Python PlaySpectra Server, JSON runner, recorder/replayer, and MCP server: current interfaces.
-- OpenXR instrumentation layer: screenshot, recording, action discovery, diagnostics, and test-only overrides.
-- Native hello_xr and Godot 4.7 VRAppDummyGame: verified application targets.
+Roadmap items are separate from current capabilities:
 
-Planned or not yet verified:
-
-- SteamVR Adapter: reconnect the earlier skeleton to the current Virtual Device Core and verify it on Windows.
-- Unity and Unreal: application E2E verification is still outstanding.
-- Physical-HMD display compositor and deterministic frame timing: not yet verified.
-- Legacy TypeScript MCP in mcp/: scheduled for retirement; it is not the recommended MCP interface.
+- SteamVR Adapter: implement the adapter for the current Virtual Device Core and verify it on Windows.
+- Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
+- Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
+- Legacy TypeScript MCP in `mcp/`: retire it after the current MCP interface has fully replaced it.
 
 The [roadmap](docs/roadmap.md) keeps these boundaries separate from current features.
 

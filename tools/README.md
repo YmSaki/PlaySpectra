@@ -7,7 +7,7 @@ a browser: inject the same input a controller/HMD would, observe the device stat
 eye image, and assert on both.
 
 > Verification status (✅ implemented + auto-tested / 🟡 partially verified / 📋 in design) for every
-> claim below is tracked in the top-level `README.md` verification-boundary table, with the in-repo
+> claim below is tracked in [`docs/verification.md`](../docs/verification.md), with the in-repo
 > evidence for each row. This file describes the tools; that table says what is proven.
 
 ## Channels (the operate / capture split)

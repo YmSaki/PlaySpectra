@@ -1,10 +1,12 @@
 # M2 実装状況 — 最小 Monado Virtual HMD
 
-作成: 2026-07-19 / 更新: 2026-07-20。`playspectra-architecture.md` §8 M2 / `playspectra-device-core-spec.md` に対応。
-状態: **M2 の HMD＋Touch コントローラ縦切りが完全 E2E 検証済み**(WSL2 Ubuntu 22.04・in-process headless)。
-仮想HMD＋左右Touchコントローラの列挙、OpenXRアプリでの pose/thumbstick/trigger/grip 取得、外部NDJSON
-set_state による head/controller 更新まで実行検証済み。残り: 実アプリ(hello_xr/VRDevApp)・haptics 逆方向・
-observer 複数接続・SteamVR Adapter。
+作成: 2026-07-19 / 更新: 2026-07-20(冒頭サマリ是正 2026-07-30)。`playspectra-architecture.md` §8 M2 /
+`playspectra-device-core-spec.md` に対応。
+状態: **M2 完了**。冒頭の旧サマリ「残り: 実アプリ・haptics 逆方向・observer 複数接続」は**すべて完了済み**
+(本文中に各実測あり。hello_xr は Windows 実GPU で 20/20、haptics/observer は制御チャネル E2E で実証、
+実エンジンアプリは VRAppDummyGame〈Godot 4.7〉で 24/24 = G1)。未検証のまま残るのは
+**表示 compositor 経路**と **SteamVR Adapter**(=G3)のみ。文中の「次の実作業軸」等の当時の判断は
+現況(backlog 冒頭スナップショット)が上書きする。
 
 ## M2.1 検証結果 (2026-07-20・WSL2 Ubuntu 22.04.5 / branch feat/playspectra-driver-m2)
 
@@ -425,5 +427,7 @@ cmake --build build --parallel
 - ✅ 実行検証(Windows・実GPU 2026-07-22): 統一スタック(service/CLI/wait_for)9/9 / record-replay 5/5 /
   frame 10/10 / reset 20/20 / 実アプリ hello_xr×capture D3D11/D3D12/Vulkan 各20/20 / MCP 14/14 /
   operate 到達(coupling)2/2。
-- 🟡 未検証: VRDevApp(Windows 実機) / 表示 compositor 経路 / SteamVR Adapter。
+- ✅ 実エンジンアプリ E2E は達成済み(2026-07-25 追記): VRAppDummyGame〈Godot 4.7、旧表記 VRDevApp の
+  移行先〉で 24/24(G1、`scripts/run_vrapp_monado.sh`)。
+- 🟡 未検証のまま: 表示 compositor 経路 / SteamVR Adapter(=G3)。
 - submodule branch `feat/playspectra-driver-m2`(push済・親 gitlink 登録済 49010dbdf)。

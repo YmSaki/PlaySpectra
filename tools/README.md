@@ -6,11 +6,16 @@ operation interfaces (CLI / JSON Scenario Runner / MCP). They drive the app the 
 a browser: inject the same input a controller/HMD would, observe the device state and the rendered
 eye image, and assert on both.
 
+> Verification status (✅ implemented + auto-tested / 🟡 partially verified / 📋 in design) for every
+> claim below is tracked in the top-level `README.md` verification-boundary table, with the in-repo
+> evidence for each row. This file describes the tools; that table says what is proven.
+
 ## Channels (the operate / capture split)
 
 - **Operate + state-observe → the Runtime Adapter, `127.0.0.1:52702`** (the Monado adapter's control
   channel; `set_state` / `get_state` / `reset`, writer-exclusive). This is the "real" input path — the
-  app reads the injected poses/inputs exactly as it would real hardware.
+  app reads the injected poses/inputs exactly as it would real hardware (verified at runtime level by
+  `playspectra_coupling_probe.py` 2/2, and by a real engine app's own `[VRTEST]` reports, 24/24).
 - **Screen capture → the OpenXR layer, `127.0.0.1:52700`** (on-demand `screenshot` / recording). Capture
   must live in the layer because it reads the app's own swapchain images, in-process.
 
@@ -31,8 +36,11 @@ One `Server` connects to both; `--capture-port 52700` enables the capture channe
 | `playspectra_waitfor_test.py` | Deterministic, in-environment test for `wait_for` / retrying `assert` (mocks the `:52702` protocol — no Monado/GPU needed). |
 | `playspectra_capture_assert_test.py` | Deterministic, in-environment test for `assert_capture`'s retry path (mocks both `:52702` and `:52700` — no layer/GPU needed). |
 | `playspectra_coupling_probe.py` | Runtime-level probe: confirms an injected `set_state` actually reaches a live app's `xrLocateViews` (needs a live stack — see `scripts/run_hello_xr_monado.sh`). |
+| `playspectra_vrapp.py` | Driver for the real-engine test app (**VRAppDummyGame**, Godot 4.7, sibling repo): speaks its `[VRTEST]` stdout/stdin contract and does the STAGE↔GLOBAL conversion. |
+| `playspectra_vrapp_test.py` | Real-engine-app E2E (launch / pose+input reach / capture / interaction) — the 24/24 suite behind `scripts/run_vrapp_monado.sh`. |
+| `playspectra_png_stats.py` | Measures whether a capture is an actually-rendered image or a flat fill (stdlib-only; samples all rows). |
 | `playspectra_action_probe.c` / `playspectra_headless_probe.c` | C probes used as the OpenXR host for the E2E tests above (device enumeration / action-reach checks). |
-| `scenarios/*.json` | Sample scenarios (walk_and_look, assert_demo, capture_assert_demo, controller_ops, big_view_change). |
+| `scenarios/*.json` | Sample scenarios (walk_and_look, assert_demo, capture_assert_demo, controller_ops, big_view_change, wait_for_demo, operate_completeness). |
 | `requirements.txt` | Python deps (only the MCP pieces need `mcp`; the rest are stdlib-only). |
 
 ## Prerequisites

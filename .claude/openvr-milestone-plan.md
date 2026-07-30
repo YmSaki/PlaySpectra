@@ -78,7 +78,7 @@ OpenVRアプリ → openvr_api.dll 差し替え(OpenComposite) → OpenXRロー�
     その後 hellovr 自身が shutdown 後半で Segfault するが、マーカー到達後であり layer/OC 検証には無関係
     (hellovr@1.8.19 の終了時クセとして記録)。
 
-### M5: ドキュメント反映
+### M5: ドキュメント反映 【完了】(resolved c4c3f33 — M0〜M5 全マイルストーン完了)
 - README: 対応状況に OpenVR(via OpenComposite) 行を追加、セットアップ/実行手順を追記。
 - backlog / memory の更新(M3 で記録したアクション名翻訳の実態と、MCP 側 UX の課題があれば起票)。
 

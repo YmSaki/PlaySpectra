@@ -106,8 +106,7 @@ SteamVR/Monado/Meta/PICO すべてに刺さる構造にはならない**。必�
   【補正 2026-07-19】この因果は**未検証として扱い、Monado 採用理由からは分離する**。
   検証法: 実 SteamVR で (a) 物理HMDポーズ固定 (b) 仮想HMDポーズ注入 の両条件で歪みの有無を
   撮って比較する。実測して初めて「歪みの原因」を決定へ昇格させる。
-  ※現行 `steamvr-driver-plan.md` の VD4 節はこの仮説を事実の顔で書いている → §9 で相対化する
-    (要修正の既知箇所)。
+  ※`steamvr-driver-plan.md` の VD4 節は是正済み(🔬 ラベル付与、2026-07 時点で確認)。
 
 ### 3.3 Monado を採用する理由は「事実」だけで足りる
 
@@ -209,21 +208,26 @@ SteamVR Driver / OpenXR Layer(Instrumentation)`。
   内部エントリ `openxr_agent_layer.cpp`→`layer_entry.cpp`、`VR_AGENT_NO_CA`→`PLAYSPECTRA_DISABLE_CA`
   (用途=CA自動有効化を無効化/診断用)。検証: layer build+unit 78 PASS / driver build / mcp tsc /
   manifest OK / 残存0(許容: .claude履歴・feature-inventory.csv・submodule)。
-  README(ドキュメント更新と混在)と driver/(未追跡)は作業ツリー反映済み・別コミット。
-- **M1 VirtualDeviceState / 通信仕様の確定**(📋 次): 型・単位・座標系・NDJSON プロトコル・
-  protocol_version/sequence/timestamp・HMD/L/R の最小フィールド。Server↔Adapter の境界 API。
-- **M2 最小 Monado Virtual HMD**(M2.1〜M2.4 ✅ WSL2＋Windows・実GPU で実ビルド・E2E 検証済み〈列挙・
-  pose/入力・set_state・haptics・reset・複数 observer・実アプリ hello_xr〉、M2.5〈VRDevApp〉は 🟡 Windows
-  実機待ち。詳細と各段の実測は `playspectra-m2-status.md` と README 検証境界表。当初 Windows は glslang 不足で
+  README(ドキュメント更新と混在)と driver/(当時未追跡、現在は追跡済み)は作業ツリー反映済み・別コミット。
+  ※残存0の反例1件が後日判明: `driver/src/driver_playspectra.cpp:241-242` の SteamVR デバイスシリアル
+  `VRAGENT_LEFT`/`VRAGENT_RIGHT`(改革前スケルトン。G3 での作り直し時に新名へ)。
+- **M1 VirtualDeviceState / 通信仕様の確定** ✅(spec = `playspectra-device-core-spec.md`。M2 実装・E2E まで完了):
+  型・単位・座標系・NDJSON プロトコル・protocol_version/sequence/timestamp・HMD/L/R の最小フィールド。
+  Server↔Adapter の境界 API。
+- **M2 最小 Monado Virtual HMD** ✅(M2.1〜M2.5 すべて完了。WSL2＋Windows・実GPU で実ビルド・E2E 検証済み〈列挙・
+  pose/入力・set_state・haptics・reset・複数 observer・実アプリ hello_xr〉。M2.5 の実エンジンアプリ検証は
+  ターゲット移行先の VRAppDummyGame〈Godot 4.7〉で 24/24 達成=G1、2026-07-25。詳細と各段の実測は
+  `playspectra-m2-status.md` と README 検証境界表。当初 Windows は glslang 不足で
   ビルド不可だったが vcpkg ツールチェーン＋`/utf-8` で解消済み。段階化):
   - **M2.1** Monado が PlaySpectra Virtual HMD を列挙する(デバイスとして認識)
   - **M2.2** 固定 HMD pose を OpenXR アプリが取得できる(xrLocateViews/Space が値を返す)
   - **M2.3** NDJSON `set_state` で HMD pose が変わる(§spec の主経路が Driver に届く)
   - **M2.4** hello_xr を headless で起動して継続動作(framesObserved>0 で機械判定)
-  - **M2.5** VRDevApp で E2E 確認(入って画像取得。コントローラは後続マイルストーン)
+  - **M2.5** 実エンジンアプリで E2E 確認 ✅(当初表記は VRDevApp。実体は VRAppDummyGame で 24/24 達成)
   まず HMD のみ。「通信+Driver+headless compositor+アプリ」を一本の DoD にせず段階分割。
-- 以降(順不同・M2 後に再優先度付け): SteamVR Adapter を新 Core に接続 / Layer の instrumentation
-  への責務移行(注入をテスト用 override へ降格) / Scenario Runner (JSON/TAS 的実行) / Recorder+Replay。
+- 以降: **Scenario Runner ✅**(`tools/playspectra_server.py`) / **Recorder+Replay ✅**(`tools/playspectra_record.py`)
+  は完了済み。残るのは **SteamVR Adapter を新 Core に接続(=G3、次の本丸)** と Layer の instrumentation
+  への責務移行(注入をテスト用 override へ降格)。
 
 改名(§7)の実行位置: M0 完了後・M1 着手前に**内部一括改名**を1パスで行い、以降の新規実装
 (Core/Adapter)は最初から新名で書く(クリーンなベース=ユーザー Q1 の意図)。

@@ -1,5 +1,13 @@
 # VR-Playwright レイヤ リファクタリング計画書
 
+> **✅ 全フェーズ完了済み(2026-07 追記)** — 本文書は史料。R01〜R21 として実施済みで、分割後の実体は
+> `layer/src/` の layer_log / layer_dispatch / action_registry / pose_override / input_inject / capture_vulkan。
+> 本文の識別子は当時のもの: `openxr_agent_layer.cpp`→現 `layer_entry.cpp` ほか、ビルドターゲット
+> `vr_agent_layer`→現 `playspectra_layer`(`cmake --build layer/build`)、`VR_AGENT_NO_CA`→現
+> `PLAYSPECTRA_DISABLE_CA`、integration 14/14→現 3API 各 20/20。§0 の「mcp/src/server.ts は触らない」
+> 判断はその後 R20 で覆り分割済み(現在は TS 版ごと廃止方向)。§5 の「近未来要件」も durationMs 補間が
+> `layer/src/pose_animator.{h,cpp}` として実装済み(残は §5.2 実 velocity のみ・任意)。
+
 作成: 2026-07-14 / 対象: v1.0.0 機能一式コミット済み時点 (HEAD = a751805)
 方針の絶対制約: CLAUDE.md の North Star（VR版Playwright / コアループ最優先 / over-scope・under-scope 双方の回避）
 

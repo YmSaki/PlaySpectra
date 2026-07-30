@@ -2,6 +2,19 @@
 
 決定日: 2026-07-17。The Lab 実測で確定した方針転換。
 
+> **⚠️ 読み替え注意(2026-07-30 追記)**: 本計画は PlaySpectra 大改革(2026-07-19、`playspectra-architecture.md`)
+> **以前**の起票。G3 として着手する際は新アーキテクチャ前提で読み替えること:
+> - 接続元は TS MCP(**廃止方向確定** 2026-07-24)ではなく **Server / Virtual Device Core**(Python、
+>   `tools/playspectra_server.py`)。下のアーキ図の「MCP server (TS)」は当時のもの。
+> - ワイヤプロトコルは本文の「pose / input / status」ではなく **Monado Adapter(:52702)と同一の
+>   VirtualDeviceState / NDJSON**(`hello`/`set_state`/`get_state`/`status`/`reset` + `request_id` +
+>   writer 排他 — `playspectra-device-core-spec.md` §5)。**Adapter 側がプロトコルを揃えれば Server/MCP は
+>   無改修で両対応**(backlog vd2 の要求)。現スケルトン `driver/src/driver_playspectra.cpp` は旧レイヤー
+>   プロトコル(:52701)のままなので要改修。
+> - **VD5(MCP ルーティング)は撤回済み**(2026-07-24。要件は vd2 へ吸収され、経路分岐は不要と判明)。
+> - **VD4(仮想 HMD)は縮退済み**: 「完全 headless」目標は Monado Adapter(M2)で既達。残スコープは
+>   実 SteamVR 共存ケースのみ(backlog)。
+
 ## なぜ必要か (実測事実)
 
 The Lab (OpenVR ゲーム) + OpenComposite + SteamVR/OpenXR ランタイムで実測した結果:
@@ -29,15 +42,17 @@ MCP server (TS)
 - **driver_playspectra.dll**: OpenVR ドライバー API (`openvr_driver.h`) を実装する server tracked device provider。
   - `HmdDriverFactory` エクスポート → `IServerTrackedDeviceProvider`
   - Init で仮想コントローラー2本 (`ITrackedDeviceServerDriver`) を `TrackedDeviceAdded`
-  - 入力プロファイル: 独自 JSON (resources/input/playspectra_profile.json)。Touch 互換のコンポーネント構成
-    (trigger/grip/joystick/A/B/system) にして The Lab 等の既存バインディングが解決できるようにする
-  - IPC: レイヤーと同じ NDJSON over TCP パターン (:52701)。コマンド: pose / input / status
+  - 入力プロファイル: **`oculus_touch` 偽装が現行実装**(下記「コントローラー偽装の方向決定」節が正。
+    当初案の独自 JSON `resources/input/playspectra_profile.json` はディスクに残るがコードから未参照)
+  - IPC: NDJSON over TCP。~~コマンド: pose / input / status~~ → **冒頭注記のとおり :52702 と同一の
+    VirtualDeviceState プロトコルへ揃える**(現スケルトンは旧形式のまま=要改修)
 - **SteamVR 登録**: `vrpathreg adddriver <repo>/driver/playspectra` + steamvr.vrsettings
   `activateMultipleDrivers: true`。実機 Rift ドライバーと共存(コントローラー4本になるが直近アクティブが勝つ)。
 - **openvr_driver.h**: ValveSoftware/openvr v1.8.19 タグ固定 (プロジェクト全体の openvr ピンと統一)。
   ドライバー API は後方互換なので現行 SteamVR で動く。
 - **既存レイヤーとの関係**: capture/recording はレイヤーのまま(動いている)。入力だけドライバー経路が加わる。
-  MCP が「CA が使えるランタイムか」で経路を自動選択 (vd4)。
+  ~~MCP が「CA が使えるランタイムか」で経路を自動選択~~ → **撤回**(旧 VD5、2026-07-24。Adapter が
+  プロトコルを揃えるため MCP/Server 側の分岐は不要)。
 
 ## マイルストーン
 
@@ -78,7 +93,8 @@ MCP server (TS)
   (Monado の根拠はソース改変可能/正規経路/headless/CI の事実のみ)。
   なお実現時の切替(実機観戦 ⇔ 仮想HMD)は vrsettings フラグ (driver_playspectra.virtualHmd) +
   SteamVR 再起動を想定(SteamVR は HMD を1つしか採用しない)。
-- **VD5** MCP ルーティング: vr_input/vr_set_controller/vr_set_hmd が経路自動選択
+- ~~**VD5** MCP ルーティング: vr_input/vr_set_controller/vr_set_hmd が経路自動選択~~ **撤回**(2026-07-24。
+  要件は vd2〈:52702 と同一プロトコル〉へ吸収。ツール名も廃止方向の TS 版の語彙だった)
 - **VD6** docs + 統合テスト
 
 ## コントローラー偽装の方向決定 (2026-07-17) — 効果は仮説 H3、実測待ち

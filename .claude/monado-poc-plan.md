@@ -31,7 +31,8 @@ G1/G2/G3/G7 のいずれか不能 → **No-Go**(自作小型ランタイム設�
 
 ### Phase 0: ベースライン固定(~30分)
 - Meta XR Sim で `integration_test.sh Vulkan`(+可能なら D3D11/D3D12)を再実行し、現在の PASS 数を比較基準として記録。
-- `VR_AGENT_NO_CA=1` 経路も1回回して [G] 経路のベースラインを取る(Monado では常時この経路になる想定のため)。
+- `VR_AGENT_NO_CA=1`(現 `PLAYSPECTRA_DISABLE_CA=1`。M0.5 改名で当時のまま残した史料箇所)経路も1回回して
+  [G] 経路のベースラインを取る(Monado では常時この経路になる想定のため)。
 
 ### Phase 1: Monado 入手(0.5〜1日)
 - 優先: GitLab (gitlab.freedesktop.org/monado/monado) の CI が出す Windows artifact。

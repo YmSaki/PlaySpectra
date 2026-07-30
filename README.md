@@ -53,7 +53,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 
 | 領域 | 状況 | 根拠（リポジトリ内） |
 | --- | --- | --- |
-| **Monado Adapter**: Virtual HMD + 左右コントローラー | ✅ Monado がデバイス列挙（head/left/right）・OpenXR アプリが pose 取得・`set_state` で pose/入力が遷移 | submodule `runtime/monado-playspectra` `drivers/playspectra/`、`tools/playspectra_{headless,action}_probe.c` |
+| **Monado Adapter**: Virtual HMD + 左右コントローラー | ✅ Monado がデバイス列挙（head/left/right）・OpenXR アプリが pose 取得・`set_state` で pose/入力が遷移 | submodule `runtime/monado-playspectra` `src/xrt/drivers/playspectra/`、`tools/playspectra_{headless,action}_probe.c` |
 | Monado 制御チャネル（NDJSON/TCP :52702） | ✅ feature-complete: `set_state`/`get_state`/haptics broadcast/複数 observer/writer 排他/`frame_synchronized`/`reset`。**live Windows でも frame 10/10・reset 20/20・multiobs 中核 8/8 実測**（haptics broadcast の3件は host app 前提＝`integration_hello_xr` の grab→buzz 0→22 で別途実証） | `tools/playspectra_{multiobs,frame,reset}_test.py`（E2E 11/11・10/10・20/20、Windows 実測 2026-07-22） |
 | **PlaySpectra Server**: 高水準命令＋補間 | ✅ `move_head`/`look`/`walk_forward`/`strafe`/`trigger`/`press`/`set_input`/`move_controller`/`reset`/`get_state`。**live Windows で operate 面を全アクション・両手 完全実測**: `--verify` 9/9（HMD+auto-wait）+ `controller_ops` 7/7 + `operate_completeness` 7/7（両手の trigger/move_controller/set_input + strafe） | `tools/playspectra_server.py`、`tools/scenarios/{controller_ops,operate_completeness}.json`（Windows 2026-07-22） |
 | **Recorder + Replay** | ✅ observer で軌跡サンプル → writer で `t_ms` どおり再生。**live Windows Monado で 5/5**（42フレーム記録・軌跡 z→-2・reset 後 replay が head z を再現） | `tools/playspectra_record.py`（`--verify --port 52702`、2026-07-22） |
@@ -68,7 +68,7 @@ MCP は製品本体ではなく、**複数ある操作インターフェース�
 | **実エンジンアプリ E2E: VRAppDummyGame（Godot 4.7）× Windows Monado × capture** | ✅ Windows・実GPU headless で **24/24**。SDK サンプルではない実エンジン製アプリで、**アプリ自身の申告**（`[VRTEST]` JSON 契約）を機械値に使う: OpenXR 初期化・`oculus/touch_controller` へのプロファイル解決・**頭部/コントローラーが命令座標に誤差 0.000 で着地**・全入力種別（float/vec2/bool/pose・両手）がエンジンのアクションシステムへ到達・**入力注入のみ（カメラ不動）で画面が再描画**（negative control 付き）・**アプリのゲームロジック実行**（ボタン toggle / キューブを掴んで投げる / レバー角度駆動） | `scripts/run_vrapp_monado.sh`、`tools/playspectra_vrapp{,_test}.py`（24/24、2026-07-25）。アプリは**別リポジトリ**（既定は兄弟ディレクトリ、`PLAYSPECTRA_VRAPP_EXE` で上書き。未ビルドなら明示 SKIP） |
 | **operate 到達（runtime レベル）** | ✅ layer override ではなく **:52702 で Monado 仮想 HMD を駆動 → 実アプリの xrLocateViews が追従**（override クリア状態で dz=−2.5 を 1:1 反映、x/y 不変）。「注入のアプリ到達」を runtime 経路で実証。2/2 | `tools/playspectra_coupling_probe.py`（`run_hello_xr_monado.sh` のゲート、2026-07-22） |
 | MCP サーバー（レガシー・TypeScript） | 📋 **廃止方向で決定（2026-07-24）**。改革前の設計（layer :52700 直結）のまま分岐点以降実質更新なし。録画ビューアwidget（未マージ）のアイデアを現行 Python 版へ移植後に削除予定 | `mcp/src/`、backlog `mcp-ts-retire` |
-| VRDevApp（旧・実 Godot アプリ） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転）。**参照先 `bin/VRDevApp.exe` は現在このツリーに存在せず**、実エンジン検証は上記 VRAppDummyGame へ移行済み | `scripts/run_vrdevapp.sh`、memory `vrdevapp-test-target` |
+| VRDevApp（旧・実 Godot アプリ） | 🟡 metasim/CA 経路で検証済み（session 確立・D3D12 キャプチャ・左スティック移動・視点回転）。参照先 `bin/VRDevApp.exe` は**リポジトリに含まれない**（`.gitignore` の `bin/`。fresh clone には無い）。実エンジン検証は上記 VRAppDummyGame へ移行済み | `scripts/run_vrdevapp.sh`、memory `vrdevapp-test-target` |
 | OpenVR アプリ | 🟡 OpenComposite（OpenVR→OpenXR 変換）経由で観察・姿勢注入（統合テスト 15 PASS / 1 SKIP）。openvr **v1.8.19** 世代でビルド | `scripts/integration_openvr_test.sh` |
 | **SteamVR Adapter** | 📋 計画。VD1〜VD3 の実測知見あり、`driver/` に改革前スケルトン。新 Core への再接続と Windows 検証が未 | `.claude/steamvr-driver-plan.md` |
 | headless キャプチャの解像度 | ✅ headless でも**仮想 HMD が申告した解像度**（現状 `1080x1200/eye`）でキャプチャできる。以前は null compositor が xdev を無視して 320x240 固定を返していた（`null_compositor.c` を main compositor と同じ xdev 由来の算出に是正）。hello_xr / VRAppDummyGame の両方で 1080x1200 を実測 | submodule `src/xrt/compositor/null/null_compositor.c`、backlog `monado-headless-swapchain-resolution` |
@@ -92,7 +92,7 @@ tools/                    PlaySpectra 本体ツール群（Python）
   playspectra_*_probe.c     Monado デバイス列挙 / action 到達の検証プローブ
   scenarios/*.json          シナリオ（walk_and_look / assert_demo / capture_assert_demo / …）
 runtime/
-  monado-playspectra/       Monado fork（submodule）。drivers/playspectra が Monado Adapter
+  monado-playspectra/       Monado fork（submodule）。src/xrt/drivers/playspectra が Monado Adapter
                             = Virtual HMD + 左右コントローラー + 制御チャネル :52702
 layer/                    OpenXR API Layer（Instrumentation 軸・C++/CMake）
   src/                      フック・制御チャネル(:52700)・状態ストア・キャプチャ
@@ -130,7 +130,7 @@ PLAYSPECTRA_ENABLE=1 runtime/monado-playspectra/build/src/xrt/targets/service/mo
 
 # 5. Server / MCP からアプリを操作・観察
 python3 tools/playspectra_server.py --verify        # 9/9
-python3 tools/playspectra_mcp_verify.py             # 14/14（要 pip install mcp）
+python3 tools/playspectra_mcp_verify.py             # 14/14（要 pip install mcp・venv 隔離必須 — 共有 python に入れると pydantic/starlette を上書きし他アプリを壊す）
 ```
 
 #### Windows・実GPU（本セッションで Monado 経路の全層を E2E 検証）
@@ -189,10 +189,10 @@ Server は操作を `set_state`（完全スナップショット）の列へ補�
 
 ```bash
 # 状態 assert 付きシナリオ
-python3 tools/playspectra_server.py run_scenario tools/scenarios/assert_demo.json
+python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
 
 # 視覚回帰（capture-assert）: --capture-port で layer:52700 に接続
-python3 tools/playspectra_server.py run_scenario tools/scenarios/capture_assert_demo.json --capture-port 52700
+python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
 
 # 記録 → reset → 再生
 python3 tools/playspectra_record.py --verify

@@ -18,10 +18,10 @@
 | # | 条件 | 状態 |
 |---|---|---|
 | 1 | 実在のランタイムで動く | Monado ✅ / SteamVR 📋 |
-| 2 | **実在のアプリで動く** | ✅ **Godot 4.7 で 25/25**(2026-07-25 達成。長らく 0件だった穴) |
+| 2 | **実在のアプリで動く** | ✅ **Godot 4.7 で 24/24**(2026-07-25 に 25/25 で初達成、headless解像度根治後の再実測は 24/24。長らく 0件だった穴) |
 | 3 | 全入力を打てる | ✅ 全種別(float/vec2/bool/pose)両手・誤差 0.000 |
 | 4 | どんな画面でも取れる | ✅ D3D11/D3D12/Vulkan、headless で 1080x1200/90fps |
-| 5 | 誰の環境でも再現する | ❌ hosted CI は課金ブロックで休眠。ローカルゲート 210件のみ |
+| 5 | 誰の環境でも再現する | 🟡 hosted CI は 2026-07-30 に初 green(mcp+layer。課金ブロック解消)。python/proto スイートは未追随、ローカルゲートは 210件 |
 | 6 | 失敗原因を追える | ✅ record/replay/assert/capture-assert |
 
 **残る本丸は #1 の SteamVR 側 = G3**。他は達成済みか、達成の質を上げる段階。
@@ -39,7 +39,7 @@
 
 ## 直近セッションで完了したこと (2026-07-25〜29)
 
-- **G1 実エンジンアプリ E2E**: VRAppDummyGame(Godot 4.7、別repo)で 25/25。`tools/playspectra_vrapp{,_test}.py`
+- **G1 実エンジンアプリ E2E**: VRAppDummyGame(Godot 4.7、別repo)で 25/25(当時。解像度根治後の再実測は 24/24)。`tools/playspectra_vrapp{,_test}.py`
   `playspectra_png_stats.py` `scripts/run_vrapp_monado.sh` 新設。→ 60dd6680b
 - **headless 解像度/ペーシング根治**: null compositor が xdev を無視していた定数を是正。320x240/20FPS →
   **1080x1200/90.0fps**。→ submodule 2af03069c / 親 60dd6680b

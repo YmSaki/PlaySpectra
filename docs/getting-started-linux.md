@@ -4,13 +4,15 @@ This guide covers the Linux execution path for both native Ubuntu 22.04 and WSL2
 
 ## Prerequisites
 
-Install Git, Python 3, CMake, Ninja, Go Task, a C/C++ compiler, and the Ubuntu packages needed by Monado. The repository includes the one-shot Task entry point:
+Install Git, Python 3, CMake, Ninja, Go Task, and `build-essential` (including GCC/G++), plus the Ubuntu packages needed by Monado. The repository includes the one-shot Task entry point:
 
 ~~~bash
 task bootstrap:linux
 ~~~
 
 That task runs setup:linux-deps, initializes the Monado submodule recursively, runs the standalone protocol test, configures Monado with Ninja, and builds it into build/monado.
+
+On WSL2, use the GCC/G++ installed inside the Linux distribution. Do not substitute a Windows MSYS2 compiler for the Linux build.
 
 If Task is not available, the package list used by the task is:
 

@@ -4,25 +4,27 @@
 
 [English](README.md) | [日本語](docs/readme.ja.md)
 
-> **Playwright for XR applications.** PlaySpectra drives an OpenXR app with a virtual HMD and controllers, observes the rendered result, and turns the interaction into repeatable tests.
+> **Playwright for XR applications.**
 
-PlaySpectra can inject HMD/controller poses and input, capture screenshots and recordings, replay device-state trajectories, and assert on device state or rendered output. The same PlaySpectra Server can be reached through a CLI, JSON scenarios, or MCP. The primary target is headless testing without a physical HMD.
+PlaySpectra is an XR test automation tool that injects virtual HMD/controller input into an OpenXR application and verifies device state and rendered output.
+
+PlaySpectra targets headless testing without a physical HMD. The same Server is operated through the CLI, JSON scenarios, or MCP.
 
 The current end-to-end evidence covers a native OpenXR application and a Godot 4.7 application. “Engine-independent” describes the OpenXR-level design; it does not mean that every engine has been verified. Unity and Unreal are not yet verified.
 
-## What PlaySpectra can do
+## How PlaySpectra works
 
-- Inject virtual HMD and left/right controller poses and inputs.
-- Capture screenshots and recordings from an OpenXR application.
-- Run reproducible JSON scenarios with state and visual assertions.
-- Wait for device state to reach a condition before asserting it.
-- Record and replay device-state trajectories.
-- Expose the same operations to an AI agent through MCP.
-- Test OpenXR applications in a headless Monado setup, without a physical headset.
+The PlaySpectra Server receives operations from the CLI, JSON Scenario Runner, or MCP and converts them into virtual HMD/controller state.
+
+The Monado Runtime Adapter delivers that state through the normal runtime path used by the OpenXR application.
+
+The OpenXR Instrumentation Layer observes the application process and provides screenshots, recordings, and rendered-output assertions.
+
+Together, these paths let one test procedure inject input, inspect device state, and verify rendered output in a headless environment.
 
 ## Minimal example
 
-Run the following steps from a second terminal after starting the Monado adapter and an OpenXR application with the [Windows](docs/getting-started-windows.md) or [Linux / WSL2](docs/getting-started-linux.md) guide:
+Complete one of the platform guides below first. Then run the following steps from a second terminal:
 
 1. Start the PlaySpectra Monado adapter. Its operation channel normally listens on `127.0.0.1:52702`.
 2. From the repository root, run the checked-in scenario:
@@ -70,7 +72,7 @@ The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is 
 
 ## Current support
 
-These labels describe the current evidence boundary, not just what the interfaces were designed to support. If an item has not been measured in an application or runtime path, it is not presented as verified.
+The status tables below show the execution results currently available for each area. Detailed test counts, environments, graphics-API results, and negative controls are in the [full verification matrix](docs/verification.md).
 
 ### Environments and runtimes
 
@@ -104,7 +106,7 @@ These labels describe the current evidence boundary, not just what the interface
 
 | Area | Status | Scope or boundary |
 | --- | --- | --- |
-| Python MCP server | **Verified** | Current Python/FastMCP server against the live Monado path. MCP is one operation interface. |
+| MCP Server | **Verified** | Current MCP Server against the live Monado path. MCP is one operation interface. |
 | Scenario / state assert | **Verified** | JSON state assertions. |
 | Screenshot / capture assert | **Verified** | OpenXR-layer capture assertions. |
 | Recording / replay | **Verified** | Device-state trajectory recording and replay; this is not video replay. |
@@ -157,7 +159,7 @@ See the complete [Windows setup](docs/getting-started-windows.md), including the
 - Runtime: Linux Monado inside WSL2.
 - Application: Linux OpenXR application inside WSL2.
 - Graphics: Vulkan, usually software Vulkan (`lavapipe`).
-- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, and the Ubuntu/WSL2 build dependencies.
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu/WSL2 build dependencies.
 
 **Steps**
 
@@ -168,6 +170,8 @@ See the complete [Windows setup](docs/getting-started-windows.md), including the
 5. Confirm `PASS` lines for distinct captured contents and the post-injection frame difference.
 
 This path does not use the Windows Monado service or Windows OpenXR application. It uses Linux binaries inside WSL2.
+
+On WSL2, use the GCC/G++ installed inside the Linux distribution. Do not substitute a Windows MSYS2 compiler for the Linux build.
 
 See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
 
@@ -182,7 +186,7 @@ See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
 - Runtime: native Linux Monado.
 - Application: Linux OpenXR application.
 - Graphics: Vulkan through a software or hardware ICD.
-- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, and the Ubuntu build dependencies.
+- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu build dependencies.
 
 **Steps**
 
@@ -200,7 +204,7 @@ Set `VK_ICD_FILENAMES` when the default Vulkan ICD is not the intended one. See 
 
 ### CLI / Server
 
-`tools/playspectra_server.py` is both the shared Server and a one-command CLI. It turns high-level HMD/controller operations into device-state frames and can read the resulting state back.
+`tools/playspectra_server.py` is both the shared Server and a one-command CLI. It executes commands such as `move_head`, `look`, `press`, and `get_state`, and can read the resulting device state back.
 
 ~~~bash
 python3 tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'

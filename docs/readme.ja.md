@@ -2,25 +2,32 @@
 
 [English](../README.md) | **日本語**
 
-> **XRアプリのためのPlaywright。** PlaySpectraは、仮想HMDとコントローラーでOpenXRアプリを操作し、描画結果を観察して、再現可能なテストにします。
+> **XRアプリのためのPlaywright。**
 
-PlaySpectraは、入力注入・画面キャプチャ・録画・状態確認・assertを、CLI、JSON Scenario、MCPから実行できます。主な利用形態は、実機HMDを使わないヘッドレステストです。
+PlaySpectraは、OpenXRアプリへ仮想HMDとコントローラーの入力を注入し、デバイス状態と描画結果を検証する自動テスト基盤です。
 
-このページは日本語で読むための利用者向け入口です。内容の正典は[英語版README](../README.md)です。OS別の完全な構築手順、Scenario形式、MCPツール一覧、検証結果はリンク先の詳細文書で管理します。
+PlaySpectraは、実機HMDを使わないヘッドレステストを主な実行形態とします。
 
-## PlaySpectraでできること
+このページはREADMEの日本語訳です。
+正典は[英語版README](../README.md)です。
 
-- 仮想HMDと左右コントローラーの姿勢・入力を注入する
-- OpenXRアプリのスクリーンショットと録画を取得する
-- JSONシナリオを再現可能な形で実行する
-- デバイス状態と描画結果をassertする
-- デバイス状態の軌跡を記録・再生する
-- CLI、JSON Scenario、MCPから同じPlaySpectra Serverを操作する
-- 実機HMDなしのヘッドレス環境でOpenXRアプリを検証する
+OS別の完全な構築手順、Scenario形式、MCPツール一覧、検証結果はリンク先の詳細文書を参照してください。
 
-## 最小実行例
+## PlaySpectraの動作
 
-次の手順を、PlaySpectra Serverを起動するターミナルとは別のターミナルで実行してください。
+PlaySpectra Serverは、CLI、JSON Scenario、MCPから受け取った操作を、仮想HMDとコントローラーの状態へ変換します。
+
+MonadoのRuntime Adapterは、その状態をOpenXRアプリが読むデバイス経路へ渡します。
+
+OpenXR Instrumentation Layerは、アプリ内の描画結果をキャプチャし、スクリーンショット、録画、描画結果のassertを提供します。
+
+この構成によって、入力注入、状態確認、描画確認を同じテスト手順で実行できます。
+
+## セットアップ後の最小操作例
+
+先に、下の「Quick Start：実行環境を選ぶ」で実行環境を選び、MonadoとOpenXRアプリを起動してください。
+
+次のコマンドは、PlaySpectra Serverを起動するターミナルとは別のターミナルで実行してください。
 
 1. [Windows native](getting-started-windows.md)または[Linux / WSL2](getting-started-linux.md)の手順に従い、MonadoのPlaySpectra adapterとOpenXRアプリを起動してください。操作用のcontrol channelは通常`127.0.0.1:52702`です。
 2. リポジトリのルートディレクトリで、同梱のassertシナリオを実行してください。
@@ -40,7 +47,8 @@ python3 tools/playspectra_server.py --cmd get_state
 
 ## 現在確認できている範囲
 
-以下は、現在のリポジトリで実際に確認できている範囲です。インターフェースが存在することだけでは「検証済み」としていません。詳細なテスト件数、実測環境、graphics API別の結果、negative controlは[Verification matrix](verification.md)を参照してください。
+以下の表は、実行結果を確認できた範囲を示します。
+詳細なテスト件数、実測環境、graphics API別の結果、negative controlは[Verification matrix](verification.md)を参照してください。
 
 ### 実行環境とRuntime
 
@@ -74,7 +82,7 @@ python3 tools/playspectra_server.py --cmd get_state
 
 | 機能 | 状態 | 境界 |
 | --- | --- | --- |
-| Python MCP server | **Verified** | 現行のMCP実装。MCPは操作インターフェースの一つ |
+| MCP Server | **Verified** | MCPは操作インターフェースの一つ |
 | JSON Scenario / state assert | **Verified** | Scenario実行とデバイス状態assert |
 | Screenshot / capture assert | **Verified** | OpenXR layer経由の描画結果assert |
 | Recording / replay | **Verified** | 動画ではなくデバイス状態の軌跡 |
@@ -115,8 +123,10 @@ WSL2とUbuntuでは同じLinux手順を実行してください。前提ソフ�
 
 - Ubuntu 22.04またはWSL2
 - Git、Python 3、CMake、Ninja、Go Task
-- C/C++ compilerとMonadoのUbuntu依存パッケージ
+- `build-essential`（GCC/G++を含む）とMonadoのUbuntu依存パッケージ
 - ソフトウェアVulkanを使う場合はlavapipe。別のVulkan ICDを使う場合はそのドライバー
+
+WSL2ではWindows側のMSYS2ツールチェーンを使わず、WSL内のUbuntuにインストールしたGCC/G++を使ってください。
 
 次の順番で実行してください。
 
@@ -134,7 +144,7 @@ Windows nativeとWSL2/Ubuntuのbuild directory、CMake cache、`node_modules`は
 
 ### CLI / Server
 
-`tools/playspectra_server.py`は、HMDやコントローラーへの高水準操作をデバイス状態へ変換し、状態を読み取るServer兼CLIです。`move_head`、`look`、`press`、`get_state`などを1コマンドずつ実行できます。
+`tools/playspectra_server.py`は、`move_head`、`look`、`press`、`get_state`などの操作命令を実行し、デバイス状態を読み取るServer兼CLIです。
 
 ~~~bash
 python3 tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'

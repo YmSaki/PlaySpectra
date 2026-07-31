@@ -4,9 +4,11 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +203,62 @@ int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) c
 	changed, err = PatchHelloXR(root)
 	if err != nil || len(changed) != 0 {
 		t.Fatalf("second patch changed=%v err=%v", changed, err)
+	}
+}
+
+func TestRepositoryHasNoOwnedPythonRuntime(t *testing.T) {
+	root := filepath.Clean("..")
+	var sources []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, _ := filepath.Rel(root, path)
+		if entry.IsDir() {
+			if relative == filepath.FromSlash("runtime/monado-playspectra") || entry.Name() == ".git" || entry.Name() == "node_modules" || entry.Name() == "build" || entry.Name() == "third_party" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(path), ".py") {
+			sources = append(sources, filepath.ToSlash(relative))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("owned Python sources remain: %v", sources)
+	}
+
+	legacyRuntime := regexp.MustCompile(`(?m)(^|\s)python[0-9]*(\s|$)|<<.*PY`)
+	scripts, err := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range scripts {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if legacyRuntime.Match(data) {
+			t.Fatalf("script still invokes or embeds a Python runtime: %s", path)
+		}
+	}
+}
+
+func TestScriptLauncherDoesNotTreatGoPackageDirectoryAsExecutable(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "scripts", "lib_playspectra.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher := string(data)
+	for _, candidate := range []string{"playspectra.exe", "playspectra"} {
+		guard := fmt.Sprintf(`[ -f "$PLAYSPECTRA_SOURCE_ROOT/%s" ] && [ -x "$PLAYSPECTRA_SOURCE_ROOT/%s" ]`, candidate, candidate)
+		if !strings.Contains(launcher, guard) {
+			t.Errorf("launcher must require %s to be a regular executable file", candidate)
+		}
 	}
 }
 

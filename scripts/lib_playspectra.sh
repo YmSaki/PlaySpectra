@@ -6,9 +6,9 @@ PLAYSPECTRA_SOURCE_ROOT="${PLAYSPECTRA_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOUR
 ps_run() {
   if [ -n "${PLAYSPECTRA_BIN:-}" ]; then
     "$PLAYSPECTRA_BIN" "$@"
-  elif [ -x "$PLAYSPECTRA_SOURCE_ROOT/playspectra.exe" ]; then
+  elif [ -f "$PLAYSPECTRA_SOURCE_ROOT/playspectra.exe" ] && [ -x "$PLAYSPECTRA_SOURCE_ROOT/playspectra.exe" ]; then
     "$PLAYSPECTRA_SOURCE_ROOT/playspectra.exe" "$@"
-  elif [ -x "$PLAYSPECTRA_SOURCE_ROOT/playspectra" ]; then
+  elif [ -f "$PLAYSPECTRA_SOURCE_ROOT/playspectra" ] && [ -x "$PLAYSPECTRA_SOURCE_ROOT/playspectra" ]; then
     "$PLAYSPECTRA_SOURCE_ROOT/playspectra" "$@"
   elif command -v playspectra >/dev/null 2>&1; then
     command playspectra "$@"

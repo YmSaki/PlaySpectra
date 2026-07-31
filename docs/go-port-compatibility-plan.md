@@ -129,8 +129,8 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | JSON Scenario Runner | あり | 1 scenario の summary と最終状態を比較 | 部分確認 |
 | assert／wait_for | あり | `near` の assert と wait_for を各1ケース比較 | 部分確認 |
 | capture assertion | あり | Go/Python の個別 test はあるが相互比較なし | 未確認 |
-| CLI | あり | `get-state` の JSON と exit code だけ比較 | 部分確認 |
-| MCP frontend | 13 tools 実装 | Go の initialize／tool name smoke test | 未確認 |
+| CLI | あり | default/flag mapping、fake adapter経由のJSON・exit・全frame test | 部分確認 |
+| MCP frontend | 13 tools 実装 | FastMCP 1.29 schema characterization、13 tool call、error/lazy reuse test | 部分確認 |
 | Recorder／Replayer | あり | Go の round-trip unit test | 未確認 |
 | doctor／session | Go 独自であり | Go unit test と command 実装 | 意図的拡張 |
 | protocol live probes | なし | Python frame/multiobs/reset probesだけ | 未移植 |
@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 4 packages、84 tests/subtests
+- `go test ./...`: 4 packages、103 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -166,8 +166,8 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 - Scenario/Core の `move_head`／`look` default は Python、Go とも 500 ms だが、Go の
   `playspectra cmd` は 400 ms を使う。Python 旧 CLI は Scenario default の 500 ms を使う。
   なお MCP の default は両方 400 ms であり、インターフェース別に試験する必要がある。
-- Go CLI の共通 `--hand` default は left である。Python の `press`／`trigger`／`set_input`／
-  `move_controller` default は right、`walk_forward`／`strafe` は left である。
+- ~~Go CLIの`move_head`／`look`が400 ms、`--hand`が一律leftだった。~~ interface別defaultの
+  characterizationを追加し、CLIはPython CLIと同じ500 ms、操作別left/rightへ修正済み。
 - ~~Python の frame 数はties-to-even、Goはhalf-away-from-zeroで`.5` frame境界が異なる。~~
   `math.RoundToEven`と2.5 frameのcharacterization testで修正済み。
 - Python の state snapshot は `protocol_version` を含めず、Go は含める。adapter と利用者に
@@ -265,25 +265,27 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 ### 4. CLI
 
 - [ ] Python 旧 CLI の入力を新 subcommand に対応付ける互換 matrix を作る
-- [ ] 全 `cmd` operation の flag、`--args`、default を比較する
-- [ ] `cmd get-state` の `cmd`、`result:null`、`state`、stdout、exit 0 を比較する
+- [x] 全 `cmd` operation のflag mappingとdefaultをtable testで比較する
+- [x] `cmd get-state` の `cmd`、`result:null`、`state`、stdout、exit 0 をfake adapterで比較する
 - [ ] assert／wait_for／assert_capture の pass=0、false=1、実行 error=2 を比較する
 - [ ] Scenario success／assert failure／decode error／接続 error の stdout、stderr、exit を比較する
 - [ ] `--demo`、`--verify`、位置引数 scenario を維持するか、新 CLI への対応を文書化する
-- [ ] kebab-case と snake_case operation alias を試験する
+- [x] kebab-case と snake_case operation alias を試験する
 - [ ] stdout は機械可読 JSON のみ、progress/error は stderr という契約を全 command で試験する
 
 ### 5. MCP
 
-- [ ] Python FastMCP の `tools/list` を fixture 化する
-- [ ] 13 tool の名前、description、required、type、default を意味比較する
-- [ ] initialize、initialized notification、ping、unknown method、malformed request を比較する
-- [ ] lazy adapter connection と capture channel 不在時の動作を比較する
-- [ ] 12 text/result tool の正常 result を Python/Go で比較する
-- [ ] screenshot の image content、MIME type、base64 data を比較する
-- [ ] 全 tool の default 呼び出しと明示引数呼び出しを比較する
-- [ ] Core error、adapter error、invalid argument、unknown tool の MCP error 表現を比較する
-- [ ] 複数 request の server reuse、state 継続、sequence を比較する
+- [x] Python FastMCP 1.29の`tools/list`をcharacterizeする
+- [x] 13 tool の名前、required、type、default、input/output titleを意味比較する
+- [ ] 13 tool のdescription全文をfixtureで固定する
+- [x] initialize、initialized notification、ping、unknown method、malformed request を試験する
+- [x] lazy adapter connection と capture channel 不在時の動作を比較する
+- [x] 12 text/result tool の正常 resultと`structuredContent`を比較する
+- [x] screenshot の image content、MIME type、base64 data を比較する
+- [x] 全 tool の default 呼び出しと明示引数呼び出しを比較する
+- [x] Core error、invalid argument、unknown tool の MCP error 表現を比較する
+- [ ] adapter transport errorのMCP error表現を比較する
+- [x] 複数 request の server reuse、state 継続、sequence を比較する
 
 ### 6. Recorder／Replayer
 

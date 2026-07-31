@@ -177,7 +177,7 @@ func TestPythonCaptureAssertionCharacterization(t *testing.T) {
 func TestScreenshotFailureModesAreStructured(t *testing.T) {
 	ctx := context.Background()
 	server := NewServer(newFakeTransport())
-	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["ok"] != false || got["error"] != "no capture channel" {
+	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["ok"] != false || got["error"] != "no capture channel (need --capture-port + a layer-loaded app)" {
 		t.Fatalf("no capture result=%v err=%v", got, err)
 	}
 
@@ -191,5 +191,10 @@ func TestScreenshotFailureModesAreStructured(t *testing.T) {
 	capture.response = map[string]any{"ok": false, "error": "not ready"}
 	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["ok"] != false {
 		t.Fatalf("not-ok result=%v err=%v", got, err)
+	}
+
+	capture.response = map[string]any{"ok": true, "path": t.TempDir() + "/missing.png"}
+	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["error"] != "screenshot path missing: "+capture.response["path"].(string) {
+		t.Fatalf("missing path result=%v err=%v", got, err)
 	}
 }

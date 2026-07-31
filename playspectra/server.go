@@ -403,7 +403,7 @@ func keys(values map[string]any) []string {
 // used by the visual assertion API.
 func (s *Server) Screenshot(ctx context.Context, eye string, timeoutMS int) (map[string]any, error) {
 	if s.Capture == nil {
-		return map[string]any{"ok": false, "error": "no capture channel"}, nil
+		return map[string]any{"ok": false, "error": "no capture channel (need --capture-port + a layer-loaded app)"}, nil
 	}
 	if eye == "" {
 		eye = "left"
@@ -416,6 +416,9 @@ func (s *Server) Screenshot(ctx context.Context, eye string, timeoutMS int) (map
 		return map[string]any{"ok": false, "error": fmt.Sprintf("screenshot not ok: %v", r)}, nil
 	}
 	path, _ := r["path"].(string)
+	if _, err := os.Stat(path); err != nil {
+		return map[string]any{"ok": false, "error": "screenshot path missing: " + path}, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return map[string]any{"ok": false, "error": "read PNG failed: " + err.Error()}, nil

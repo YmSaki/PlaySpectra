@@ -9,7 +9,7 @@ Install:
 - Visual Studio 2022 with the C++ workload and MSVC.
 - CMake and Ninja.
 - A Vulkan SDK with glslang, for example under C:/VulkanSDK.
-- Git Bash and Python 3.
+- Git Bash, Go 1.22+, and Python 3 for the native Monado source build.
 - The repository submodule.
 
 ~~~bash
@@ -72,12 +72,11 @@ scripts/run_scenario_e2e_monado.sh D3D11
 scripts/run_mcp_verify_monado.sh D3D11
 ~~~
 
-The MCP harness needs the MCP Python SDK in an isolated environment:
+Build the control-plane executable, then point the harness at it:
 
 ~~~bash
-python -m venv .venv-mcp
-.venv-mcp/Scripts/python.exe -m pip install -r tools/requirements.txt
-PY=.venv-mcp/Scripts/python.exe scripts/run_mcp_verify_monado.sh D3D11
+go build -o playspectra.exe ./cmd/playspectra
+PLAYSPECTRA_BIN="$PWD/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
 ~~~
 
 VRAppDummyGame is a separate Godot 4.7 repository. Export its console wrapper, then set PLAYSPECTRA_VRAPP_EXE or place it at the default sibling path before running:

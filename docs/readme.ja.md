@@ -46,10 +46,11 @@ JSON Scenarioを直接実行したい場合は、次のいずれかのブロッ�
 ~~~bash
 set -e
 source scripts/lib_monado_stack.sh
+source scripts/lib_playspectra.sh
 mstack_env D3D11
 mstack_up D3D11 120
 trap mstack_down EXIT
-python tools/playspectra_server.py tools/scenarios/assert_demo.json
+ps_run run tools/scenarios/assert_demo.json
 ~~~
 
 **WSL2またはUbuntu（bash）**
@@ -62,17 +63,9 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-python - <<'PY'
-import socket, sys, time
-for _ in range(60):
-    with socket.socket() as sock:
-        sock.settimeout(0.3)
-        if sock.connect_ex(("127.0.0.1", 52702)) == 0:
-            sys.exit(0)
-    time.sleep(0.3)
-raise SystemExit("PlaySpectra control channel :52702 did not become ready")
-PY
-python tools/playspectra_server.py tools/scenarios/assert_demo.json
+go build -o playspectra ./cmd/playspectra
+./playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
+./playspectra run tools/scenarios/assert_demo.json
 ~~~
 
 このScenarioは、頭の移動、視線の回転、右手トリガーの入力、状態assert、仮想デバイスのresetを順番に実行します。すべてのassertが成功すると、runnerは終了コード0で終了します。
@@ -80,8 +73,8 @@ python tools/playspectra_server.py tools/scenarios/assert_demo.json
 CLIで個別操作する場合は、次を実行してください。
 
 ~~~bash
-python tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
-python tools/playspectra_server.py --cmd get_state
+playspectra cmd move-head --x 0 --y 1.6 --z -1 --duration-ms 400
+playspectra cmd get-state
 ~~~
 
 ## 対応状況
@@ -161,7 +154,7 @@ XR runtimeとアプリを実際に動かす環境を選んでください。Wind
 
 - Windows
 - Visual Studio 2022（MSVCとC++ workload）
-- CMake、Git Bash、Python 3
+- CMake、Git Bash、Go 1.22+、native Monadoのソースビルド用Python 3
 - glslangを含むVulkan SDK
 
 次の順番で実行してください。
@@ -178,7 +171,7 @@ XR runtimeとアプリを実際に動かす環境を選んでください。Wind
 WSL2とUbuntuでは同じLinux手順を実行してください。前提ソフトウェアを用意してください。
 
 - Ubuntu 22.04またはWSL2
-- Git、Python 3、CMake、Ninja、Go Task
+- Git、Go 1.22+、native Monadoのソースビルド用Python 3、CMake、Ninja、Go Task
 - `build-essential`（GCC/G++を含む）とMonadoのUbuntu依存パッケージ
 - ソフトウェアVulkanを使う場合はlavapipe。別のVulkan ICDを使う場合はそのドライバー
 
@@ -200,11 +193,11 @@ Windows nativeとWSL2/Ubuntuのbuild directory、CMake cache、`node_modules`は
 
 ### CLI / Server
 
-`tools/playspectra_server.py`は、`move_head`、`look`、`press`、`get_state`などの操作命令を実行し、デバイス状態を読み取るServer兼CLIです。
+`playspectra`実行ファイルには、共通control-plane CoreとCLIが含まれます。`move_head`、`look`、`press`、`get_state`などの操作命令を実行し、デバイス状態を読み取れます。
 
 ~~~bash
-python tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
-python tools/playspectra_server.py --cmd get_state
+playspectra cmd look --yaw-deg 90 --duration-ms 400
+playspectra cmd get-state
 ~~~
 
 詳細は[CLI and Server details](../tools/README.md)を参照してください。
@@ -228,20 +221,20 @@ JSON Scenarioは、操作とassertを順番に実行するファイルです。�
 次のコマンドで実行してください。assertが失敗するとrunnerはnon-zeroで終了します。
 
 ~~~bash
-python tools/playspectra_server.py tools/scenarios/walk_and_look.json
+playspectra run tools/scenarios/walk_and_look.json
 ~~~
 
 完全な形式は[Scenario format](scenario-format.md)、同梱例は[`tools/scenarios/`](../tools/scenarios/)を参照してください。
 
 ### MCP
 
-PlaySpectra-MCPは、AIエージェントがXRアプリを操作・観測するためのインターフェースです。PlaySpectra-CLIやJSON Scenarioと同じ操作モデルを使用します。現行実装は`tools/playspectra_mcp.py`で、stdioを使います。
+PlaySpectra-MCPは、AIエージェントがXRアプリを操作・観測するためのインターフェースです。PlaySpectra-CLIやJSON Scenarioと同じ操作モデルを使用し、同じ`playspectra`実行ファイルからstdio serverとして起動します。
 
-次の順番で実行してください。
+~~~bash
+playspectra mcp
+~~~
 
-1. `python -m venv .venv-mcp`を実行して専用環境を作成してください。
-2. `.venv-mcp/bin/python -m pip install -r tools/requirements.txt`を実行してください。
-3. `.venv-mcp/bin/python tools/playspectra_mcp.py`を実行してください。Windows Git Bashでは`.venv-mcp/Scripts/python.exe`を使用してください。
+コンパイル済み実行ファイルの利用に、言語runtimeや追加packageの導入は不要です。
 
 ツール一覧は[MCP tools](mcp-tools.md)を参照してください。
 

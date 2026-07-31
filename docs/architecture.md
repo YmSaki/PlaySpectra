@@ -30,7 +30,7 @@ OpenXR Instrumentation Layer
  screenshot / recording / action discovery / diagnostics
 ~~~
 
-The current operation interface is the Python Server in tools/playspectra_server.py. It owns high-level commands such as move_head, look, walk_forward, strafe, controller input, reset, and scenario assertions. It converts those commands into interpolated full-state frames.
+The current operation interface is the cgo-free Go `playspectra` executable. Its shared Core owns high-level commands such as move_head, look, walk_forward, strafe, controller input, reset, and scenario assertions, and converts them into interpolated full-state frames. CLI, JSON Scenario, MCP, record/replay, and process management are subcommands over that Core.
 
 The current Monado adapter receives those frames through the NDJSON/TCP control channel at 127.0.0.1:52702. The application reads the virtual HMD and controller devices through the normal runtime path.
 
@@ -64,8 +64,8 @@ The intended release boundary is two distribution units, not literally two files
    session/process management.
 
 The Go executable does not link the C++ artifacts. The two units communicate only over the existing
-NDJSON/TCP operate (`:52702`) and capture (`:52700`) boundaries. This design removes Python and
-Node.js runtime dependencies from the user-facing control plane while keeping the native artifacts
+NDJSON/TCP operate (`:52702`) and capture (`:52700`) boundaries. The compiled control plane has no
+language-runtime dependency, while the native artifacts remain
 independent of Go and cgo.
 
 ## Execution modes

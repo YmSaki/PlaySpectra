@@ -46,16 +46,16 @@ An assertion path is a JSON array walking the state response, for example ["hmd"
 ## Running scenarios
 
 ~~~bash
-python3 tools/playspectra_server.py tools/scenarios/walk_and_look.json
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
-python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
+playspectra run tools/scenarios/walk_and_look.json
+playspectra run tools/scenarios/assert_demo.json
+playspectra run tools/scenarios/capture_assert_demo.json --capture-port 52700
 ~~~
 
 The visual scenario needs the layer loaded in the application. The server's adapter port defaults to 52702 and can be changed with --port.
 
 ## Recording format
 
-playspectra_record.py writes a JSON object shaped like this:
+`playspectra record` writes a JSON object shaped like this:
 
 ~~~json
 {
@@ -70,8 +70,8 @@ playspectra_record.py writes a JSON object shaped like this:
 The real state contains the complete HMD/controller state returned by get_state. A Recorder connects as an observer; a Replayer connects as the writer and emits fresh monotonic sequence values.
 
 ~~~bash
-python3 tools/playspectra_record.py record out.json --duration-ms 3000 --rate 60
-python3 tools/playspectra_record.py replay out.json
+playspectra record out.json --duration-ms 3000 --rate 60
+playspectra replay out.json
 ~~~
 
 ## Coordinate conventions

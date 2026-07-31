@@ -11,26 +11,26 @@ Server／MCP／Recorder の3本だけではなく、**このリポジトリが�
 
 ## Pythonコード全量inventory
 
-基点commitでトップレベルリポジトリが所有する `.py` は次の14本である。移植作業用の
-`playspectra_go_parity_test.py` を含めると、現在のworking treeには15本ある。
+基点commitでトップレベルリポジトリが所有していた `.py` は次の14本である。移植中だけ使用した
+`playspectra_go_parity_test.py` を含めて全てGo fixtureへ置換済みであり、現在のGit管理対象は0本である。
 
 | Python source | 担当する振る舞い | Go移植先 | 現在 |
 | --- | --- | --- | --- |
-| `tools/playspectra_server.py` | NDJSON client、Core、state、操作、Scenario、assert、capture、CLI、self-verify | `protocol/`、`playspectra/`、`cmd/playspectra` | 部分移植 |
-| `tools/playspectra_record.py` | Recorder、Replayer、file I/O、CLI、live verify | `playspectra/recording.go`、`playspectra record/replay/verify` | 部分移植 |
-| `tools/playspectra_mcp.py` | FastMCP server、13 tools、lazy connection | `mcp/`、`playspectra mcp` | 部分移植 |
-| `tools/playspectra_math_test.py` | math characterization 17 cases | Go table-driven unit tests | 一部のみ移植 |
-| `tools/playspectra_waitfor_test.py` | mock adapter、wait_for/assert retry/timeout E2E | Go fake adapter integration tests | 未移植 |
-| `tools/playspectra_capture_assert_test.py` | mock capture、stable/changed/retry/timeout E2E | Go capture integration tests | 未移植 |
-| `tools/playspectra_frame_test.py` | live `frame_synchronized` apply/idempotent/conflict/stale probe | `playspectra verify frame` またはGo E2E binary | 移植済み |
-| `tools/playspectra_multiobs_test.py` | observer複数、writer排他、status、haptics broadcast probe | `playspectra verify multiobs` | 移植済み |
-| `tools/playspectra_reset_test.py` | live reset、role拒否、builder state、frame history reset probe | `playspectra verify reset` | 移植済み |
-| `tools/playspectra_coupling_probe.py` | runtime HMD操作からapp `xrLocateViews`までのcoupling probe | `playspectra verify coupling` | 移植済み |
-| `tools/playspectra_png_stats.py` | PNG decode/unfilter、色統計、non-degenerate判定、CLI | Go image package、`playspectra image-stats` | 未移植 |
-| `tools/playspectra_vrapp.py` | VRApp process、`[VRTEST]` parser、request/event wait、座標変換 | Go VRApp driver package | 未移植 |
-| `tools/playspectra_vrapp_test.py` | Godot real-app 24-check E2E、capture/pacing/interaction | `playspectra verify vrapp` | 未移植 |
-| `tools/playspectra_mcp_verify.py` | 実MCP clientでserverをspawnし13 toolsを検証 | Go MCP client E2E／`playspectra verify mcp` | 移植済み |
-| `tools/playspectra_go_parity_test.py` | 移植中のPython/Go differential smoke | Go golden/differential testへ置換後削除 | 移行専用 |
+| `tools/playspectra_server.py` | NDJSON client、Core、state、操作、Scenario、assert、capture、CLI、self-verify | `protocol/`、`playspectra/`、`cmd/playspectra` | 移植済み・削除 |
+| `tools/playspectra_record.py` | Recorder、Replayer、file I/O、CLI、live verify | `playspectra/recording.go`、`playspectra record/replay/verify` | 移植済み・削除 |
+| `tools/playspectra_mcp.py` | FastMCP server、13 tools、lazy connection | `mcp/`、`playspectra mcp` | 移植済み・削除 |
+| `tools/playspectra_math_test.py` | math characterization 17 cases | Go table-driven unit tests | 移植済み・削除 |
+| `tools/playspectra_waitfor_test.py` | mock adapter、wait_for/assert retry/timeout E2E | Go fake adapter integration tests | 移植済み・削除 |
+| `tools/playspectra_capture_assert_test.py` | mock capture、stable/changed/retry/timeout E2E | Go capture integration tests | 移植済み・削除 |
+| `tools/playspectra_frame_test.py` | live `frame_synchronized` apply/idempotent/conflict/stale probe | `playspectra verify frame` またはGo E2E binary | 移植済み・削除 |
+| `tools/playspectra_multiobs_test.py` | observer複数、writer排他、status、haptics broadcast probe | `playspectra verify multiobs` | 移植済み・削除 |
+| `tools/playspectra_reset_test.py` | live reset、role拒否、builder state、frame history reset probe | `playspectra verify reset` | 移植済み・削除 |
+| `tools/playspectra_coupling_probe.py` | runtime HMD操作からapp `xrLocateViews`までのcoupling probe | `playspectra verify coupling` | 移植済み・削除 |
+| `tools/playspectra_png_stats.py` | PNG decode/unfilter、色統計、non-degenerate判定、CLI | `pngstats/`、`playspectra image-stats` | 移植済み・削除 |
+| `tools/playspectra_vrapp.py` | VRApp process、`[VRTEST]` parser、request/event wait、座標変換 | `vrapp/` | 移植済み・削除 |
+| `tools/playspectra_vrapp_test.py` | Godot real-app E2E、capture/pacing/interaction | `playspectra verify vrapp` | 移植済み・削除（live 25/25） |
+| `tools/playspectra_mcp_verify.py` | 実MCP clientでserverをspawnし13 toolsを検証 | Go MCP client E2E／`playspectra verify mcp` | 移植済み・削除 |
+| `tools/playspectra_go_parity_test.py` | 移植中のPython/Go differential smoke | Go fixture／table test | 置換済み・削除 |
 
 `.py` 以外にも、リポジトリ所有script内にPython heredocまたはPython実行依存がある。これらも
 最終的なPython除去の対象とする。
@@ -117,40 +117,36 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 ## 現在地
 
-2026-07-31 時点では、control-plane本体の機能骨格は一通り存在するが、全Pythonコード移植としては
-**未完了**、本体のコード互換性は **部分確認** である。
+2026-07-31 時点で、トップレベルリポジトリ所有のPythonコードと起動依存はGoへ移植済みである。
+移植元の正常系は固定fixture／table testで確認し、意図的な厳密化は専用testで境界を固定している。
 
 | 対象 | 実装 | 現在の互換性エビデンス | 判定 |
 | --- | --- | --- | --- |
-| NDJSON/TCP client | あり | request ID 対応と event skip の Go unit test、fake TCP integration | 部分確認 |
-| `VirtualDeviceState` | あり | default/full snapshot とnon-default adapter seedの Go unit test | 部分確認 |
-| hello/get_state/set_state/reset | あり | `get-state` の Python/Go semantic comparison、reset後sequence継続test | 部分確認 |
-| 高水準操作と補間 | あり | Go unit test。1 scenario の duration=0 操作を最終状態だけ比較 | 部分確認 |
-| JSON Scenario Runner | あり | 1 scenario の summary と最終状態を比較 | 部分確認 |
-| assert／wait_for | あり | `near` の assert と wait_for を各1ケース比較 | 部分確認 |
-| capture assertion | あり | Go/Python の個別 test はあるが相互比較なし | 未確認 |
-| CLI | あり | default/flag mapping、fake adapter経由のJSON・exit・全frame test | 部分確認 |
-| MCP frontend | 13 tools 実装 | FastMCP 1.29 schema characterization、13 tool call、error/lazy reuse test | 部分確認 |
-| Recorder／Replayer | あり | role、empty/round-trip、timing、fresh sequence、全replay frameのGo test | 部分確認 |
+| NDJSON/TCP client | あり | request/reply相関、event queue、packet分割、timeout/EOF/oversizeのfixture | 移植済み |
+| `VirtualDeviceState` | あり | default/full snapshot、型、disconnected、non-default seedのfixture | 移植済み |
+| hello/get_state/set_state/reset | あり | request列、full state、reset後sequence継続test | 移植済み |
+| 高水準操作と補間 | あり | 旧math 17 case、全操作default、全frame、境界値のtable test | 移植済み |
+| JSON Scenario Runner | あり | 全step、summary、invalid input、exit codeのfixture | 移植済み |
+| assert／wait_for | あり | 全operator、retry/timeout、path/type境界のfixture | 移植済み |
+| capture assertion | あり | stable/changed/missing/error/retry/timeoutのcapture fixture | 移植済み |
+| CLI | あり | flag/default、全互換commandのJSON stdout、stderr、exit 0/1/2 | 移植済み |
+| MCP frontend | 13 tools 実装 | FastMCP 1.29 schema/description fixture、全tool call、error/lazy reuse | 移植済み |
+| Recorder／Replayer | あり | role、background stop、round-trip、timing、fresh sequence、全frame | 移植済み |
 | doctor／session | Go 独自であり | Go unit test と command 実装 | 意図的拡張 |
-| protocol live probes | あり | frame 10、reset 20、multi-observer全checkをGo commandへ移植 | 部分確認（live未実行） |
-| runtime coupling probe | あり | Pythonの2 checkをGo commandへ移植 | 部分確認（live未実行） |
-| PNG解析 | あり | filter 0-4、5 color types、全高sampling、degenerate判定のGo fixture test | 部分確認 |
-| VRApp driver／real-app E2E | あり | fake process lifecycle/request testsとGo live suite。実app再実行は未実施 | 部分確認 |
-| MCP実client verifier | あり | dependency-free Go clientと14-check `verify mcp` | 部分確認（live未実行） |
+| protocol live probes | あり | frame 10、reset 20、multi-observer 11 checkをGo commandへ移植 | 移植済み |
+| runtime coupling probe | あり | 旧2 checkをGo commandへ移植 | 移植済み |
+| PNG解析 | あり | filter 0-4、5 color types、全高sampling、rounding/error fixture | 移植済み |
+| VRApp driver／real-app E2E | あり | fake process testに加え実app／Monado／Layerで25/25 | 移植済み・live確認済み |
+| MCP実client verifier | あり | dependency-free Go clientと14-check `verify mcp` | 移植済み |
 | setup/E2E内のPython heredoc | 除去済み | Go setup helperと内部subcommandをfixture test済み | 移植済み |
-| Windows／Linux binary | build 定義あり | この監査では release artifact の相互確認なし | 未確認 |
+| Windows／Linux binary | build 定義あり | cgo無効の両OS cross-build、単一main packageを確認 | ローカルbuild確認済み |
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 8 packages、216 tests/subtests
+- `go test ./...`: 8 packages、239 tests/subtests
 - `go vet ./...`
-- `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
-  `get-state` CLI JSON
-
-既存 parity test は root の `sequence`、`protocol_version`、`clock` を比較から外し、途中の
-`set_state` frame、既定値、MCP、Recorder／Replayer を見ていない。この pass だけでは移植完了と
-判定しない。
+- `CGO_ENABLED=0`のWindows／Linux build
+- Go fixtureによる全frame、state、summary、CLI、MCP、record/replayの互換確認
 
 ## コード監査で判明している差分
 
@@ -163,17 +159,15 @@ Python が受理する正常入力の結果を変えないことを compatibilit
   characterization test追加後、`Model.Seed`がreply envelopeとstate本体の両方を受理するよう修正済み。
 - ~~Go のresetがadapterのreset後sequenceへ`Seq`を巻き戻す。~~ reset前のwriter-owned sequenceを
   維持し、次frameが単調増加するtestとともに修正済み。
-- Scenario/Core の `move_head`／`look` default は Python、Go とも 500 ms だが、Go の
-  `playspectra cmd` は 400 ms を使う。Python 旧 CLI は Scenario default の 500 ms を使う。
-  なお MCP の default は両方 400 ms であり、インターフェース別に試験する必要がある。
 - ~~Go CLIの`move_head`／`look`が400 ms、`--hand`が一律leftだった。~~ interface別defaultの
-  characterizationを追加し、CLIはPython CLIと同じ500 ms、操作別left/rightへ修正済み。
+  characterizationを追加し、CLIは旧CLIと同じ500 ms、MCPは400 ms、操作別handへ修正済み。
 - ~~Python の frame 数はties-to-even、Goはhalf-away-from-zeroで`.5` frame境界が異なる。~~
   `math.RoundToEven`と2.5 frameのcharacterization testで修正済み。
-- Python の state snapshot は `protocol_version` を含めず、Go は含める。adapter と利用者に
-  対する正規の state envelope を確認し、互換修正か明示的な protocol 精密化かを決める。
-- request ID の命名と、CLI／Scenario の進捗・エラー文字列は異なる。ID は相関性を、表示は
-  stdout／stderr と機械可読 JSON の契約を優先して判定する。
+- ~~Python の state snapshot は `protocol_version` を含めず、Go は含める。~~ adapterへ送るstateを
+  protocol self-describingにする精密化としてfixtureで固定済み。利用者向けCLI JSONのstate値も同じ
+  schemaを返す。
+- request ID の文字列はGo固有だが、一意性、response相関、frame順をfixtureで固定した。進捗は
+  stderr、機械可読結果はstdoutの単一JSONという契約を全互換commandで固定した。
 
 ### 意図的改善として確認する候補
 
@@ -216,8 +210,8 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] adapter の初期 state、reply、event、error、遅延を case ごとに注入できる
 - [x] Python の `time.sleep` と Go sleeper を制御し、wall-clock を待たず frame 列を比較する
 - [x] JSON、float、timestamp、path の normalization rule を helper に一元化する
-- [ ] 差分表示に最初の不一致 path、frame index、Python 値、Go 値を出す
-- [ ] case を Core／Scenario／CLI／MCP／record-replay ごとの table から実行する
+- [x] fixture失敗時にcase名、state path、frame index、got/wantをGo testから表示する
+- [x] case を Core／Scenario／CLI／MCP／record-replayごとのtable testから実行する
 
 ### 1. Protocol と state ownership
 
@@ -264,14 +258,23 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 4. CLI
 
-- [ ] Python 旧 CLI の入力を新 subcommand に対応付ける互換 matrix を作る
+- [x] Python 旧 CLI の入力を新 subcommand に対応付ける互換 matrix を作る
 - [x] 全 `cmd` operation のflag mappingとdefaultをtable testで比較する
 - [x] `cmd get-state` の `cmd`、`result:null`、`state`、stdout、exit 0 をfake adapterで比較する
 - [x] assert／wait_for／assert_capture の pass=0、false=1、実行 error=2 を比較する
 - [x] Scenario success／assert failure／decode error／接続 error の stdout、stderr、exit を比較する
-- [ ] `--demo`、`--verify`、位置引数 scenario を維持するか、新 CLI への対応を文書化する
+- [x] `--demo`、`--verify`、位置引数 scenario を維持するか、新 CLI への対応を文書化する
 - [x] kebab-case と snake_case operation alias を試験する
-- [ ] stdout は機械可読 JSON のみ、progress/error は stderr という契約を全 command で試験する
+- [x] stdout は機械可読 JSON のみ、progress/error は stderr という契約を全 command で試験する
+
+旧CLIからの対応は次のとおり。`--cmd <op> --args <json>`は互換入口としても受理する。
+
+| 旧入力 | 現在の入力 |
+| --- | --- |
+| `--cmd <op> --args <json>` | `playspectra cmd <op> --args <json>` |
+| `<scenario.json>` | `playspectra run <scenario.json>` |
+| `--verify` | `playspectra verify server` |
+| `--demo` | 内蔵の隠れたdemoではなく、`playspectra run tools/scenarios/assert_demo.json` |
 
 ### 5. MCP
 
@@ -302,12 +305,12 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 ### 7. Go binary境界と後続Issueへのhandoff
 
 - [x] doctor と session は Python 互換 suite から分離して Go 固有 test を維持する
-- [ ] Go 固有 alias／validation／limit が正常系 compatibility を壊さない
-- [ ] `playspectra`が単一main packageからbuildでき、Go側にcgo importがないことを検査する
-- [ ] Go executableがC++ libraryを直接linkせず、NDJSON/TCPだけで接続することを検査する
-- [ ] 利用者向け機能を`playspectra`のsubcommandに集約し、第3の配布binaryを必要としない
-- [ ] C++ native bundleに必要なartifact種別をhandoff資料へ列挙する
-- [ ] release build／packaging／upload／clean-install smokeを後続Issueの未完項目として残す
+- [x] Go 固有 alias／validation／limit が正常系 compatibility を壊さない
+- [x] `playspectra`が単一main packageからbuildでき、Go側にcgo importがないことを検査する
+- [x] Go executableがC++ libraryを直接linkせず、NDJSON/TCPだけで接続することを検査する
+- [x] 利用者向け機能を`playspectra`のsubcommandに集約し、第3の配布binaryを必要としない
+- [x] C++ native bundleに必要なartifact種別をhandoff資料へ列挙する
+- [x] release build／packaging／upload／clean-install smokeを後続Issueの未完項目として残す
 
 ### 8. Python test／probe／utilityの移植
 
@@ -323,10 +326,10 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
 - [x] STAGE↔GLOBAL変換とevent predicateをGo testへ移す
 - [x] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGo suiteへ移す
-- [ ] Go VRApp E2Eを実app／Monado／layer環境で再実行する
+- [x] Go VRApp E2Eを実app／Monado／layer環境で再実行する（2026-07-31、25/25）
 - [x] MCP verifierをGo MCP clientで移し、13 toolsとscreenshotをlive stackで検証する
 - [x] Server 9-checkとRecorder 5-checkのself-verifyをGo verify commandへ移す
-- [ ] Python版とGo版のcheck名対応表を作り、欠落checkをCIで検出する
+- [x] Python版とGo版のcheck名／件数対応を固定し、欠落checkをGo testとlive commandで検出する
 
 ### 9. Embedded Pythonと起動経路の除去
 
@@ -340,13 +343,13 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] `run_vrapp_monado.sh` をGo VRApp E2Eへ切り替える
 - [x] `run_mcp_verify_monado.sh` をGo MCP verifierへ切り替える
 - [x] `run_all_tests.sh` とCIからPython suite起動を除き、対応Go suiteを必須化する
-- [ ] 対応Go commandがGREENになった時点でREADME／docs／scenario説明の利用例を切り替える
-- [ ] READMEには利用方法と安定した構成だけを置き、進捗、未完check、Issue handoff、実行履歴を書かない
-- [ ] 移植中だけ使うPython/Go parity fixtureを固定goldenへ変換する
-- [ ] 対応Go testがGREENになったPython sourceから順に削除する
-- [ ] `tools/requirements.txt` とPython venv手順を削除する
-- [ ] `git ls-files '*.py'` が0件であることをCIで検査する
-- [ ] owned scriptsにPython shebang、`python`実行、Python heredocがないことをCIで検査する
+- [x] 対応Go commandがGREENになった時点でREADME／docs／scenario説明の利用例を切り替える
+- [x] READMEには利用方法と安定した構成だけを置き、移植進捗やIssue handoffを書かない
+- [x] 移植中だけ使うPython/Go parity fixtureを固定Go fixtureへ変換する
+- [x] 対応Go testがGREENになったPython sourceから順に削除する
+- [x] `tools/requirements.txt` とPython venv手順を削除する
+- [x] `git ls-files '*.py'` が0件であることをCIで検査する
+- [x] owned scriptsにPython shebang、`python`実行、Python heredocがないことをCIで検査する
 
 ## 最初の実装順
 
@@ -359,7 +362,7 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 5. Recorder／Replayerとself-verifyをGoへ移す
 6. frame／multiobs／reset／coupling live probeをGoへ移す
 7. PNG解析をGoへ移し、golden PNGでGREENにする
-8. VRApp driverと24-check E2EをGoへ移す
+8. VRApp driverと25-check E2EをGoへ移す
 9. setup/E2E script内のPythonをGo helperへ移す
 10. 呼び出し元とdocsをGoへ切り替え、対応済みPythonを削除する
 

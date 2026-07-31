@@ -4,7 +4,7 @@ This guide covers the Linux execution path for both native Ubuntu 22.04 and WSL2
 
 ## Prerequisites
 
-Install Git, Python 3, CMake, Ninja, Go Task, and `build-essential` (including GCC/G++), plus the Ubuntu packages needed by Monado. The repository includes the one-shot Task entry point:
+Install Git, Go 1.22+, Python 3 for the native Monado source build, CMake, Ninja, Go Task, and `build-essential` (including GCC/G++), plus the Ubuntu packages needed by Monado. The repository includes the one-shot Task entry point:
 
 ~~~bash
 task bootstrap:linux
@@ -65,15 +65,16 @@ Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, or LAYER_SO when using d
 With a live adapter on :52702:
 
 ~~~bash
-python3 tools/playspectra_server.py --verify --port 52702
-python3 tools/playspectra_record.py --verify --port 52702
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json --port 52702
+go build -o playspectra ./cmd/playspectra
+./playspectra verify server --port 52702
+./playspectra verify record --port 52702
+./playspectra run tools/scenarios/assert_demo.json --port 52702
 ~~~
 
 For visual assertions, load the layer into the app and add the capture channel:
 
 ~~~bash
-python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --port 52702 --capture-port 52700
+./playspectra run tools/scenarios/capture_assert_demo.json --port 52702 --capture-port 52700
 ~~~
 
 The scenario and MCP formats are documented in [Scenario format](scenario-format.md) and [MCP tools](mcp-tools.md).

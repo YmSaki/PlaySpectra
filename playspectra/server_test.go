@@ -3,6 +3,8 @@ package playspectra
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -11,6 +13,26 @@ import (
 type fakeTransport struct {
 	state    map[string]any
 	requests []map[string]any
+}
+
+func sentStates(t *testing.T, transport *fakeTransport) []map[string]any {
+	t.Helper()
+	states := []map[string]any{}
+	for _, request := range transport.requests {
+		if request["cmd"] != "set_state" {
+			continue
+		}
+		data, err := json.Marshal(request["state"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var state map[string]any
+		if err := json.Unmarshal(data, &state); err != nil {
+			t.Fatal(err)
+		}
+		states = append(states, state)
+	}
+	return states
 }
 
 func newFakeTransport() *fakeTransport {
@@ -105,6 +127,19 @@ func TestHelloSeedsNonDefaultAdapterState(t *testing.T) {
 	}
 }
 
+func TestDisconnectedDeviceSnapshotContainsOnlyConnectedFlag(t *testing.T) {
+	model := DefaultModel()
+	model.Right.Connected = false
+	state := model.Snapshot(1).Raw()
+	right, ok := state["right"].(map[string]any)
+	if !ok {
+		t.Fatalf("right state = %T", state["right"])
+	}
+	if len(right) != 1 || right["connected"] != false {
+		t.Fatalf("disconnected right state = %v, want only connected:false", right)
+	}
+}
+
 func TestResetDoesNotRewindWriterSequence(t *testing.T) {
 	transport := newFakeTransport()
 	transport.state["sequence"] = float64(40)
@@ -133,20 +168,129 @@ func TestResetDoesNotRewindWriterSequence(t *testing.T) {
 }
 
 func TestInterpolationFrameCountUsesPythonTiesToEvenRounding(t *testing.T) {
+	for _, test := range []struct {
+		durationMS int
+		wantFrames int
+	}{
+		{0, 1}, {100, 1}, {240, 2}, {250, 2}, {260, 3},
+	} {
+		t.Run(fmt.Sprintf("%dms", test.durationMS), func(t *testing.T) {
+			transport := newFakeTransport()
+			server := NewServer(transport, WithRate(10), WithSleeper(func(_ time.Duration) {}))
+			if err := server.MoveHead(context.Background(), map[string]any{}, test.durationMS); err != nil {
+				t.Fatal(err)
+			}
+			if frames := len(sentStates(t, transport)); frames != test.wantFrames {
+				t.Fatalf("set_state frames = %d, want %d", frames, test.wantFrames)
+			}
+		})
+	}
+}
+
+func TestPythonScenarioOperationDefaultsAndFrameCounts(t *testing.T) {
+	tests := []struct {
+		name       string
+		step       map[string]any
+		wantFrames int
+		firstPath  []any
+		firstValue any
+		lastPath   []any
+		lastValue  any
+	}{
+		{
+			name: "move_head defaults to 500ms", step: map[string]any{"cmd": "move_head", "to": map[string]any{"position": []any{0, 1.6, -2}}}, wantFrames: 30,
+			lastPath: []any{"hmd", "head", "position", 2}, lastValue: -2.0,
+		},
+		{
+			name: "look defaults to 500ms", step: map[string]any{"cmd": "look", "yaw_deg": 90.0}, wantFrames: 30,
+			lastPath: []any{"hmd", "head", "orientation", 1}, lastValue: math.Sqrt(0.5),
+		},
+		{
+			name: "walk defaults to left for 1000ms plus release", step: map[string]any{"cmd": "walk_forward", "speed": 0.5}, wantFrames: 61,
+			firstPath: []any{"left", "inputs", "/input/thumbstick/y"}, firstValue: 0.5,
+			lastPath: []any{"left", "inputs", "/input/thumbstick/y"}, lastValue: 0.0,
+		},
+		{
+			name: "strafe defaults to left for 1000ms plus release", step: map[string]any{"cmd": "strafe", "speed": -0.5}, wantFrames: 61,
+			firstPath: []any{"left", "inputs", "/input/thumbstick/x"}, firstValue: -0.5,
+			lastPath: []any{"left", "inputs", "/input/thumbstick/x"}, lastValue: 0.0,
+		},
+		{
+			name: "trigger defaults to right for 200ms", step: map[string]any{"cmd": "trigger"}, wantFrames: 12,
+			lastPath: []any{"right", "inputs", "/input/trigger/value"}, lastValue: 1.0,
+		},
+		{
+			name: "move_controller defaults to right for 400ms", step: map[string]any{"cmd": "move_controller", "to": map[string]any{"position": []any{1, 2, 3}}}, wantFrames: 24,
+			lastPath: []any{"right", "grip", "position", 2}, lastValue: 3.0,
+		},
+		{
+			name: "set_input defaults to right and instant", step: map[string]any{"cmd": "set_input", "path": "/button/a/click", "value": 1.0}, wantFrames: 1,
+			lastPath: []any{"right", "inputs", "/button/a/click"}, lastValue: true,
+		},
+		{
+			name: "press defaults to right a and two frames", step: map[string]any{"cmd": "press"}, wantFrames: 2,
+			firstPath: []any{"right", "inputs", "/button/a/click"}, firstValue: true,
+			lastPath: []any{"right", "inputs", "/button/a/click"}, lastValue: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newFakeTransport()
+			server := NewServer(transport, WithSleeper(func(_ time.Duration) {}))
+			if _, err := server.RunStep(context.Background(), test.step); err != nil {
+				t.Fatal(err)
+			}
+			states := sentStates(t, transport)
+			if len(states) != test.wantFrames {
+				t.Fatalf("frames = %d, want %d", len(states), test.wantFrames)
+			}
+			if states[0]["protocol_version"] != float64(1) {
+				t.Fatalf("protocol_version = %v", states[0]["protocol_version"])
+			}
+			if test.firstPath != nil {
+				if got := Resolve(states[0], test.firstPath); !valuesNear(got, test.firstValue) {
+					t.Fatalf("first frame %v = %v, want %v", test.firstPath, got, test.firstValue)
+				}
+			}
+			if got := Resolve(states[len(states)-1], test.lastPath); !valuesNear(got, test.lastValue) {
+				t.Fatalf("last frame %v = %v, want %v", test.lastPath, got, test.lastValue)
+			}
+		})
+	}
+}
+
+func TestMoveHeadEmitsEveryInterpolatedFullFrameWithMonotonicSequence(t *testing.T) {
 	transport := newFakeTransport()
 	server := NewServer(transport, WithRate(10), WithSleeper(func(_ time.Duration) {}))
-	if err := server.MoveHead(context.Background(), map[string]any{}, 250); err != nil {
+	if err := server.MoveHead(context.Background(), map[string]any{"position": []any{0, 1.6, -2}}, 400); err != nil {
 		t.Fatal(err)
 	}
-	frames := 0
-	for _, request := range transport.requests {
-		if request["cmd"] == "set_state" {
-			frames++
+	states := sentStates(t, transport)
+	wantZ := []float64{-0.5, -1, -1.5, -2}
+	if len(states) != len(wantZ) {
+		t.Fatalf("frames = %d, want %d", len(states), len(wantZ))
+	}
+	for index, state := range states {
+		if err := validateRawState(state); err != nil {
+			t.Fatalf("frame %d is not a complete snapshot: %v", index, err)
+		}
+		if state["sequence"] != float64(index+1) {
+			t.Fatalf("frame %d sequence = %v", index, state["sequence"])
+		}
+		if got := Resolve(state, []any{"hmd", "head", "position", 2}); got != wantZ[index] {
+			t.Fatalf("frame %d head z = %v, want %v", index, got, wantZ[index])
 		}
 	}
-	if frames != 2 {
-		t.Fatalf("set_state frames = %d, want 2 for round(2.5)", frames)
+}
+
+func valuesNear(got, want any) bool {
+	gotNumber, gotIsNumber := asFloat(got)
+	wantNumber, wantIsNumber := asFloat(want)
+	if gotIsNumber && wantIsNumber {
+		return math.Abs(gotNumber-wantNumber) <= 1e-9
 	}
+	return got == want
 }
 
 func TestScenarioSummary(t *testing.T) {
@@ -163,6 +307,23 @@ func TestScenarioSummary(t *testing.T) {
 	}
 	if !boolValue(summary["ok"]) || summary["passed"] != 1 {
 		t.Fatalf("summary = %v", summary)
+	}
+}
+
+func TestScenarioWithoutStepsRunsHelloAndReturnsEmptySummary(t *testing.T) {
+	for _, scenario := range []map[string]any{{}, {"steps": []any{}}} {
+		transport := newFakeTransport()
+		server := NewServer(transport, WithSleeper(func(_ time.Duration) {}))
+		summary, err := server.RunScenario(context.Background(), scenario)
+		if err != nil {
+			t.Fatalf("scenario %v: %v", scenario, err)
+		}
+		if summary["ok"] != true || summary["asserts"] != 0 || summary["failures"] == nil {
+			t.Fatalf("summary = %v", summary)
+		}
+		if len(transport.requests) < 2 || transport.requests[0]["cmd"] != "hello" || transport.requests[1]["cmd"] != "get_state" {
+			t.Fatalf("requests = %v", transport.requests)
+		}
 	}
 }
 

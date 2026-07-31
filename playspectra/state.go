@@ -49,11 +49,31 @@ type HMD struct {
 	Head      Pose `json:"head"`
 }
 
+func (h HMD) MarshalJSON() ([]byte, error) {
+	if !h.Connected {
+		return json.Marshal(struct {
+			Connected bool `json:"connected"`
+		}{Connected: false})
+	}
+	type hmdAlias HMD
+	return json.Marshal(hmdAlias(h))
+}
+
 type Controller struct {
 	Connected bool           `json:"connected"`
 	Grip      Pose           `json:"grip"`
 	Aim       Pose           `json:"aim"`
 	Inputs    map[string]any `json:"inputs"`
+}
+
+func (c Controller) MarshalJSON() ([]byte, error) {
+	if !c.Connected {
+		return json.Marshal(struct {
+			Connected bool `json:"connected"`
+		}{Connected: false})
+	}
+	type controllerAlias Controller
+	return json.Marshal(controllerAlias(c))
 }
 
 type State struct {

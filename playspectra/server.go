@@ -686,9 +686,13 @@ func pathValue(value any) []any {
 }
 
 func (s *Server) RunScenario(ctx context.Context, scenario map[string]any) (map[string]any, error) {
-	steps, ok := scenario["steps"].([]any)
-	if !ok {
-		return s.Summary(), fmt.Errorf("scenario steps must be an array")
+	steps := []any{}
+	if raw, present := scenario["steps"]; present {
+		var ok bool
+		steps, ok = raw.([]any)
+		if !ok {
+			return s.Summary(), fmt.Errorf("scenario steps must be an array")
+		}
 	}
 	if len(steps) == 0 || stringValue(stepMap(steps[0])["cmd"]) != "hello" {
 		if err := s.Hello(ctx, "writer"); err != nil {

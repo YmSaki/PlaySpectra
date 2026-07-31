@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 4 packages、11 tests
+- `go test ./...`: 4 packages、84 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -225,18 +225,19 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [ ] hello の role、protocol version、seed 用 get_state、失敗条件が一致する
 - [ ] get_state が state の値と型を失わず返す
 - [ ] default state の全 field、input path、numeric/bool type を比較する
-- [ ] connected／disconnected controller の snapshot を比較し、厳密化する場合は明記する
+- [x] connected／disconnected controller の snapshotを比較し、disconnectedは`connected:false`だけを出す
 - [ ] `set_state` の完全 snapshot、sequence、clock、validation を試験する
 - [x] reset 後も writer sequence が巻き戻らず、次 frame が stale reject されない
-- [ ] async event、異なる request ID、空行、分割 packet、複数 reply を試験する
-- [ ] timeout、EOF、不正 JSON、oversize の互換領域と Go の厳密化領域を分ける
+- [x] async event、異なる request ID、空行、分割 packet、複数 reply を試験する
+- [x] timeout、EOF、不正 JSON、oversize の互換領域と Go の厳密化領域を分ける
 
 ### 2. Math、高水準操作、補間
 
 - [x] `lerp3`、`quat_mul`、`quat_yaw`、`quat_norm`、`slerp` のPython 17 caseをGoへ1対1移植する
-- [ ] 0 ms、1 frame、複数 frame、`.5` frame 境界の frame 数を比較する
-- [ ] 各 frame の position、orientation、sequence、full snapshot を比較する
-- [ ] `move_head` の省略引数、position、orientation、default duration を比較する
+- [x] 0 ms、1 frame、複数 frame、`.5` frame 境界の frame 数を比較する
+- [x] `move_head`の全frame position、sequence、full snapshotを固定する
+- [x] `move_head` の省略引数、position、default duration を比較する
+- [ ] `move_head` のorientationと全slerp frameを比較する
 - [ ] `look` の正負・0・大角度と default duration を比較する
 - [ ] `walk_forward` の clamp、hold frames、release frame、default hand/duration を比較する
 - [ ] `strafe` の clamp、hold frames、release frame、default hand/duration を比較する
@@ -309,8 +310,8 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 ### 8. Python test／probe／utilityの移植
 
 - [x] `playspectra_math_test.py` の17 caseをGo tableへ1対1対応付ける
-- [ ] wait_for mock adapterの全checkをGo integration testへ移す
-- [ ] capture mockの全checkをGo integration testへ移す
+- [x] wait_for mock adapterの全checkをGo integration testへ移す
+- [x] capture mockの全checkをGo integration testへ移す
 - [ ] frame_synchronizedの10 checkをGo live probeへ移す
 - [ ] multi-observer/writer排他/status/hapticsの全checkをGo live probeへ移す
 - [ ] resetの20 checkをGo live probeへ移す

@@ -1,7 +1,7 @@
 name: CI
 
-# First CI for the repo. Gates the environment-independent unit tests that previously only ran
-# when a developer manually opted in:
+# Gates the environment-independent control-plane and native-layer unit tests:
+#   - Go     : control-plane compatibility suite + cgo-free build -- ubuntu/windows
 #   - mcp/   : node:test suite for the pure quaternion/vector math (no layer, no socket) -- ubuntu
 #   - layer/ : gtest suite for the pure helper functions (capture_common / pixel_convert /
 #              pose_animator / dxgi_formats / action_helpers / pose_override + header-only
@@ -35,6 +35,43 @@ jobs:
       - run: npm ci
       - run: npm run build # tsc must compile; tsconfig excludes *.test.ts so dist stays test-free
       - run: npm test # node --import tsx --test "src/**/*.test.ts"
+
+  go-tests:
+    name: Go control plane (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Build cgo-free control plane
+        env:
+          CGO_ENABLED: "0"
+        run: go build ./cmd/playspectra
+      - name: Reject owned Python source or script runtime dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tracked="$(git ls-files '*.py')"
+          if [ -n "$tracked" ]; then
+            echo "tracked Python source remains:"
+            echo "$tracked"
+            exit 1
+          fi
+          if git grep -nE '(^|[[:space:]])python[0-9]*([[:space:]]|$)|<<.*PY' -- 'scripts/*.sh'; then
+            echo "owned shell scripts still invoke or embed Python"
+            exit 1
+          fi
+          if git grep -nE '#cgo|(^|[[:space:]])import[[:space:]]+"C"|^[[:space:]]*"C"[[:space:]]*$' -- '*.go'; then
+            echo "Go control plane must remain cgo-free"
+            exit 1
+          fi
 
   layer-tests:
     name: layer unit tests (gtest/ctest)

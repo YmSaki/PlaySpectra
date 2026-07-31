@@ -7,9 +7,13 @@ vars:
 
 tasks:
   setup:
-    desc: Initialize project dependencies
+    desc: Initialize native project dependencies
     cmds:
       - git submodule update --init --recursive
+
+  setup:legacy-mcp:
+    desc: Install dependencies for the non-canonical TypeScript MCP implementation
+    cmds:
       - npm ci --prefix mcp
 
   configure:
@@ -24,9 +28,20 @@ tasks:
       - cmake --build layer/build --parallel
 
   build:mcp:
-    desc: Build MCP server
+    desc: Build legacy TypeScript MCP server
     cmds:
       - npm run build --prefix mcp
+
+  build:go:
+    desc: Build the current dependency-free Go control-plane binary
+    cmds:
+      - go build -o playspectra ./cmd/playspectra
+
+  test:go:
+    desc: Run Go Core, protocol, and MCP unit tests
+    cmds:
+      - go test ./...
+      - go vet ./...
 
   configure:monado:
     desc: Configure Monado PlaySpectra fork
@@ -40,16 +55,18 @@ tasks:
       - cmake --build {{.MONADO_BUILD_DIR}} --parallel
 
   build:all:
-    desc: Build all PlaySpectra components
+    desc: Build the native bundle and the Go control-plane executable
     deps:
       - build
-      - build:mcp
+      - build:go
       - build:monado
 
   test:
     desc: Run unit tests (the full local gate is scripts/run_all_tests.sh)
     deps: [build]
     cmds:
+      - go test ./...
+      - go vet ./...
       - ctest --test-dir layer/build -E loader_test --output-on-failure
 
   test:integration:
@@ -99,7 +116,7 @@ tasks:
       - sudo apt-get update
       - >-
         sudo apt-get install -y --no-install-recommends
-        build-essential cmake ninja-build pkg-config glslang-tools
+        build-essential cmake ninja-build pkg-config glslang-tools python3
         libvulkan-dev libeigen3-dev libcjson-dev
         libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev
         libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols

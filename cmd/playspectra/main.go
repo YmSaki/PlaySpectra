@@ -15,6 +15,7 @@ import (
 	"github.com/YmSaki/PlaySpectra/playspectra"
 	"github.com/YmSaki/PlaySpectra/pngstats"
 	"github.com/YmSaki/PlaySpectra/protocol"
+	"github.com/YmSaki/PlaySpectra/vrapp"
 )
 
 const version = "0.1.0"
@@ -41,6 +42,8 @@ func run(args []string) int {
 		return commandDoctor(args[1:])
 	case "image-stats":
 		return commandImageStats(args[1:])
+	case "verify":
+		return commandVerify(args[1:])
 	case "session":
 		return commandSession(args[1:])
 	case "version", "--version":
@@ -61,7 +64,7 @@ func run(args []string) int {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "PlaySpectra Go control plane")
-	fmt.Fprintln(os.Stderr, "usage: playspectra cmd <operation> | run <scenario.json> | mcp | record | replay | doctor | image-stats | session")
+	fmt.Fprintln(os.Stderr, "usage: playspectra cmd <operation> | run <scenario.json> | mcp | record | replay | doctor | image-stats | verify | session")
 }
 
 func commandCmd(args []string) int {
@@ -341,6 +344,33 @@ func commandImageStats(args []string) int {
 		fmt.Printf("%s\n  %s\n  non-degenerate: %s\n", path, data, label)
 	}
 	return exitCode
+}
+
+func commandVerify(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "verify requires a suite name")
+		return 2
+	}
+	switch args[0] {
+	case "vrapp":
+		fs := flag.NewFlagSet("playspectra verify vrapp", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		executable := fs.String("exe", vrapp.DefaultExecutable(), "VRApp console executable")
+		host := fs.String("host", "127.0.0.1", "operate host")
+		port := fs.Int("port", 0, "operate port")
+		capturePort := fs.Int("capture-port", 0, "capture port")
+		logPath := fs.String("log", "", "VRApp combined output log")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		return vrapp.RunSuite(context.Background(), vrapp.SuiteConfig{
+			Executable: *executable, OperateHost: *host, OperatePort: *port,
+			CapturePort: *capturePort, LogPath: *logPath, Output: os.Stdout,
+		})
+	default:
+		fmt.Fprintf(os.Stderr, "unknown verify suite %q\n", args[0])
+		return 2
+	}
 }
 
 func commandSession(args []string) int {

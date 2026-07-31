@@ -259,3 +259,11 @@ func TestImageStatsCLICompatibilityOutput(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
+
+func TestVerifyVRAppMissingExecutableIsExplicitSkip(t *testing.T) {
+	missing := t.TempDir() + "/missing.exe"
+	code, stdout, stderr := captureRun(t, "verify", "vrapp", "--exe", missing)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "SKIP: VRAppDummyGame not built") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}

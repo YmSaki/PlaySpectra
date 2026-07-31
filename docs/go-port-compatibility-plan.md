@@ -136,14 +136,14 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | protocol live probes | なし | Python frame/multiobs/reset probesだけ | 未移植 |
 | runtime coupling probe | なし | Python live probeだけ | 未移植 |
 | PNG解析 | あり | filter 0-4、5 color types、全高sampling、degenerate判定のGo fixture test | 部分確認 |
-| VRApp driver／24-check E2E | なし | Python implementationだけ | 未移植 |
+| VRApp driver／real-app E2E | あり | fake process lifecycle/request testsとGo live suite。実app再実行は未実施 | 部分確認 |
 | MCP実client verifier | なし | Python implementationだけ | 未移植 |
 | setup/E2E内のPython heredoc | 残存 | 5 scriptsで使用 | 未移植 |
 | Windows／Linux binary | build 定義あり | この監査では release artifact の相互確認なし | 未確認 |
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 5 packages、123 tests/subtests
+- `go test ./...`: 6 packages、131 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -320,9 +320,10 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [ ] coupling probeの2 checkとexit codeをGoへ移す
 - [x] PNG parserの全color type/filter処理を生成PNG fixtureでcharacterizeする
 - [x] `png_stats` resultの全field、ties-to-even rounding、unsupported/errorをGoへ移す
-- [ ] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
-- [ ] STAGE↔GLOBAL変換とevent predicateをGo table testへ移す
-- [ ] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGoへ移す
+- [x] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
+- [x] STAGE↔GLOBAL変換とevent predicateをGo testへ移す
+- [x] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGo suiteへ移す
+- [ ] Go VRApp E2Eを実app／Monado／layer環境で再実行する
 - [ ] MCP verifierをGo MCP clientで移し、13 toolsとscreenshotをlive stackで検証する
 - [ ] Server 9-checkとRecorder 5-checkのself-verifyをGo verify commandへ移す
 - [ ] Python版とGo版のcheck名対応表を作り、欠落checkをCIで検出する

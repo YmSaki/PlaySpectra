@@ -135,7 +135,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | doctor／session | Go 独自であり | Go unit test と command 実装 | 意図的拡張 |
 | protocol live probes | なし | Python frame/multiobs/reset probesだけ | 未移植 |
 | runtime coupling probe | なし | Python live probeだけ | 未移植 |
-| PNG解析 | なし | Python implementationだけ | 未移植 |
+| PNG解析 | あり | filter 0-4、5 color types、全高sampling、degenerate判定のGo fixture test | 部分確認 |
 | VRApp driver／24-check E2E | なし | Python implementationだけ | 未移植 |
 | MCP実client verifier | なし | Python implementationだけ | 未移植 |
 | setup/E2E内のPython heredoc | 残存 | 5 scriptsで使用 | 未移植 |
@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 4 packages、112 tests/subtests
+- `go test ./...`: 5 packages、123 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -318,8 +318,8 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [ ] multi-observer/writer排他/status/hapticsの全checkをGo live probeへ移す
 - [ ] resetの20 checkをGo live probeへ移す
 - [ ] coupling probeの2 checkとexit codeをGoへ移す
-- [ ] PNG parserの全color type/filter処理をgolden PNG fixtureでcharacterizeする
-- [ ] `png_stats` resultの全field、rounding、unsupported/errorをGoへ移す
+- [x] PNG parserの全color type/filter処理を生成PNG fixtureでcharacterizeする
+- [x] `png_stats` resultの全field、ties-to-even rounding、unsupported/errorをGoへ移す
 - [ ] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
 - [ ] STAGE↔GLOBAL変換とevent predicateをGo table testへ移す
 - [ ] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGoへ移す

@@ -239,3 +239,23 @@ func TestCLIBadArgsJSONUsesExitTwoWithoutConnecting(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
+
+func TestImageStatsCLICompatibilityOutput(t *testing.T) {
+	path := t.TempDir() + "/not-image.png"
+	if err := os.WriteFile(path, []byte("not png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureRun(t, "image-stats", path)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"error":"not a PNG"`) || !strings.Contains(stdout, "non-degenerate: False") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	missing := t.TempDir() + "/missing.png"
+	code, stdout, stderr = captureRun(t, "image-stats", missing)
+	if code != 0 || stderr != "" || stdout != missing+": missing\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	code, stdout, stderr = captureRun(t, "image-stats")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "usage: playspectra image-stats") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/YmSaki/PlaySpectra/mcp"
 	"github.com/YmSaki/PlaySpectra/playspectra"
+	"github.com/YmSaki/PlaySpectra/pngstats"
 	"github.com/YmSaki/PlaySpectra/protocol"
 )
 
@@ -38,6 +39,8 @@ func run(args []string) int {
 		return commandReplay(args[1:])
 	case "doctor":
 		return commandDoctor(args[1:])
+	case "image-stats":
+		return commandImageStats(args[1:])
 	case "session":
 		return commandSession(args[1:])
 	case "version", "--version":
@@ -58,7 +61,7 @@ func run(args []string) int {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "PlaySpectra Go control plane")
-	fmt.Fprintln(os.Stderr, "usage: playspectra cmd <operation> | run <scenario.json> | mcp | record | replay | doctor | session")
+	fmt.Fprintln(os.Stderr, "usage: playspectra cmd <operation> | run <scenario.json> | mcp | record | replay | doctor | image-stats | session")
 }
 
 func commandCmd(args []string) int {
@@ -297,6 +300,47 @@ func commandDoctor(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func commandImageStats(args []string) int {
+	fs := flag.NewFlagSet("playspectra image-stats", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	maxRows := fs.Int("max-rows", 0, "maximum rows to decode (0 = all)")
+	columns := fs.Int("columns", 200, "approximately how many columns to sample")
+	sampleRows := fs.Int("sample-rows", 300, "approximately how many rows to sample")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	paths := fs.Args()
+	if len(paths) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: playspectra image-stats <file.png> [more.png ...]")
+		return 2
+	}
+	exitCode := 0
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				fmt.Printf("%s: missing\n", path)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			exitCode = 1
+			continue
+		}
+		stats, err := pngstats.Stats(path, pngstats.Options{MaxRows: *maxRows, Columns: *columns, SampleRows: *sampleRows})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			exitCode = 1
+			continue
+		}
+		data, _ := json.Marshal(stats)
+		label := "False"
+		if pngstats.IsNonDegenerate(stats, 0, 0) {
+			label = "True"
+		}
+		fmt.Printf("%s\n  %s\n  non-degenerate: %s\n", path, data, label)
+	}
+	return exitCode
 }
 
 func commandSession(args []string) int {

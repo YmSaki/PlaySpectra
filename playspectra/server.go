@@ -726,6 +726,9 @@ func (s *Server) RunScenarioJSON(ctx context.Context, data []byte) (map[string]a
 	if err := json.Unmarshal(data, &scenario); err != nil {
 		return nil, fmt.Errorf("decode scenario: %w", err)
 	}
+	if scenario == nil {
+		return nil, fmt.Errorf("decode scenario: top level must be an object")
+	}
 	return s.RunScenario(ctx, scenario)
 }
 

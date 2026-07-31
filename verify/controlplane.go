@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sync"
 	"time"
 
 	"github.com/YmSaki/PlaySpectra/playspectra"
@@ -116,38 +115,25 @@ func Recording(ctx context.Context, address string, rate float64) (Report, error
 		return report, err
 	}
 	started := time.Now()
-	recordContext, stopRecording := context.WithCancel(ctx)
-	var wait sync.WaitGroup
-	wait.Add(1)
+	recordDone := make(chan error, 1)
 	go func() {
-		defer wait.Done()
-		interval := time.Duration(float64(time.Second) / recorder.RateHz)
-		for {
-			if err := recorder.Sample(recordContext, started); err != nil {
-				return
-			}
-			timer := time.NewTimer(interval)
-			select {
-			case <-recordContext.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
+		recordDone <- recorder.Run(ctx, started)
 	}()
 	if err := server.MoveHead(ctx, map[string]any{"position": []float64{0, 1.6, -2}}, 400); err != nil {
-		stopRecording()
-		wait.Wait()
+		recorder.Stop()
+		<-recordDone
 		return report, err
 	}
 	if err := server.Look(ctx, 30, 200); err != nil {
-		stopRecording()
-		wait.Wait()
+		recorder.Stop()
+		<-recordDone
 		return report, err
 	}
 	sleep(ctx, 100*time.Millisecond)
-	stopRecording()
-	wait.Wait()
+	recorder.Stop()
+	if err := <-recordDone; err != nil {
+		return report, err
+	}
 	frames := append([]playspectra.RecordingFrame(nil), recorder.Frames...)
 	zValues := []float64{}
 	for _, frame := range frames {

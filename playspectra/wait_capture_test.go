@@ -197,4 +197,18 @@ func TestScreenshotFailureModesAreStructured(t *testing.T) {
 	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["error"] != "screenshot path missing: "+capture.response["path"].(string) {
 		t.Fatalf("missing path result=%v err=%v", got, err)
 	}
+
+	capture.response = map[string]any{"ok": true, "path": t.TempDir()}
+	if got, err := server.Screenshot(ctx, "left", 10); err != nil || got["ok"] != false || got["error"] == nil {
+		t.Fatalf("read error result=%v err=%v", got, err)
+	}
+
+	server = NewServer(newFakeTransport(), WithCapture(&changingCapture{path: t.TempDir() + "/unused.png"}))
+	if server.AssertCapture(ctx, "missing", "changed", "left", "named missing ref", 0, 10) {
+		t.Fatal("missing capture reference passed")
+	}
+	assertions := server.Assertions()
+	if len(assertions) != 1 || assertions[0].Name != "named missing ref" || assertions[0].OK {
+		t.Fatalf("assertions=%v", assertions)
+	}
 }

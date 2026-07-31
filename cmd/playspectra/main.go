@@ -164,13 +164,22 @@ func commandRun(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	var scenario map[string]any
+	if err := json.Unmarshal(data, &scenario); err != nil {
+		fmt.Fprintln(os.Stderr, "decode scenario:", err)
+		return 2
+	}
+	if scenario == nil {
+		fmt.Fprintln(os.Stderr, "decode scenario: top level must be an object")
+		return 2
+	}
 	_, server, closeFn, err := openServer(*host, *port, *rate, *capturePort)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	defer closeFn()
-	summary, err := server.RunScenarioJSON(context.Background(), data)
+	summary, err := server.RunScenario(context.Background(), scenario)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -187,8 +196,8 @@ func commandMCP(args []string) int {
 	fs := flag.NewFlagSet("playspectra mcp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	host := fs.String("host", "127.0.0.1", "adapter host")
-	port := fs.Int("port", 52702, "adapter port")
-	capturePort := fs.Int("capture-port", 52700, "layer capture port")
+	port := fs.Int("port", envInt("PLAYSPECTRA_MONADO_PORT", 52702), "adapter port")
+	capturePort := fs.Int("capture-port", envInt("PLAYSPECTRA_PORT", 52700), "layer capture port")
 	rate := fs.Float64("rate", 60, "interpolation rate")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -767,5 +776,13 @@ func merge(a, b map[string]any) map[string]any {
 	return out
 }
 func boolValue(value any) bool { v, _ := value.(bool); return v }
+
+func envInt(name string, fallback int) int {
+	value, err := strconv.Atoi(os.Getenv(name))
+	if err != nil {
+		return fallback
+	}
+	return value
+}
 
 func printJSON(value any) { data, _ := json.Marshal(value); fmt.Println(string(data)) }

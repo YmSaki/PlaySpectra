@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 8 packages、145 tests/subtests
+- `go test ./...`: 8 packages、216 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -212,21 +212,21 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] fake NDJSON adapter で Python と Go を別 process 実行できる
 - [x] 1 scenario の summary／最終状態を比較できる
 - [x] `get-state` CLI の semantic JSON と exit code を比較できる
-- [ ] adapter が受信した全 request を保存し、command 列と全 `set_state` frame を比較する
-- [ ] adapter の初期 state、reply、event、error、遅延を case ごとに注入できる
-- [ ] Python の `time.sleep` と Go sleeper を制御し、wall-clock を待たず frame 列を比較する
-- [ ] JSON、float、timestamp、path の normalization rule を helper に一元化する
+- [x] adapter が受信した全 request を保存し、command 列と全 `set_state` frame を比較する
+- [x] adapter の初期 state、reply、event、error、遅延を case ごとに注入できる
+- [x] Python の `time.sleep` と Go sleeper を制御し、wall-clock を待たず frame 列を比較する
+- [x] JSON、float、timestamp、path の normalization rule を helper に一元化する
 - [ ] 差分表示に最初の不一致 path、frame index、Python 値、Go 値を出す
 - [ ] case を Core／Scenario／CLI／MCP／record-replay ごとの table から実行する
 
 ### 1. Protocol と state ownership
 
 - [x] non-default adapter state から hello 後の Model が同じ値に seed される
-- [ ] hello の role、protocol version、seed 用 get_state、失敗条件が一致する
-- [ ] get_state が state の値と型を失わず返す
-- [ ] default state の全 field、input path、numeric/bool type を比較する
+- [x] hello の role、protocol version、seed 用 get_state、失敗条件が一致する
+- [x] get_state が state の値と型を失わず返す
+- [x] default state の全 field、input path、numeric/bool type を比較する
 - [x] connected／disconnected controller の snapshotを比較し、disconnectedは`connected:false`だけを出す
-- [ ] `set_state` の完全 snapshot、sequence、clock、validation を試験する
+- [x] `set_state` の完全 snapshot、sequence、clock、validation を試験する
 - [x] reset 後も writer sequence が巻き戻らず、次 frame が stale reject されない
 - [x] async event、異なる request ID、空行、分割 packet、複数 reply を試験する
 - [x] timeout、EOF、不正 JSON、oversize の互換領域と Go の厳密化領域を分ける
@@ -237,38 +237,38 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] 0 ms、1 frame、複数 frame、`.5` frame 境界の frame 数を比較する
 - [x] `move_head`の全frame position、sequence、full snapshotを固定する
 - [x] `move_head` の省略引数、position、default duration を比較する
-- [ ] `move_head` のorientationと全slerp frameを比較する
-- [ ] `look` の正負・0・大角度と default duration を比較する
-- [ ] `walk_forward` の clamp、hold frames、release frame、default hand/duration を比較する
-- [ ] `strafe` の clamp、hold frames、release frame、default hand/duration を比較する
-- [ ] `trigger` の clamp、hold state、default hand/value/duration を比較する
-- [ ] `move_controller` の grip/aim 同期、orientation、default hand/duration を比較する
-- [ ] `set_input` の全宣言 path、instant/hold、値型、正常範囲を比較する
-- [ ] `press` の touch/click press frame、release frame、default hand/button/ms を比較する
-- [ ] `wait` の0／正／負 duration の扱いを比較する
-- [ ] 無効 hand、button、path、値型は Go の厳密化 test として固定する
+- [x] `move_head` のorientationと全slerp frameを比較する
+- [x] `look` の正負・0・大角度と default duration を比較する
+- [x] `walk_forward` の clamp、hold frames、release frame、default hand/duration を比較する
+- [x] `strafe` の clamp、hold frames、release frame、default hand/duration を比較する
+- [x] `trigger` の clamp、hold state、default hand/value/duration を比較する
+- [x] `move_controller` の grip/aim 同期、orientation、default hand/duration を比較する
+- [x] `set_input` の全宣言 path、instant/hold、値型、正常範囲を比較する
+- [x] `press` の touch/click press frame、release frame、default hand/button/ms を比較する
+- [x] `wait` の0／正／負 duration の扱いを比較する
+- [x] 無効 hand、button、path、値型は Go の厳密化 test として固定する
 
 ### 3. Scenario、assert、capture
 
-- [ ] Python command inventory と各 default を table 化する
-- [ ] hello 省略時／明示時、空 steps、連続 scenario の接続・assertion 状態を比較する
-- [ ] 各 operation step の戻り値、送信 frame、最終 state を比較する
-- [ ] path 解決の object key、slash 入力 key、array index、missing、型違いを比較する
-- [ ] `near`、`eq`、`ne`、`gt`、`lt`、`true`、`false` を型境界込みで比較する
-- [ ] `assert` の single-shot、retry、名前、summary failure 名を比較する
-- [ ] `wait_for` の即時成功、poll 後成功、timeout、poll interval を比較する
-- [ ] assertion 0件／全成功／一部失敗の summary と runner exit code を比較する
-- [ ] unknown command、不正 step、不正 scenario JSON の error と exit code を比較する
-- [ ] screenshot success、channel 不在、not-ok、path 不在、read error を比較する
-- [ ] capture reference、stable、changed、missing ref、retry/timeout、summary を比較する
+- [x] Python command inventory と各 default を table 化する
+- [x] hello 省略時／明示時、空 steps、連続 scenario の接続・assertion 状態を比較する
+- [x] 各 operation step の戻り値、送信 frame、最終 state を比較する
+- [x] path 解決の object key、slash 入力 key、array index、missing、型違いを比較する
+- [x] `near`、`eq`、`ne`、`gt`、`lt`、`true`、`false` を型境界込みで比較する
+- [x] `assert` の single-shot、retry、名前、summary failure 名を比較する
+- [x] `wait_for` の即時成功、poll 後成功、timeout、poll interval を比較する
+- [x] assertion 0件／全成功／一部失敗の summary と runner exit code を比較する
+- [x] unknown command、不正 step、不正 scenario JSON の error と exit code を比較する
+- [x] screenshot success、channel 不在、not-ok、path 不在、read error を比較する
+- [x] capture reference、stable、changed、missing ref、retry/timeout、summary を比較する
 
 ### 4. CLI
 
 - [ ] Python 旧 CLI の入力を新 subcommand に対応付ける互換 matrix を作る
 - [x] 全 `cmd` operation のflag mappingとdefaultをtable testで比較する
 - [x] `cmd get-state` の `cmd`、`result:null`、`state`、stdout、exit 0 をfake adapterで比較する
-- [ ] assert／wait_for／assert_capture の pass=0、false=1、実行 error=2 を比較する
-- [ ] Scenario success／assert failure／decode error／接続 error の stdout、stderr、exit を比較する
+- [x] assert／wait_for／assert_capture の pass=0、false=1、実行 error=2 を比較する
+- [x] Scenario success／assert failure／decode error／接続 error の stdout、stderr、exit を比較する
 - [ ] `--demo`、`--verify`、位置引数 scenario を維持するか、新 CLI への対応を文書化する
 - [x] kebab-case と snake_case operation alias を試験する
 - [ ] stdout は機械可読 JSON のみ、progress/error は stderr という契約を全 command で試験する
@@ -277,21 +277,21 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 - [x] Python FastMCP 1.29の`tools/list`をcharacterizeする
 - [x] 13 tool の名前、required、type、default、input/output titleを意味比較する
-- [ ] 13 tool のdescription全文をfixtureで固定する
+- [x] 13 tool のdescription全文をfixtureで固定する
 - [x] initialize、initialized notification、ping、unknown method、malformed request を試験する
 - [x] lazy adapter connection と capture channel 不在時の動作を比較する
 - [x] 12 text/result tool の正常 resultと`structuredContent`を比較する
 - [x] screenshot の image content、MIME type、base64 data を比較する
 - [x] 全 tool の default 呼び出しと明示引数呼び出しを比較する
 - [x] Core error、invalid argument、unknown tool の MCP error 表現を比較する
-- [ ] adapter transport errorのMCP error表現を比較する
+- [x] adapter transport errorのMCP error表現を比較する
 - [x] 複数 request の server reuse、state 継続、sequence を比較する
 
 ### 6. Recorder／Replayer
 
 - [x] observer/writer hello の role と失敗条件を比較する
 - [x] sample request、欠損 state、frame order、`t_ms` の単調性を比較する
-- [ ] 0 duration、短時間、複数 sample の停止条件を比較する
+- [x] 0 duration、短時間、複数 sample の停止条件を比較する
 - [x] recording の name、rate_hz、frames と load/save round-trip を semantic JSON で比較する
 - [x] 空 recording の replay result を比較する
 - [x] replay 前 get_state、fresh sequence、clock、全 set_state frame を比較する
@@ -301,7 +301,7 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 7. Go binary境界と後続Issueへのhandoff
 
-- [ ] doctor と session は Python 互換 suite から分離して Go 固有 test を維持する
+- [x] doctor と session は Python 互換 suite から分離して Go 固有 test を維持する
 - [ ] Go 固有 alias／validation／limit が正常系 compatibility を壊さない
 - [ ] `playspectra`が単一main packageからbuildでき、Go側にcgo importがないことを検査する
 - [ ] Go executableがC++ libraryを直接linkせず、NDJSON/TCPだけで接続することを検査する

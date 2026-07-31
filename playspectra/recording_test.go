@@ -82,6 +82,41 @@ func TestRecordForZeroDurationDoesNotSample(t *testing.T) {
 	}
 }
 
+func TestRecorderRunStopsLikePythonBackgroundRecorder(t *testing.T) {
+	recorder := NewRecorder(newFakeTransport(), 1000)
+	done := make(chan error, 1)
+	go func() { done <- recorder.Run(context.Background(), time.Now()) }()
+	time.Sleep(8 * time.Millisecond)
+	recorder.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background recorder did not stop")
+	}
+	if len(recorder.Frames) == 0 {
+		t.Fatal("background recorder captured no frames")
+	}
+	count := len(recorder.Frames)
+	time.Sleep(5 * time.Millisecond)
+	if len(recorder.Frames) != count {
+		t.Fatalf("frames continued after Stop: %d -> %d", count, len(recorder.Frames))
+	}
+}
+
+func TestRecordForHonorsPriorStop(t *testing.T) {
+	recorder := NewRecorder(newFakeTransport(), 1000)
+	recorder.Stop()
+	if err := recorder.RecordFor(context.Background(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.Frames) != 0 {
+		t.Fatalf("frames=%v", recorder.Frames)
+	}
+}
+
 func TestReplayerUsesFreshMonotonicSequenceAndDoesNotMutateRecording(t *testing.T) {
 	transport := newFakeTransport()
 	transport.state["sequence"] = float64(50)

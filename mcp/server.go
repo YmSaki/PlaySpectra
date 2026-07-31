@@ -268,10 +268,14 @@ func (h *Handler) callTool(ctx context.Context, request map[string]any) (map[str
 		}
 		return map[string]any{"content": []any{map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(data), "mimeType": "image/png"}}, "isError": false}, nil
 	case "wait_for":
-		path := []any{}
 		rawPath := str("path_json", "[]")
-		if unmarshalErr := json.Unmarshal([]byte(rawPath), &path); unmarshalErr != nil {
-			path = []any{rawPath}
+		var decodedPath any
+		if unmarshalErr := json.Unmarshal([]byte(rawPath), &decodedPath); unmarshalErr != nil {
+			decodedPath = rawPath
+		}
+		path, isArray := decodedPath.([]any)
+		if !isArray {
+			path = []any{decodedPath}
 		}
 		met, waitErr := server.WaitFor(ctx, path, str("op", "near"), args["value"], num("tol", 0.01), integer("timeout_ms", 5000), 50, "")
 		if waitErr != nil {

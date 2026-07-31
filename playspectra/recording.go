@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -24,13 +25,15 @@ type Recorder struct {
 	RateHz float64
 	Frames []RecordingFrame
 	count  uint64
+	stop   chan struct{}
+	stopMu sync.Once
 }
 
 func NewRecorder(client Transport, rateHz float64) *Recorder {
 	if rateHz <= 0 {
 		rateHz = 60
 	}
-	return &Recorder{Client: client, RateHz: rateHz, Frames: []RecordingFrame{}}
+	return &Recorder{Client: client, RateHz: rateHz, Frames: []RecordingFrame{}, stop: make(chan struct{})}
 }
 
 func (r *Recorder) Hello(ctx context.Context) error {
@@ -68,6 +71,11 @@ func (r *Recorder) RecordFor(ctx context.Context, duration time.Duration) error 
 		interval = time.Millisecond
 	}
 	for time.Now().Before(deadline) {
+		select {
+		case <-r.stop:
+			return nil
+		default:
+		}
 		if err := r.Sample(ctx, started); err != nil {
 			return err
 		}
@@ -76,10 +84,52 @@ func (r *Recorder) RecordFor(ctx context.Context, duration time.Duration) error 
 		case <-ctx.Done():
 			timer.Stop()
 			return ctx.Err()
+		case <-r.stop:
+			timer.Stop()
+			return nil
 		case <-timer.C:
 		}
 	}
 	return nil
+}
+
+// Run records in the foreground until Stop is called or the context ends. It
+// is the Go equivalent of the Python Recorder.run_thread entry point; callers
+// choose whether to invoke it from a goroutine.
+func (r *Recorder) Run(ctx context.Context, started time.Time) error {
+	interval := time.Duration(float64(time.Second) / r.RateHz)
+	if interval <= 0 {
+		interval = time.Millisecond
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-r.stop:
+			return nil
+		default:
+		}
+		if err := r.Sample(ctx, started); err != nil {
+			return err
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-r.stop:
+			timer.Stop()
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (r *Recorder) Stop() {
+	if r == nil || r.stop == nil {
+		return
+	}
+	r.stopMu.Do(func() { close(r.stop) })
 }
 
 func (r *Recorder) Recording(name string) Recording {

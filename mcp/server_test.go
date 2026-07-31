@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -109,6 +110,34 @@ func TestToolSchemasMatchPythonFastMCPCharacterization(t *testing.T) {
 		}
 		if hasOutput && output["title"] != want.name+"Output" {
 			t.Fatalf("tool %s output schema = %v", want.name, output)
+		}
+	}
+}
+
+func TestToolDescriptionsMatchPythonFastMCPCharacterization(t *testing.T) {
+	want := map[string]string{
+		"move_head":       "Move the HMD viewpoint to a STAGE-space position in metres (x=right, y=up, z=-forward).\n    Interpolated. Returns the resulting device state as JSON.",
+		"look":            "Turn the head by yaw_deg about world up (+Y); positive = left. Returns the device state.",
+		"walk_forward":    "Hold the thumbstick forward (speed in [-1,1]) for duration, then release. Returns the state.",
+		"strafe":          "Hold the thumbstick sideways (speed in [-1,1]; + is right) for duration, then release. The lateral\n    twin of walk_forward. Returns the state.",
+		"press":           "Press and release a controller button (right: a/b, left: x/y). Returns the device state.",
+		"set_trigger":     "Hold a controller trigger at value in [0,1] for duration. Returns the device state.",
+		"move_controller": "Move a controller (hand = \"left\" | \"right\") grip+aim to a STAGE-space position in metres.\n    Interpolated. Returns the resulting device state.",
+		"set_input":       "Set an arbitrary controller input path (e.g. '/input/squeeze/value', '/input/thumbstick/x') on\n    hand = \"left\"|\"right\". Use 1/0 for bool paths (/click, /touch). Returns the device state.",
+		"reset":           "Reset the virtual devices to the builder-initial state. Returns the device state.",
+		"get_state":       "Read the current virtual device state (HMD head pose + left/right controller grip/aim/inputs).",
+		"screenshot":      "Capture and return the rendered eye image (PNG) the VR app is currently showing.\n    eye = \"left\" | \"right\" | \"dominant\". Needs the PlaySpectra layer (:52700) loaded in the app.",
+		"wait_for":        "Auto-wait (Playwright-style) until a device-state field satisfies a condition, then return it.\n    Poll get_state until the field at path_json satisfies (op, value) or timeout_ms elapses -- use this\n    instead of a fixed sleep before reading state. path_json is a JSON array walking the state tree,\n    e.g. '[\"hmd\",\"head\",\"position\",2]' for head z, or '[\"right\",\"inputs\",\"/input/trigger/value\"]'.\n    op: near|eq|ne|gt|lt|true|false (true/false ignore value). Returns {\"met\": bool, \"state\": {...}}.",
+		"run_scenario":    "Run a PlaySpectra JSON scenario (operate + assert + capture-assert steps) and return the\n    assertion summary {asserts, passed, failed, ok, failures}. The scenario is a self-checking test.",
+	}
+	definitions := toolDefinitions()
+	if len(definitions) != len(want) {
+		t.Fatalf("definitions=%d want=%d", len(definitions), len(want))
+	}
+	for _, definition := range definitions {
+		name := stringValue(definition["name"])
+		if got := stringValue(definition["description"]); got != want[name] {
+			t.Fatalf("description %s:\n%q\nwant:\n%q", name, got, want[name])
 		}
 	}
 }
@@ -280,6 +309,41 @@ func TestCoreErrorIsReturnedAsToolError(t *testing.T) {
 	content := result["content"].([]any)[0].(map[string]any)
 	if result["isError"] != true || !strings.HasPrefix(stringValue(content["text"]), "Error executing tool set_input:") {
 		t.Fatalf("result = %v", result)
+	}
+}
+
+func TestAdapterConnectionErrorIsReturnedAsToolError(t *testing.T) {
+	h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+		return nil, errors.New("dial adapter: connection refused")
+	})
+	response, _ := h.Handle(context.Background(), map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "get_state", "arguments": map[string]any{}},
+	})
+	result := response["result"].(map[string]any)
+	content := result["content"].([]any)[0].(map[string]any)
+	if result["isError"] != true || !strings.Contains(stringValue(content["text"]), "dial adapter: connection refused") {
+		t.Fatalf("result=%v", result)
+	}
+}
+
+func TestWaitForAcceptsJSONScalarAndBareKeyLikePython(t *testing.T) {
+	for _, pathJSON := range []string{`"hmd"`, "hmd"} {
+		t.Run(pathJSON, func(t *testing.T) {
+			h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+				return playspectra.NewServer(newToolTransport(), playspectra.WithSleeper(func(time.Duration) {})), nil
+			})
+			response, _ := h.Handle(context.Background(), map[string]any{
+				"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+				"params": map[string]any{"name": "wait_for", "arguments": map[string]any{
+					"path_json": pathJSON, "op": "ne", "value": 0.0, "timeout_ms": 0,
+				}},
+			})
+			result := response["result"].(map[string]any)
+			if result["isError"] != false || !strings.Contains(stringValue(result["content"].([]any)[0].(map[string]any)["text"]), `"met":true`) {
+				t.Fatalf("result=%v", result)
+			}
+		})
 	}
 }
 

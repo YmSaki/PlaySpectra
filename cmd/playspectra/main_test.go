@@ -42,6 +42,21 @@ func TestPythonCLICompatibleOperationDefaults(t *testing.T) {
 	}
 }
 
+func TestMCPPortEnvironmentDefaultsMatchPython(t *testing.T) {
+	t.Setenv("PLAYSPECTRA_MONADO_PORT", "60002")
+	t.Setenv("PLAYSPECTRA_PORT", "60000")
+	if got := envInt("PLAYSPECTRA_MONADO_PORT", 52702); got != 60002 {
+		t.Fatalf("operate port=%d", got)
+	}
+	if got := envInt("PLAYSPECTRA_PORT", 52700); got != 60000 {
+		t.Fatalf("capture port=%d", got)
+	}
+	t.Setenv("PLAYSPECTRA_PORT", "bad")
+	if got := envInt("PLAYSPECTRA_PORT", 52700); got != 52700 {
+		t.Fatalf("invalid env fallback=%d", got)
+	}
+}
+
 func TestOperationArgumentsCoverFlagDrivenCommands(t *testing.T) {
 	tests := []struct {
 		operation string
@@ -230,6 +245,86 @@ func TestCLIFailedAssertionUsesExitOneWithJSONOutput(t *testing.T) {
 	}
 	if output["result"] != false || output["state"] == nil {
 		t.Fatalf("output = %v", output)
+	}
+}
+
+func TestCLIAssertionCommandsUseZeroOneTwoExitContract(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		operation string
+		args      string
+		wantCode  int
+	}{
+		{"assert pass", "assert", `{"get":["hmd","head","position",2],"op":"near","value":0,"timeout_ms":0}`, 0},
+		{"wait_for fail", "wait_for", `{"get":["hmd","head","position",2],"op":"eq","value":-1,"timeout_ms":0}`, 1},
+		{"capture fail", "assert_capture", `{"ref":"missing","timeout_ms":0}`, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := startCLIAdapter(t)
+			code, stdout, stderr := captureRun(t, "cmd", test.operation, "--args", test.args, "--port", strconv.Itoa(adapter.port()))
+			adapter.close(t)
+			if code != test.wantCode || stderr == "" {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			var output map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &output); err != nil {
+				t.Fatalf("stdout=%q err=%v", stdout, err)
+			}
+			if output["result"] != (test.wantCode == 0) {
+				t.Fatalf("output=%v", output)
+			}
+		})
+	}
+}
+
+func TestCLIRunScenarioSummaryAndExitCodes(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		value    float64
+		wantCode int
+	}{
+		{"pass", 0, 0}, {"assertion failure", -9, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := startCLIAdapter(t)
+			path := t.TempDir() + "/scenario.json"
+			scenario := fmt.Sprintf(`{"name":"cli","steps":[{"cmd":"assert","name":"z","get":["hmd","head","position",2],"op":"eq","value":%g}]}`, test.value)
+			if err := os.WriteFile(path, []byte(scenario), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, stdout, stderr := captureRun(t, "run", path, "--port", strconv.Itoa(adapter.port()))
+			adapter.close(t)
+			if code != test.wantCode || !strings.Contains(stderr, "step: assert") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			var summary map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &summary); err != nil {
+				t.Fatal(err)
+			}
+			if summary["ok"] != (test.wantCode == 0) || summary["asserts"] != float64(1) {
+				t.Fatalf("summary=%v", summary)
+			}
+		})
+	}
+
+	bad := t.TempDir() + "/bad.json"
+	_ = os.WriteFile(bad, []byte("{"), 0o600)
+	code, stdout, stderr := captureRun(t, "run", bad)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "decode scenario") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestCLIConnectionFailureUsesExitTwoWithoutJSON(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	code, stdout, stderr := captureRun(t, "cmd", "get-state", "--port", strconv.Itoa(port))
+	if code != 2 || stdout != "" || stderr == "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 

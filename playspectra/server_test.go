@@ -125,6 +125,16 @@ func TestHelloSeedsNonDefaultAdapterState(t *testing.T) {
 	if server.Seq != 17 {
 		t.Fatalf("sequence = %d, want 17", server.Seq)
 	}
+	if len(transport.requests) != 2 || transport.requests[0]["cmd"] != "hello" || transport.requests[0]["protocol_version"] != 1 || transport.requests[0]["role"] != "writer" || transport.requests[1]["cmd"] != "get_state" {
+		t.Fatalf("hello request sequence=%v", transport.requests)
+	}
+}
+
+func TestHelloRejectsAdapterRoleFailure(t *testing.T) {
+	server := NewServer(fixedReplyTransport{response: map[string]any{"ok": false, "error": "writer already connected"}})
+	if err := server.Hello(context.Background(), "writer"); err == nil {
+		t.Fatal("failed hello was accepted")
+	}
 }
 
 func TestDisconnectedDeviceSnapshotContainsOnlyConnectedFlag(t *testing.T) {
@@ -284,6 +294,213 @@ func TestMoveHeadEmitsEveryInterpolatedFullFrameWithMonotonicSequence(t *testing
 	}
 }
 
+func TestPoseAndInputOperationsMatchPythonFrameSemantics(t *testing.T) {
+	ctx := context.Background()
+	t.Run("move head position and orientation slerp", func(t *testing.T) {
+		transport := newFakeTransport()
+		server := NewServer(transport, WithRate(4), WithSleeper(func(time.Duration) {}))
+		target := []any{0.0, math.Sqrt(0.5), 0.0, math.Sqrt(0.5)}
+		if err := server.MoveHead(ctx, map[string]any{"position": []any{0.0, 1.6, -2.0}, "orientation": target}, 1000); err != nil {
+			t.Fatal(err)
+		}
+		states := sentStates(t, transport)
+		for index, state := range states {
+			fraction := float64(index+1) / 4
+			if got := Resolve(state, []any{"hmd", "head", "position", 2}); !valuesNear(got, -2*fraction) {
+				t.Fatalf("frame %d z=%v", index, got)
+			}
+			wantY, wantW := math.Sin((math.Pi/2*fraction)/2), math.Cos((math.Pi/2*fraction)/2)
+			if got := Resolve(state, []any{"hmd", "head", "orientation", 1}); !valuesNear(got, wantY) {
+				t.Fatalf("frame %d qy=%v want=%v", index, got, wantY)
+			}
+			if got := Resolve(state, []any{"hmd", "head", "orientation", 3}); !valuesNear(got, wantW) {
+				t.Fatalf("frame %d qw=%v want=%v", index, got, wantW)
+			}
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		apply func(*Server) error
+		path  []any
+		want  []float64
+	}{
+		{"walk clamps high and releases", func(s *Server) error { return s.WalkForward(ctx, 2, 500, "left") }, []any{"left", "inputs", "/input/thumbstick/y"}, []float64{1, 1, 0}},
+		{"strafe clamps low and releases", func(s *Server) error { return s.Strafe(ctx, -2, 500, "right") }, []any{"right", "inputs", "/input/thumbstick/x"}, []float64{-1, -1, 0}},
+		{"trigger clamps high and stays held", func(s *Server) error { return s.SetTrigger(ctx, "right", 2, 500) }, []any{"right", "inputs", "/input/trigger/value"}, []float64{1, 1}},
+		{"trigger clamps low", func(s *Server) error { return s.SetTrigger(ctx, "left", -1, 500) }, []any{"left", "inputs", "/input/trigger/value"}, []float64{0, 0}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newFakeTransport()
+			server := NewServer(transport, WithRate(4), WithSleeper(func(time.Duration) {}))
+			if err := test.apply(server); err != nil {
+				t.Fatal(err)
+			}
+			states := sentStates(t, transport)
+			if len(states) != len(test.want) {
+				t.Fatalf("frames=%d want=%d", len(states), len(test.want))
+			}
+			for index, want := range test.want {
+				if got := Resolve(states[index], test.path); !valuesNear(got, want) {
+					t.Fatalf("frame %d value=%v want=%v", index, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestMoveControllerKeepsGripAndAimSynchronized(t *testing.T) {
+	transport := newFakeTransport()
+	server := NewServer(transport, WithRate(2), WithSleeper(func(time.Duration) {}))
+	targetOrientation := []any{0.0, math.Sqrt(0.5), 0.0, math.Sqrt(0.5)}
+	if err := server.MoveController(context.Background(), "right", map[string]any{
+		"position": []any{0.6, 1.5, -0.1}, "orientation": targetOrientation,
+	}, 1000); err != nil {
+		t.Fatal(err)
+	}
+	states := sentStates(t, transport)
+	if len(states) != 2 {
+		t.Fatalf("frames=%d", len(states))
+	}
+	for index, state := range states {
+		for component := 0; component < 3; component++ {
+			grip := Resolve(state, []any{"right", "grip", "position", component})
+			aim := Resolve(state, []any{"right", "aim", "position", component})
+			if !valuesNear(grip, aim) {
+				t.Fatalf("frame %d component %d grip=%v aim=%v", index, component, grip, aim)
+			}
+		}
+		for component := 0; component < 4; component++ {
+			grip := Resolve(state, []any{"right", "grip", "orientation", component})
+			aim := Resolve(state, []any{"right", "aim", "orientation", component})
+			if !valuesNear(grip, aim) {
+				t.Fatalf("frame %d orientation %d grip=%v aim=%v", index, component, grip, aim)
+			}
+		}
+	}
+}
+
+func TestLookHandlesZeroNegativeAndLargeAngles(t *testing.T) {
+	for _, degrees := range []float64{0, -90, 450} {
+		t.Run(fmt.Sprintf("%gdeg", degrees), func(t *testing.T) {
+			transport := newFakeTransport()
+			server := NewServer(transport, WithSleeper(func(time.Duration) {}))
+			if err := server.Look(context.Background(), degrees, 0); err != nil {
+				t.Fatal(err)
+			}
+			state := sentStates(t, transport)[0]
+			got, _ := floatSlice(Resolve(state, []any{"hmd", "head", "orientation"}), 4)
+			want := Slerp([]float64{0, 0, 0, 1}, QuatYaw(degrees*math.Pi/180), 1)
+			if !closeVector(got, want, 1e-9) {
+				t.Fatalf("orientation=%v want=%v", got, want)
+			}
+		})
+	}
+}
+
+func TestEveryDeclaredInputPathPreservesItsPythonValueType(t *testing.T) {
+	for hand, paths := range map[string][]string{"left": LeftInputPaths, "right": RightInputPaths} {
+		for _, path := range paths {
+			t.Run(hand+path, func(t *testing.T) {
+				transport := newFakeTransport()
+				server := NewServer(transport, WithSleeper(func(time.Duration) {}))
+				var value any = true
+				if hasNumericSuffix(path) {
+					value = 0.625
+				}
+				if err := server.SetInput(context.Background(), hand, path, value, 0); err != nil {
+					t.Fatal(err)
+				}
+				got := Resolve(sentStates(t, transport)[0], []any{hand, "inputs", path})
+				if !valuesNear(got, value) {
+					t.Fatalf("value=%v (%T), want=%v (%T)", got, got, value, value)
+				}
+			})
+		}
+	}
+}
+
+func TestSetInputDurationHoldsWithoutRelease(t *testing.T) {
+	transport := newFakeTransport()
+	server := NewServer(transport, WithRate(4), WithSleeper(func(time.Duration) {}))
+	if err := server.SetInput(context.Background(), "left", "/input/squeeze/value", 0.8, 500); err != nil {
+		t.Fatal(err)
+	}
+	states := sentStates(t, transport)
+	if len(states) != 2 {
+		t.Fatalf("frames=%d", len(states))
+	}
+	for index, state := range states {
+		if got := Resolve(state, []any{"left", "inputs", "/input/squeeze/value"}); got != 0.8 {
+			t.Fatalf("frame %d value=%v", index, got)
+		}
+	}
+}
+
+func TestInvalidHandButtonPathAndValueAreRejectedPrecisely(t *testing.T) {
+	server := NewServer(newFakeTransport(), WithSleeper(func(time.Duration) {}))
+	for name, operation := range map[string]func() error{
+		"hand":         func() error { return server.SetTrigger(context.Background(), "middle", 1, 0) },
+		"button":       func() error { return server.Press(context.Background(), "right", "x", 0) },
+		"input path":   func() error { return server.SetInput(context.Background(), "left", "/button/a/click", true, 0) },
+		"numeric type": func() error { return server.SetInput(context.Background(), "left", "/input/trigger/value", true, 0) },
+		"boolean type": func() error { return server.SetInput(context.Background(), "left", "/button/x/click", "yes", 0) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := operation(); err == nil {
+				t.Fatal("invalid operation was accepted")
+			}
+		})
+	}
+}
+
+func TestPressEmitsTouchedClickThenReleaseAndWaitUsesMilliseconds(t *testing.T) {
+	transport := newFakeTransport()
+	var sleeps []time.Duration
+	server := NewServer(transport, WithSleeper(func(duration time.Duration) { sleeps = append(sleeps, duration) }))
+	if err := server.Press(context.Background(), "left", "x", 125); err != nil {
+		t.Fatal(err)
+	}
+	states := sentStates(t, transport)
+	for _, path := range []string{"/button/x/click", "/button/x/touch"} {
+		if Resolve(states[0], []any{"left", "inputs", path}) != true || Resolve(states[1], []any{"left", "inputs", path}) != false {
+			t.Fatalf("%s frames=%v", path, states)
+		}
+	}
+	server.Wait(75)
+	server.Wait(0)
+	server.Wait(-75)
+	if len(sleeps) != 2 || sleeps[0] != 125*time.Millisecond || sleeps[1] != 75*time.Millisecond {
+		t.Fatalf("sleeps=%v", sleeps)
+	}
+}
+
+func TestResolveAndCompareCoverPythonAssertionOperators(t *testing.T) {
+	state := map[string]any{"items": []any{map[string]any{"slash/key": 2.0}}, "yes": true, "no": false}
+	if got := Resolve(state, []any{"items", 0, "slash/key"}); got != 2.0 {
+		t.Fatalf("resolved=%v", got)
+	}
+	if Resolve(state, []any{"items", -1}) != nil || Resolve(state, []any{"items", 9}) != nil || Resolve(state, []any{"missing"}) != nil {
+		t.Fatal("invalid path did not resolve to nil")
+	}
+	for _, test := range []struct {
+		actual, expected any
+		op               string
+		tol              float64
+		want             bool
+	}{
+		{2.0, 2.01, "near", .02, true}, {2.0, 2.1, "near", .02, false},
+		{2.0, 2, "eq", 0, true}, {2.0, 3, "ne", 0, true},
+		{3.0, 2.0, "gt", 0, true}, {1.0, 2.0, "lt", 0, true},
+		{true, nil, "true", 0, true}, {false, nil, "false", 0, true},
+		{nil, nil, "eq", 0, true}, {"x", 0, "gt", 0, false}, {1, 1, "unknown", 0, false},
+	} {
+		if got := Compare(test.actual, test.op, test.expected, test.tol); got != test.want {
+			t.Fatalf("Compare(%v,%s,%v)=%v want=%v", test.actual, test.op, test.expected, got, test.want)
+		}
+	}
+}
+
 func valuesNear(got, want any) bool {
 	gotNumber, gotIsNumber := asFloat(got)
 	wantNumber, wantIsNumber := asFloat(want)
@@ -307,6 +524,41 @@ func TestScenarioSummary(t *testing.T) {
 	}
 	if !boolValue(summary["ok"]) || summary["passed"] != 1 {
 		t.Fatalf("summary = %v", summary)
+	}
+}
+
+func TestScenarioFailureNamesAndInvalidInputs(t *testing.T) {
+	transport := newFakeTransport()
+	server := NewServer(transport, WithSleeper(func(time.Duration) {}))
+	summary, err := server.RunScenario(context.Background(), map[string]any{"steps": []any{
+		map[string]any{"cmd": "assert", "name": "head should move", "get": []any{"hmd", "head", "position", 2}, "op": "eq", "value": -9.0},
+		map[string]any{"cmd": "assert", "name": "head remains at zero", "get": []any{"hmd", "head", "position", 2}, "op": "eq", "value": 0.0},
+	}})
+	if err != nil || summary["asserts"] != 2 || summary["passed"] != 1 || summary["failed"] != 1 || summary["ok"] != false {
+		t.Fatalf("summary=%v err=%v", summary, err)
+	}
+	failures, ok := summary["failures"].([]string)
+	if !ok || len(failures) != 1 || failures[0] != "head should move" {
+		t.Fatalf("failures=%#v", summary["failures"])
+	}
+
+	for name, scenario := range map[string]map[string]any{
+		"steps not array": {"steps": "bad"},
+		"step not object": {"steps": []any{"bad"}},
+		"unknown command": {"steps": []any{map[string]any{"cmd": "unknown"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := NewServer(newFakeTransport(), WithSleeper(func(time.Duration) {}))
+			if _, err := server.RunScenario(context.Background(), scenario); err == nil {
+				t.Fatalf("scenario=%v was accepted", scenario)
+			}
+		})
+	}
+	if _, err := server.RunScenarioJSON(context.Background(), []byte("null")); err == nil {
+		t.Fatal("null scenario was accepted")
+	}
+	if _, err := server.RunScenarioJSON(context.Background(), []byte("{")); err == nil {
+		t.Fatal("malformed scenario was accepted")
 	}
 }
 
@@ -393,5 +645,39 @@ func TestSessionRecordStatus(t *testing.T) {
 	status, err := SessionStatus(path)
 	if err != nil || status["running"] != true {
 		t.Fatalf("status=%v err=%v", status, err)
+	}
+}
+
+func TestSessionStartStatusStopLifecycle(t *testing.T) {
+	if os.Getenv("PLAYSPECTRA_SESSION_HELPER") == "1" {
+		time.Sleep(30 * time.Second)
+		return
+	}
+	pidFile := t.TempDir() + "/session.json"
+	t.Setenv("PLAYSPECTRA_SESSION_HELPER", "1")
+	record, err := StartSession(pidFile, os.Args[0], "-test.run=TestSessionStartStatusStopLifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = StopSession(pidFile) }()
+	if record.PID <= 0 || record.Command != os.Args[0] || len(record.Arguments) != 1 {
+		t.Fatalf("record=%+v", record)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !ProcessRunning(record.PID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	status, err := SessionStatus(pidFile)
+	if err != nil || status["running"] != true {
+		t.Fatalf("status=%v err=%v", status, err)
+	}
+	if _, err := StartSession(pidFile, os.Args[0]); err == nil {
+		t.Fatal("second session start was accepted")
+	}
+	if err := StopSession(pidFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
+		t.Fatalf("pid file remains: %v", err)
 	}
 }

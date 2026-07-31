@@ -2,16 +2,14 @@
 # Run every environment-independent unit test with one command and exit non-zero if any fail:
 #   - mcp/     node:test   (pure quaternion/vector math)                            -> 42 cases
 #   - layer/   gtest/ctest (capture/pixel/pose helpers + xr_math/dxgi/pose_override) -> 92 Win / 83 non-Win (DXGI is WIN32-only)
-#   - tools/   unittest    (Scenario Runner interpolation math + wait_for/assert_capture retry logic,
-#                           all mocked over localhost sockets -- no Monado/GPU/host app needed)      -> 33 cases
+#   - Go       go test     (Core, protocol, Scenario, MCP, record/replay, setup helpers, probes)
 #   - submodule playspectra_proto (gcc standalone: frame verdict + content_sig)       -> 43 cases
-# Dep-complete total: 210 (Windows) / 201 (non-Windows, DXGI excluded).
 #
 # WHY: GitHub Actions runs the environment-independent MCP and layer suites, while this script adds
-# the Python-tool and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
+# the Go control-plane and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
 # independent environment, so it cannot catch every "works on my machine" issue (locale/dep/platform).
 #
-# SKIP discipline (review-checklist.md lens 6 / rules/setup-scripts.md #4): a missing python/gcc/
+# SKIP discipline (review-checklist.md lens 6 / rules/setup-scripts.md #4): a missing Go/gcc/
 # submodule SKIPs only that suite -- it never fails the run (rc is decided by fail alone) -- but it
 # is tallied and named in the final summary so "green" can never look identical to "green, but N
 # suites never ran". Do not silently fold a SKIP into a plain "ALL GREEN".
@@ -52,19 +50,14 @@ if [ -f "$BUILD/CMakeCache.txt" ]; then
 fi
 
 echo ""
-echo "== tools: PlaySpectra framework math + wait_for/assert_capture retry logic (unittest) =="
-PY=""
-if command -v python >/dev/null 2>&1; then
-  PY=python
-elif command -v python3 >/dev/null 2>&1; then
-  PY=python3
-fi
-if [ -n "$PY" ]; then
-  "$PY" tools/playspectra_math_test.py || { echo ">> framework math tests FAILED"; fail=1; }
-  "$PY" tools/playspectra_waitfor_test.py || { echo ">> wait_for retry tests FAILED"; fail=1; }
-  "$PY" tools/playspectra_capture_assert_test.py || { echo ">> assert_capture retry tests FAILED"; fail=1; }
+echo "== go: control plane =="
+if command -v go >/dev/null 2>&1; then
+  go test ./... || { echo ">> go tests FAILED"; fail=1; }
+  go vet ./... || { echo ">> go vet FAILED"; fail=1; }
+  mkdir -p build
+  CGO_ENABLED=0 go build -o build/playspectra-test ./cmd/playspectra || { echo ">> cgo-free build FAILED"; fail=1; }
 else
-  note_skip "tools" "python not found"
+  note_skip "go" "go not found"
 fi
 
 echo ""

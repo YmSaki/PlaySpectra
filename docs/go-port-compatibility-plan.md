@@ -138,12 +138,12 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | PNG解析 | あり | filter 0-4、5 color types、全高sampling、degenerate判定のGo fixture test | 部分確認 |
 | VRApp driver／real-app E2E | あり | fake process lifecycle/request testsとGo live suite。実app再実行は未実施 | 部分確認 |
 | MCP実client verifier | あり | dependency-free Go clientと14-check `verify mcp` | 部分確認（live未実行） |
-| setup/E2E内のPython heredoc | 残存 | 5 scriptsで使用 | 未移植 |
+| setup/E2E内のPython heredoc | 除去済み | Go setup helperと内部subcommandをfixture test済み | 移植済み |
 | Windows／Linux binary | build 定義あり | この監査では release artifact の相互確認なし | 未確認 |
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 7 packages、138 tests/subtests
+- `go test ./...`: 8 packages、145 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -330,16 +330,16 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 9. Embedded Pythonと起動経路の除去
 
-- [ ] `setup_hellovr.sh` の2 heredocをGo/shellへ置換する
-- [ ] `setup_monado.sh` のZIP展開heredocをGoへ置換する
-- [ ] `setup_helloxr_msvc.sh` の3 source patch heredocをGo/patch fileへ置換する
-- [ ] `setup_opencomposite.sh` のPE検証heredocをGoへ置換する
-- [ ] `e2e_playwright_loop.sh` のport wait、Server起動、hash判定をGoへ置換する
-- [ ] `run_scenario_e2e_monado.sh` をGo Scenario Runnerへ切り替える
-- [ ] `run_hello_xr_monado.sh` をGo coupling probeへ切り替える
-- [ ] `run_vrapp_monado.sh` をGo VRApp E2Eへ切り替える
-- [ ] `run_mcp_verify_monado.sh` をGo MCP verifierへ切り替える
-- [ ] `run_all_tests.sh` とCIからPython suite起動を除き、対応Go suiteを必須化する
+- [x] `setup_hellovr.sh` の2 heredocをGo/shellへ置換する
+- [x] `setup_monado.sh` のZIP展開heredocをGoへ置換する
+- [x] `setup_helloxr_msvc.sh` の3 source patch heredocをGo/patch fileへ置換する
+- [x] `setup_opencomposite.sh` のPE検証heredocをGoへ置換する
+- [x] `e2e_playwright_loop.sh` のport wait、Server起動、hash判定をGoへ置換する
+- [x] `run_scenario_e2e_monado.sh` をGo Scenario Runnerへ切り替える
+- [x] `run_hello_xr_monado.sh` をGo coupling probeへ切り替える
+- [x] `run_vrapp_monado.sh` をGo VRApp E2Eへ切り替える
+- [x] `run_mcp_verify_monado.sh` をGo MCP verifierへ切り替える
+- [x] `run_all_tests.sh` とCIからPython suite起動を除き、対応Go suiteを必須化する
 - [ ] 対応Go commandがGREENになった時点でREADME／docs／scenario説明の利用例を切り替える
 - [ ] READMEには利用方法と安定した構成だけを置き、進捗、未完check、Issue handoff、実行履歴を書かない
 - [ ] 移植中だけ使うPython/Go parity fixtureを固定goldenへ変換する

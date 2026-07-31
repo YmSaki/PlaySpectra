@@ -88,21 +88,28 @@ func TestClientHandlesSplitPacketsBlankLinesAndMismatchedReplies(t *testing.T) {
 }
 
 func TestRequestConsumesPendingSendOnlyReply(t *testing.T) {
-	server, clientConn := net.Pipe()
-	defer server.Close()
-	client := NewClient(clientConn)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
 	done := make(chan error, 1)
 	go func() {
+		server, err := listener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer server.Close()
 		reader := bufio.NewReader(server)
 		if _, err := reader.ReadString('\n'); err != nil {
 			done <- err
 			return
 		}
-		pending := make(chan error, 1)
-		go func() {
-			_, err := io.WriteString(server, `{"request_id":"frame-1","ok":true}`+"\n")
-			pending <- err
-		}()
+		if _, err := io.WriteString(server, `{"request_id":"frame-1","ok":true}`+"\n"); err != nil {
+			done <- err
+			return
+		}
 		if _, err := reader.ReadString('\n'); err != nil {
 			done <- err
 			return
@@ -111,8 +118,14 @@ func TestRequestConsumesPendingSendOnlyReply(t *testing.T) {
 			done <- err
 			return
 		}
-		done <- <-pending
+		done <- nil
 	}()
+	clientConn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientConn.Close()
+	client := NewClient(clientConn)
 	if err := client.SendOnly(context.Background(), map[string]any{"cmd": "set_state", "request_id": "frame-1"}); err != nil {
 		t.Fatal(err)
 	}

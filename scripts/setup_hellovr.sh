@@ -21,6 +21,7 @@
 # Usage: scripts/setup_hellovr.sh
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib_playspectra.sh"
 OPENVR_TAG="${OPENVR_TAG:-v1.8.19}"   # OC-compatible interface era; see note above
 SRC="${TEMP:-/tmp}/playspectra_openvr_${OPENVR_TAG}"   # short path (FTK1011); tag in path = no stale-clone ambiguity
 DEST="${ROOT}/third_party/hellovr/bin"
@@ -49,32 +50,13 @@ fi
 [ -d "$SRC/.git" ] || git clone --depth 1 --branch "$OPENVR_TAG" https://github.com/ValveSoftware/openvr "$SRC"
 
 # vcxproj ships Win32-only; generate an x64 twin (idempotent overwrite).
-python - "$SRC/samples/hellovr_dx12/hellovr_dx12.vcxproj" <<'EOF'
-import sys
-src = sys.argv[1]
-s = open(src, encoding='utf-8-sig').read()
-s = s.replace('Win32Proj','__W32PROJ__').replace('Win32','x64').replace('__W32PROJ__','Win32Proj')
-s = s.replace('win32','win64')
-open(src.replace('.vcxproj','_x64.vcxproj'),'w',encoding='utf-8').write(s)
-EOF
+ps_run internal vcxproj-x64 "$SRC/samples/hellovr_dx12/hellovr_dx12.vcxproj"
 
 "$MSBUILD" "$(cygpath -w "$SRC/samples/hellovr_dx12/hellovr_dx12_x64.vcxproj")" \
   -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 \
   -p:WindowsTargetPlatformVersion=10.0 -v:q -nologo
 
-python - "$SRC/samples" "$DEST" "$ROOT" <<'EOF'
-import os, shutil, sys
-t, dest, root = sys.argv[1], sys.argv[2], sys.argv[3]
-os.makedirs(os.path.join(dest,'win64'), exist_ok=True)
-for f in ['cube_texture.png','hellovr_actions.json','hellovr_bindings_generic.json',
-          'hellovr_bindings_vive_controller.json']:
-    shutil.copy2(os.path.join(t,'bin',f), dest)
-shutil.copytree(os.path.join(t,'bin','shaders'), os.path.join(dest,'shaders'), dirs_exist_ok=True)
-shutil.copy2(os.path.join(t,'bin','win64','hellovr_dx12_x64.exe'), os.path.join(dest,'win64','hellovr_dx12.exe'))
-shutil.copy2(os.path.join(root,'third_party','monado','bin','SDL2.dll'), os.path.join(dest,'win64'))
-shutil.copy2(os.path.join(root,'third_party','opencomposite','openvr_api.dll'), os.path.join(dest,'win64'))
-print('deployed:', sorted(os.listdir(os.path.join(dest,'win64'))))
-EOF
+ps_run internal deploy-hellovr --samples "$SRC/samples" --destination "$DEST" --root "$ROOT"
 
 echo "source: ValveSoftware/openvr ${OPENVR_TAG} (shallow) + OpenComposite dll, built $(date -u +%Y-%m-%dT%H:%MZ)" \
   > "${ROOT}/third_party/hellovr/VERSION.txt"

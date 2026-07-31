@@ -9,10 +9,10 @@
 # interactables (button / grabbable cube / lever), so this harness can assert that the ENGINE's own game
 # logic ran. It is the first real-engine (non-sample) app in the regression set.
 #
-# Machine value: tools/playspectra_vrapp_test.py's rc -- 0 iff every assertion passed. SKIPs (absent app
+# Machine value: playspectra verify vrapp's rc -- 0 iff every assertion passed. SKIPs (absent app
 # or absent capture layer) are printed and counted, and never make the rc non-zero.
 #
-# Unlike mstack_up, the app is launched by the Python harness, not here: the [VRTEST] contract needs the
+# Unlike mstack_up, the app is launched by the Go harness, not here: the [VRTEST] contract needs the
 # app's stdin (requests) and stdout (events), so the process must be owned by whoever speaks it.
 #
 # Prereqs (see CLAUDE.local.md "Windows で Monado(PlaySpectra driver) をビルドする方法"):
@@ -25,6 +25,7 @@
 # Usage: scripts/run_vrapp_monado.sh
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/lib_monado_stack.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_playspectra.sh"
 
 # D3D12 because that is what the app itself selects (project.godot: rendering_device/driver.windows).
 mstack_env D3D12
@@ -39,7 +40,7 @@ export PLAYSPECTRA_VRAPP_EXE="$APP"
 
 mstack_service_up || exit $?
 
-python tools/playspectra_vrapp_test.py "$PLAYSPECTRA_MONADO_PORT" "$PLAYSPECTRA_PORT"
+ps_run verify vrapp --exe "$APP" --port "$PLAYSPECTRA_MONADO_PORT" --capture-port "$PLAYSPECTRA_PORT"
 RC=$?
 
 mstack_service_down

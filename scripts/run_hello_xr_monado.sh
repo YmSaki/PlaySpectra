@@ -25,6 +25,7 @@
 #         watchdog costs nothing -- the run returns when the test does, not at `secs`.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/lib_monado_stack.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_playspectra.sh"
 GFX="${1:-D3D11}"; SECS="${2:-60}"
 
 # 'all': re-invoke self once per graphics API and combine the verdicts (fail if any API fails).
@@ -49,7 +50,7 @@ if mstack_up "$GFX" "$SECS"; then
   node scripts/integration_hello_xr.mjs 52700
   IRC=$?
   echo "=== runtime coupling: :52702 operate drives Monado virtual HMD -> app xrLocateViews (:52700) ==="
-  python tools/playspectra_coupling_probe.py 52700 52702
+  ps_run verify coupling --capture-port 52700 --port 52702
   CRC=$?
   # verdict gates on BOTH: layer observation of a real app AND runtime-level operate reaching the app.
   RC=$(( IRC != 0 ? IRC : CRC ))

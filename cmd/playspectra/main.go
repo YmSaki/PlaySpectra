@@ -15,6 +15,7 @@ import (
 	"github.com/YmSaki/PlaySpectra/playspectra"
 	"github.com/YmSaki/PlaySpectra/pngstats"
 	"github.com/YmSaki/PlaySpectra/protocol"
+	"github.com/YmSaki/PlaySpectra/setuphelper"
 	"github.com/YmSaki/PlaySpectra/verify"
 	"github.com/YmSaki/PlaySpectra/vrapp"
 )
@@ -47,6 +48,8 @@ func run(args []string) int {
 		return commandVerify(args[1:])
 	case "session":
 		return commandSession(args[1:])
+	case "internal":
+		return commandInternal(args[1:])
 	case "version", "--version":
 		fmt.Println(version)
 		return 0
@@ -440,6 +443,149 @@ func printVerification(report verify.Report, err error) int {
 	}
 	report.WriteText(os.Stdout)
 	return report.ExitCode()
+}
+
+func commandInternal(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "internal requires an operation")
+		return 2
+	}
+	fail := func(err error) int {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	switch args[0] {
+	case "vcxproj-x64":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: playspectra internal vcxproj-x64 <path>")
+			return 2
+		}
+		path, err := setuphelper.TransformVCXProj(args[1])
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Println(path)
+		return 0
+	case "deploy-hellovr":
+		fs := flag.NewFlagSet("playspectra internal deploy-hellovr", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		samples := fs.String("samples", "", "OpenVR samples directory")
+		destination := fs.String("destination", "", "deployment directory")
+		root := fs.String("root", "", "PlaySpectra source root")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *samples == "" || *destination == "" || *root == "" {
+			fmt.Fprintln(os.Stderr, "--samples, --destination, and --root are required")
+			return 2
+		}
+		names, err := setuphelper.DeployHelloVR(*samples, *destination, *root)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("deployed: %v\n", names)
+		return 0
+	case "extract-monado":
+		fs := flag.NewFlagSet("playspectra internal extract-monado", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		archive := fs.String("zip", "", "Monado CI archive")
+		destination := fs.String("destination", "", "extraction directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *archive == "" || *destination == "" {
+			fmt.Fprintln(os.Stderr, "--zip and --destination are required")
+			return 2
+		}
+		count, err := setuphelper.ExtractMonado(*archive, *destination)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("extracted %d files -> %s\n", count, *destination)
+		return 0
+	case "patch-helloxr":
+		fs := flag.NewFlagSet("playspectra internal patch-helloxr", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		source := fs.String("source", "", "OpenXR SDK source directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *source == "" {
+			fmt.Fprintln(os.Stderr, "--source is required")
+			return 2
+		}
+		markers, err := setuphelper.PatchHelloXR(*source)
+		if err != nil {
+			return fail(err)
+		}
+		for _, marker := range markers {
+			fmt.Println("patched:", marker)
+		}
+		return 0
+	case "check-pe-x64":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: playspectra internal check-pe-x64 <path>")
+			return 2
+		}
+		size, err := setuphelper.CheckPEX64(args[1])
+		if err != nil {
+			fmt.Printf("PE check: FAILED (%d bytes; %v - download broken?)\n", size, err)
+			return 1
+		}
+		fmt.Printf("PE check: x64 OK (%d bytes)\n", size)
+		return 0
+	case "wait-tcp":
+		fs := flag.NewFlagSet("playspectra internal wait-tcp", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		address := fs.String("address", "127.0.0.1:52702", "TCP address")
+		timeout := fs.Duration("timeout", 18*time.Second, "wait timeout")
+		interval := fs.Duration("interval", 300*time.Millisecond, "retry interval")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		if err := setuphelper.WaitTCP(ctx, *address, *interval); err != nil {
+			return fail(err)
+		}
+		fmt.Println("CTRL_UP")
+		return 0
+	case "compare-captures":
+		fs := flag.NewFlagSet("playspectra internal compare-captures", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		recording := fs.String("recording", "", "recording directory")
+		baseline := fs.String("baseline", "", "baseline PNG")
+		post := fs.String("post", "", "post-injection PNG")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *recording == "" || *baseline == "" || *post == "" {
+			fmt.Fprintln(os.Stderr, "--recording, --baseline, and --post are required")
+			return 2
+		}
+		result, err := setuphelper.CompareCaptures(*recording, *baseline, *post)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("frames: %d distinct contents: %d\n", result.Frames, result.Distinct)
+		fmt.Printf("baseline hash: %s post hash: %s\n", result.BaselineHash, result.PostHash)
+		fmt.Printf("%s capture tracks state (>=2 distinct contents)\n", passLabel(result.Distinct >= 2))
+		fmt.Printf("%s post-injection frame differs from baseline\n", passLabel(result.BaselineHash != "" && result.PostHash != "" && result.BaselineHash != result.PostHash))
+		if !result.OK {
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "unknown internal operation %q\n", args[0])
+		return 2
+	}
+}
+
+func passLabel(ok bool) string {
+	if ok {
+		return "PASS"
+	}
+	return "FAIL"
 }
 
 func commandSession(args []string) int {

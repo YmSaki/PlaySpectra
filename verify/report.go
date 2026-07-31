@@ -16,6 +16,16 @@ type Report struct {
 	Checks []Check `json:"checks"`
 }
 
+var compatibilityCheckCounts = map[string]int{
+	"server":             9,
+	"record-replay":      5,
+	"frame-synchronized": 10,
+	"reset":              20,
+	"multi-observer":     11,
+	"runtime-coupling":   2,
+	"mcp":                14,
+}
+
 func NewReport(name string) Report { return Report{Name: name, Checks: []Check{}} }
 
 func (r *Report) Add(name string, condition bool, detail any) bool {
@@ -40,6 +50,16 @@ func (r Report) ExitCode() int {
 		return 0
 	}
 	return 1
+}
+
+// ValidateCompatibilityCoverage prevents a ported live probe from silently
+// dropping checks that existed in the Python reference implementation.
+func (r Report) ValidateCompatibilityCoverage() error {
+	expected, tracked := compatibilityCheckCounts[r.Name]
+	if tracked && len(r.Checks) != expected {
+		return fmt.Errorf("%s compatibility coverage: got %d checks, want %d", r.Name, len(r.Checks), expected)
+	}
+	return nil
 }
 
 func (r Report) WriteText(output io.Writer) {

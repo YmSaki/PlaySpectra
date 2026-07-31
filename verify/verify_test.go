@@ -6,7 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -42,6 +46,69 @@ func TestFrameSynchronizedProbeRetainsTenPythonChecks(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCompatibilityCheckInventoryMatchesProbeSources(t *testing.T) {
+	wantAddCalls := map[string]int{
+		"Server": 9, "Recording": 5, "FrameSynchronized": 10, "Reset": 20,
+		"MultiObserver": 9, "Coupling": 2, "MCP": 13,
+	}
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	set := token.NewFileSet()
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(set, path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			if _, tracked := wantAddCalls[function.Name.Name]; !tracked {
+				continue
+			}
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				selector, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				receiver, isIdentifier := selector.X.(*ast.Ident)
+				if isIdentifier && receiver.Name == "report" && selector.Sel.Name == "Add" {
+					got[function.Name.Name]++
+				}
+				return true
+			})
+		}
+	}
+	for function, want := range wantAddCalls {
+		if got[function] != want {
+			t.Errorf("%s has %d report.Add calls, want %d from the Python compatibility inventory", function, got[function], want)
+		}
+	}
+	for name, want := range map[string]int{
+		"server": 9, "record-replay": 5, "frame-synchronized": 10, "reset": 20,
+		"multi-observer": 11, "runtime-coupling": 2, "mcp": 14,
+	} {
+		report := NewReport(name)
+		for range want {
+			report.Add("fixture", true, nil)
+		}
+		if err := report.ValidateCompatibilityCoverage(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 

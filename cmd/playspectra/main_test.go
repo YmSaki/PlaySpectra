@@ -212,6 +212,61 @@ func TestCLIGetStateJSONContract(t *testing.T) {
 	}
 }
 
+func TestEveryCompatibleCLICommandKeepsJSONStdoutContract(t *testing.T) {
+	stateJSON, err := json.Marshal(core.DefaultModel().Snapshot(0).Raw())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode int
+	}{
+		{"hello", []string{"hello"}, 0},
+		{"move_head", []string{"move-head", "--duration-ms", "0"}, 0},
+		{"look", []string{"look", "--duration-ms", "0"}, 0},
+		{"walk_forward", []string{"walk-forward", "--duration-ms", "0"}, 0},
+		{"strafe", []string{"strafe", "--duration-ms", "0"}, 0},
+		{"trigger", []string{"trigger", "--duration-ms", "0"}, 0},
+		{"set_trigger", []string{"set-trigger", "--duration-ms", "0"}, 0},
+		{"move_controller", []string{"move-controller", "--duration-ms", "0"}, 0},
+		{"set_input", []string{"set-input", "--path", "/input/squeeze/value", "--duration-ms", "0"}, 0},
+		{"press", []string{"press", "--ms", "0"}, 0},
+		{"wait", []string{"wait", "--args", `{"ms":0}`}, 0},
+		{"reset", []string{"reset"}, 0},
+		{"set_state", []string{"set-state", "--args", `{"state":` + string(stateJSON) + `}`}, 0},
+		{"get_state", []string{"get-state"}, 0},
+		{"status", []string{"status"}, 0},
+		{"assert", []string{"assert", "--args", `{"get":["hmd","head","position",2],"op":"eq","value":0}`}, 0},
+		{"wait_for", []string{"wait-for", "--args", `{"get":["hmd","head","position",2],"op":"eq","value":0,"timeout_ms":0}`}, 0},
+		{"capture", []string{"capture"}, 0},
+		{"assert_capture", []string{"assert-capture", "--args", `{"ref":"missing","timeout_ms":0}`}, 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := startCLIAdapter(t)
+			args := append([]string{"cmd"}, test.args...)
+			args = append(args, "--port", strconv.Itoa(adapter.port()))
+			code, stdout, _ := captureRun(t, args...)
+			adapter.close(t)
+			if code != test.wantCode {
+				t.Fatalf("code=%d, want %d; stdout=%q", code, test.wantCode, stdout)
+			}
+			trimmed := strings.TrimSpace(stdout)
+			if strings.Count(trimmed, "\n") != 0 {
+				t.Fatalf("stdout contains more than one line: %q", stdout)
+			}
+			var output map[string]any
+			if err := json.Unmarshal([]byte(trimmed), &output); err != nil {
+				t.Fatalf("stdout is not one JSON object: %q: %v", stdout, err)
+			}
+			if output["cmd"] != normalizeCommand(test.args[0]) || output["state"] == nil {
+				t.Fatalf("output=%v", output)
+			}
+		})
+	}
+}
+
 func TestCLIMoveHeadUsesPythonDefaultDuration(t *testing.T) {
 	adapter := startCLIAdapter(t)
 	code, stdout, stderr := captureRun(t, "cmd", "move-head", "--z", "-2", "--port", strconv.Itoa(adapter.port()))

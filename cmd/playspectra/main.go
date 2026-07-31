@@ -53,7 +53,7 @@ func run(args []string) int {
 	case "version", "--version":
 		fmt.Println(version)
 		return 0
-	case "--cmd": // compatibility with tools/playspectra_server.py
+	case "--cmd": // compatibility with the legacy one-command CLI
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "--cmd requires an operation")
 			return 2
@@ -447,6 +447,10 @@ func commandVerify(args []string) int {
 
 func printVerification(report verify.Report, err error) int {
 	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if err := report.ValidateCompatibilityCoverage(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}

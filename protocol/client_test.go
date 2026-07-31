@@ -180,3 +180,37 @@ func TestClientRejectsOversizeRequestBeforeWriting(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestWaitEventReturnsEventQueuedDuringRequest(t *testing.T) {
+	server, clientConn := net.Pipe()
+	defer server.Close()
+	client := NewClient(clientConn)
+	go func() {
+		reader := bufio.NewReader(server)
+		_, _ = reader.ReadString('\n')
+		_, _ = io.WriteString(server, `{"event":"haptics","hand":"left"}`+"\n"+`{"request_id":"r1","ok":true}`+"\n")
+	}()
+	if _, err := client.Request(context.Background(), map[string]any{"cmd": "status", "request_id": "r1"}); err != nil {
+		t.Fatal(err)
+	}
+	event, err := client.WaitEvent(context.Background(), "haptics")
+	if err != nil || event["hand"] != "left" {
+		t.Fatalf("event=%v err=%v", event, err)
+	}
+}
+
+func TestWaitEventReadsLiveEventAndHonorsContext(t *testing.T) {
+	server, clientConn := net.Pipe()
+	client := NewClient(clientConn)
+	go func() { _, _ = io.WriteString(server, `{"event":"haptics","hand":"right"}`+"\n") }()
+	event, err := client.WaitEvent(context.Background(), "haptics")
+	if err != nil || event["hand"] != "right" {
+		t.Fatalf("event=%v err=%v", event, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := client.WaitEvent(ctx, "never"); err == nil {
+		t.Fatal("WaitEvent ignored context timeout")
+	}
+	_ = server.Close()
+}

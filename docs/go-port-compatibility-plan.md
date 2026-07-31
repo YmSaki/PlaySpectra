@@ -22,14 +22,14 @@ Server／MCP／Recorder の3本だけではなく、**このリポジトリが�
 | `tools/playspectra_math_test.py` | math characterization 17 cases | Go table-driven unit tests | 一部のみ移植 |
 | `tools/playspectra_waitfor_test.py` | mock adapter、wait_for/assert retry/timeout E2E | Go fake adapter integration tests | 未移植 |
 | `tools/playspectra_capture_assert_test.py` | mock capture、stable/changed/retry/timeout E2E | Go capture integration tests | 未移植 |
-| `tools/playspectra_frame_test.py` | live `frame_synchronized` apply/idempotent/conflict/stale probe | `playspectra verify frame` またはGo E2E binary | 未移植 |
-| `tools/playspectra_multiobs_test.py` | observer複数、writer排他、status、haptics broadcast probe | `playspectra verify multiobs` | 未移植 |
-| `tools/playspectra_reset_test.py` | live reset、role拒否、builder state、frame history reset probe | `playspectra verify reset` | 未移植 |
-| `tools/playspectra_coupling_probe.py` | runtime HMD操作からapp `xrLocateViews`までのcoupling probe | `playspectra verify coupling` | 未移植 |
+| `tools/playspectra_frame_test.py` | live `frame_synchronized` apply/idempotent/conflict/stale probe | `playspectra verify frame` またはGo E2E binary | 移植済み |
+| `tools/playspectra_multiobs_test.py` | observer複数、writer排他、status、haptics broadcast probe | `playspectra verify multiobs` | 移植済み |
+| `tools/playspectra_reset_test.py` | live reset、role拒否、builder state、frame history reset probe | `playspectra verify reset` | 移植済み |
+| `tools/playspectra_coupling_probe.py` | runtime HMD操作からapp `xrLocateViews`までのcoupling probe | `playspectra verify coupling` | 移植済み |
 | `tools/playspectra_png_stats.py` | PNG decode/unfilter、色統計、non-degenerate判定、CLI | Go image package、`playspectra image-stats` | 未移植 |
 | `tools/playspectra_vrapp.py` | VRApp process、`[VRTEST]` parser、request/event wait、座標変換 | Go VRApp driver package | 未移植 |
 | `tools/playspectra_vrapp_test.py` | Godot real-app 24-check E2E、capture/pacing/interaction | `playspectra verify vrapp` | 未移植 |
-| `tools/playspectra_mcp_verify.py` | 実MCP clientでserverをspawnし13 toolsを検証 | Go MCP client E2E／`playspectra verify mcp` | 未移植 |
+| `tools/playspectra_mcp_verify.py` | 実MCP clientでserverをspawnし13 toolsを検証 | Go MCP client E2E／`playspectra verify mcp` | 移植済み |
 | `tools/playspectra_go_parity_test.py` | 移植中のPython/Go differential smoke | Go golden/differential testへ置換後削除 | 移行専用 |
 
 `.py` 以外にも、リポジトリ所有script内にPython heredocまたはPython実行依存がある。これらも
@@ -133,17 +133,17 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | MCP frontend | 13 tools 実装 | FastMCP 1.29 schema characterization、13 tool call、error/lazy reuse test | 部分確認 |
 | Recorder／Replayer | あり | role、empty/round-trip、timing、fresh sequence、全replay frameのGo test | 部分確認 |
 | doctor／session | Go 独自であり | Go unit test と command 実装 | 意図的拡張 |
-| protocol live probes | なし | Python frame/multiobs/reset probesだけ | 未移植 |
-| runtime coupling probe | なし | Python live probeだけ | 未移植 |
+| protocol live probes | あり | frame 10、reset 20、multi-observer全checkをGo commandへ移植 | 部分確認（live未実行） |
+| runtime coupling probe | あり | Pythonの2 checkをGo commandへ移植 | 部分確認（live未実行） |
 | PNG解析 | あり | filter 0-4、5 color types、全高sampling、degenerate判定のGo fixture test | 部分確認 |
 | VRApp driver／real-app E2E | あり | fake process lifecycle/request testsとGo live suite。実app再実行は未実施 | 部分確認 |
-| MCP実client verifier | なし | Python implementationだけ | 未移植 |
+| MCP実client verifier | あり | dependency-free Go clientと14-check `verify mcp` | 部分確認（live未実行） |
 | setup/E2E内のPython heredoc | 残存 | 5 scriptsで使用 | 未移植 |
 | Windows／Linux binary | build 定義あり | この監査では release artifact の相互確認なし | 未確認 |
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 6 packages、131 tests/subtests
+- `go test ./...`: 7 packages、138 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -314,18 +314,18 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] `playspectra_math_test.py` の17 caseをGo tableへ1対1対応付ける
 - [x] wait_for mock adapterの全checkをGo integration testへ移す
 - [x] capture mockの全checkをGo integration testへ移す
-- [ ] frame_synchronizedの10 checkをGo live probeへ移す
-- [ ] multi-observer/writer排他/status/hapticsの全checkをGo live probeへ移す
-- [ ] resetの20 checkをGo live probeへ移す
-- [ ] coupling probeの2 checkとexit codeをGoへ移す
+- [x] frame_synchronizedの10 checkをGo live probeへ移す
+- [x] multi-observer/writer排他/status/hapticsの全checkをGo live probeへ移す
+- [x] resetの20 checkをGo live probeへ移す
+- [x] coupling probeの2 checkとexit codeをGoへ移す
 - [x] PNG parserの全color type/filter処理を生成PNG fixtureでcharacterizeする
 - [x] `png_stats` resultの全field、ties-to-even rounding、unsupported/errorをGoへ移す
 - [x] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
 - [x] STAGE↔GLOBAL変換とevent predicateをGo testへ移す
 - [x] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGo suiteへ移す
 - [ ] Go VRApp E2Eを実app／Monado／layer環境で再実行する
-- [ ] MCP verifierをGo MCP clientで移し、13 toolsとscreenshotをlive stackで検証する
-- [ ] Server 9-checkとRecorder 5-checkのself-verifyをGo verify commandへ移す
+- [x] MCP verifierをGo MCP clientで移し、13 toolsとscreenshotをlive stackで検証する
+- [x] Server 9-checkとRecorder 5-checkのself-verifyをGo verify commandへ移す
 - [ ] Python版とGo版のcheck名対応表を作り、欠落checkをCIで検出する
 
 ### 9. Embedded Pythonと起動経路の除去

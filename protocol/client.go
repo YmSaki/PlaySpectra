@@ -24,9 +24,10 @@ const (
 // control channel. The adapter may send asynchronous event objects; Request
 // ignores those until it sees the requested request_id.
 type Client struct {
-	conn net.Conn
-	read *bufio.Reader
-	mu   sync.Mutex
+	conn   net.Conn
+	read   *bufio.Reader
+	mu     sync.Mutex
+	events []map[string]any
 }
 
 func Dial(ctx context.Context, address string) (*Client, error) {
@@ -62,6 +63,7 @@ func (c *Client) Request(ctx context.Context, req map[string]any) (map[string]an
 			return nil, err
 		}
 		if _, event := obj["event"]; event {
+			c.events = append(c.events, obj)
 			continue
 		}
 		if want == "" {
@@ -91,6 +93,35 @@ func (c *Client) RequestLine(ctx context.Context, req map[string]any) (map[strin
 		if _, event := obj["event"]; !event {
 			return obj, nil
 		}
+		c.events = append(c.events, obj)
+	}
+}
+
+// WaitEvent returns a named asynchronous event. Events encountered while a
+// request waits for its matching response are queued instead of discarded.
+func (c *Client) WaitEvent(ctx context.Context, name string) (map[string]any, error) {
+	ctx, cancel := withDefaultTimeout(ctx)
+	defer cancel()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for index, event := range c.events {
+		if name == "" || event["event"] == name {
+			c.events = append(c.events[:index], c.events[index+1:]...)
+			return event, nil
+		}
+	}
+	for {
+		object, err := c.readObject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, event := object["event"]; !event {
+			continue
+		}
+		if name == "" || object["event"] == name {
+			return object, nil
+		}
+		c.events = append(c.events, object)
 	}
 }
 

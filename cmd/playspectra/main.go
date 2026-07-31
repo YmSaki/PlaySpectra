@@ -15,6 +15,7 @@ import (
 	"github.com/YmSaki/PlaySpectra/playspectra"
 	"github.com/YmSaki/PlaySpectra/pngstats"
 	"github.com/YmSaki/PlaySpectra/protocol"
+	"github.com/YmSaki/PlaySpectra/verify"
 	"github.com/YmSaki/PlaySpectra/vrapp"
 )
 
@@ -367,10 +368,78 @@ func commandVerify(args []string) int {
 			Executable: *executable, OperateHost: *host, OperatePort: *port,
 			CapturePort: *capturePort, LogPath: *logPath, Output: os.Stdout,
 		})
+	case "server", "record", "frame", "reset", "multiobs":
+		fs := flag.NewFlagSet("playspectra verify "+args[0], flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		host := fs.String("host", "127.0.0.1", "operate host")
+		port := fs.Int("port", 52702, "operate port")
+		rate := fs.Float64("rate", 60, "operation/sample rate")
+		hapticsTimeout := fs.Duration("haptics-timeout", 12*time.Second, "multi-observer haptics wait")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		address := net.JoinHostPort(*host, strconv.Itoa(*port))
+		var report verify.Report
+		var err error
+		switch args[0] {
+		case "server":
+			report, err = verify.Server(context.Background(), address, *rate)
+		case "record":
+			report, err = verify.Recording(context.Background(), address, *rate)
+		case "frame":
+			report, err = verify.FrameSynchronized(context.Background(), address)
+		case "reset":
+			report, err = verify.Reset(context.Background(), address)
+		case "multiobs":
+			report, err = verify.MultiObserver(context.Background(), address, *hapticsTimeout)
+		}
+		return printVerification(report, err)
+	case "coupling":
+		fs := flag.NewFlagSet("playspectra verify coupling", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		host := fs.String("host", "127.0.0.1", "host")
+		port := fs.Int("port", 52702, "operate port")
+		capturePort := fs.Int("capture-port", 52700, "capture port")
+		targetZ := fs.Float64("target-z", -2.5, "absolute target head z")
+		tolerance := fs.Float64("tolerance", 0.3, "view pose tolerance")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		report, err := verify.Coupling(
+			context.Background(), net.JoinHostPort(*host, strconv.Itoa(*port)),
+			net.JoinHostPort(*host, strconv.Itoa(*capturePort)), *targetZ, *tolerance,
+		)
+		return printVerification(report, err)
+	case "mcp":
+		fs := flag.NewFlagSet("playspectra verify mcp", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		host := fs.String("host", "127.0.0.1", "operate host")
+		port := fs.Int("port", 52702, "operate port")
+		capturePort := fs.Int("capture-port", 52700, "capture port")
+		executable, err := os.Executable()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		program := fs.String("executable", executable, "playspectra executable to verify")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		report, err := verify.MCP(context.Background(), *program, *host, *port, *capturePort)
+		return printVerification(report, err)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown verify suite %q\n", args[0])
 		return 2
 	}
+}
+
+func printVerification(report verify.Report, err error) int {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	report.WriteText(os.Stdout)
+	return report.ExitCode()
 }
 
 func commandSession(args []string) int {

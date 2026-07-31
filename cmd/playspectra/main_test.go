@@ -267,3 +267,20 @@ func TestVerifyVRAppMissingExecutableIsExplicitSkip(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
+
+func TestVerifyCommandRejectsMissingAndUnknownSuite(t *testing.T) {
+	for _, args := range [][]string{{"verify"}, {"verify", "unknown"}} {
+		code, stdout, stderr := captureRun(t, args...)
+		if code != 2 || stdout != "" || stderr == "" {
+			t.Fatalf("args=%v code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+	}
+}
+
+func TestVerifyMCPReportsProcessStartFailure(t *testing.T) {
+	missing := t.TempDir() + "/missing-playspectra"
+	code, stdout, stderr := captureRun(t, "verify", "mcp", "--executable", missing)
+	if code != 2 || stdout != "" || stderr == "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}

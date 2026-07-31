@@ -131,7 +131,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | capture assertion | あり | Go/Python の個別 test はあるが相互比較なし | 未確認 |
 | CLI | あり | default/flag mapping、fake adapter経由のJSON・exit・全frame test | 部分確認 |
 | MCP frontend | 13 tools 実装 | FastMCP 1.29 schema characterization、13 tool call、error/lazy reuse test | 部分確認 |
-| Recorder／Replayer | あり | Go の round-trip unit test | 未確認 |
+| Recorder／Replayer | あり | role、empty/round-trip、timing、fresh sequence、全replay frameのGo test | 部分確認 |
 | doctor／session | Go 独自であり | Go unit test と command 実装 | 意図的拡張 |
 | protocol live probes | なし | Python frame/multiobs/reset probesだけ | 未移植 |
 | runtime coupling probe | なし | Python live probeだけ | 未移植 |
@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 4 packages、103 tests/subtests
+- `go test ./...`: 4 packages、112 tests/subtests
 - `go vet ./...`
 - `python tools/playspectra_go_parity_test.py`: 1 scenario の summary／最終状態と
   `get-state` CLI JSON
@@ -289,15 +289,15 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 6. Recorder／Replayer
 
-- [ ] observer/writer hello の role と失敗条件を比較する
-- [ ] sample request、欠損 state、frame order、`t_ms` の単調性を比較する
+- [x] observer/writer hello の role と失敗条件を比較する
+- [x] sample request、欠損 state、frame order、`t_ms` の単調性を比較する
 - [ ] 0 duration、短時間、複数 sample の停止条件を比較する
-- [ ] recording の name、rate_hz、frames と load/save round-trip を semantic JSON で比較する
-- [ ] 空 recording の replay result を比較する
-- [ ] replay 前 get_state、fresh sequence、clock、全 set_state frame を比較する
-- [ ] replay timing は最初の frame を基準にし、順序と相対 interval tolerance を比較する
-- [ ] replay 後の最終 state と sequence 単調増加を比較する
-- [ ] protocol_version の追加有無を state 方針に合わせて固定する
+- [x] recording の name、rate_hz、frames と load/save round-trip を semantic JSON で比較する
+- [x] 空 recording の replay result を比較する
+- [x] replay 前 get_state、fresh sequence、clock、全 set_state frame を比較する
+- [x] replay timing は最初の frame を基準にし、順序と相対 interval tolerance を比較する
+- [x] replay 後の最終 state と sequence 単調増加を比較する
+- [x] replay frameの`protocol_version:1`追加をprotocol精密化として固定する
 
 ### 7. Go binary境界と後続Issueへのhandoff
 

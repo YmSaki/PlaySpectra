@@ -30,7 +30,7 @@ func NewRecorder(client Transport, rateHz float64) *Recorder {
 	if rateHz <= 0 {
 		rateHz = 60
 	}
-	return &Recorder{Client: client, RateHz: rateHz}
+	return &Recorder{Client: client, RateHz: rateHz, Frames: []RecordingFrame{}}
 }
 
 func (r *Recorder) Hello(ctx context.Context) error {
@@ -83,10 +83,15 @@ func (r *Recorder) RecordFor(ctx context.Context, duration time.Duration) error 
 }
 
 func (r *Recorder) Recording(name string) Recording {
-	return Recording{Name: name, RateHz: r.RateHz, Frames: append([]RecordingFrame(nil), r.Frames...)}
+	frames := make([]RecordingFrame, len(r.Frames))
+	copy(frames, r.Frames)
+	return Recording{Name: name, RateHz: r.RateHz, Frames: frames}
 }
 
 func SaveRecording(path string, recording Recording) error {
+	if recording.Frames == nil {
+		recording.Frames = []RecordingFrame{}
+	}
 	data, err := json.MarshalIndent(recording, "", "  ")
 	if err != nil {
 		return err
@@ -108,6 +113,9 @@ func LoadRecording(path string) (Recording, error) {
 	}
 	if recording.RateHz <= 0 {
 		recording.RateHz = 60
+	}
+	if recording.Frames == nil {
+		recording.Frames = []RecordingFrame{}
 	}
 	return recording, nil
 }

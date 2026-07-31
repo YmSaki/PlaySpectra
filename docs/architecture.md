@@ -52,6 +52,22 @@ PlaySpectra uses a common Virtual Device Core plus a Runtime Adapter for each ru
 
 The OpenXR layer's input override is a test aid. The primary input path for the current Monado E2E is the adapter control channel.
 
+## Distribution boundary
+
+The intended release boundary is two distribution units, not literally two files:
+
+1. A native C++ bundle containing the Monado Runtime Adapter, virtual HMD/controllers, the OpenXR
+   instrumentation layer, and D3D11/D3D12/Vulkan capture. It may contain multiple executables,
+   DLLs/shared objects, loader manifests, and runtime JSON files required by the platform.
+2. One cgo-free `playspectra` executable containing the CLI, MCP server, JSON Scenario Runner,
+   high-level operations/interpolation, state management, assertions, record/replay, doctor, and
+   session/process management.
+
+The Go executable does not link the C++ artifacts. The two units communicate only over the existing
+NDJSON/TCP operate (`:52702`) and capture (`:52700`) boundaries. This design removes Python and
+Node.js runtime dependencies from the user-facing control plane while keeping the native artifacts
+independent of Go and cgo.
+
 ## Execution modes
 
 The adapter supports realtime operation and a frame-synchronized protocol path. Frame synchronization is useful for replay and test control, but the project does not currently call the complete application behavior deterministic: display timing, GPU scheduling, physics, async loading, and dropped frames still require separate evidence.

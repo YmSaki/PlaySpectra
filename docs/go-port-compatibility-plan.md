@@ -123,8 +123,8 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | 対象 | 実装 | 現在の互換性エビデンス | 判定 |
 | --- | --- | --- | --- |
 | NDJSON/TCP client | あり | request ID 対応と event skip の Go unit test、fake TCP integration | 部分確認 |
-| `VirtualDeviceState` | あり | default/full snapshot の Go unit test | 部分確認 |
-| hello/get_state/set_state/reset | あり | `get-state` の Python/Go semantic comparison | 部分確認 |
+| `VirtualDeviceState` | あり | default/full snapshot とnon-default adapter seedの Go unit test | 部分確認 |
+| hello/get_state/set_state/reset | あり | `get-state` の Python/Go semantic comparison、reset後sequence継続test | 部分確認 |
 | 高水準操作と補間 | あり | Go unit test。1 scenario の duration=0 操作を最終状態だけ比較 | 部分確認 |
 | JSON Scenario Runner | あり | 1 scenario の summary と最終状態を比較 | 部分確認 |
 | assert／wait_for | あり | `near` の assert と wait_for を各1ケース比較 | 部分確認 |
@@ -159,17 +159,17 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 ### 正常系で解消が必要な候補
 
-- Go の `Hello`／`Reset` は `GetState` が返した state 本体を、reply envelope を期待する
-  `Model.Seed` に渡している。adapter の初期状態が default と異なる場合に seed されない。
-- Python の `reset` は Server 所有の `seq` を戻さない。Go は adapter の reset 後 sequence を
-  `Seq` に再代入するため、その後の sequence が巻き戻る可能性がある。
+- ~~Go の `Hello`／`Reset` が state 本体をseedできず、adapterのnon-default stateを失う。~~
+  characterization test追加後、`Model.Seed`がreply envelopeとstate本体の両方を受理するよう修正済み。
+- ~~Go のresetがadapterのreset後sequenceへ`Seq`を巻き戻す。~~ reset前のwriter-owned sequenceを
+  維持し、次frameが単調増加するtestとともに修正済み。
 - Scenario/Core の `move_head`／`look` default は Python、Go とも 500 ms だが、Go の
   `playspectra cmd` は 400 ms を使う。Python 旧 CLI は Scenario default の 500 ms を使う。
   なお MCP の default は両方 400 ms であり、インターフェース別に試験する必要がある。
 - Go CLI の共通 `--hand` default は left である。Python の `press`／`trigger`／`set_input`／
   `move_controller` default は right、`walk_forward`／`strafe` は left である。
-- Python の frame 数は Python `round`、Go は `math.Round` を使うため、ちょうど `.5` frame
-  になる duration で送信 frame 数が異なる。
+- ~~Python の frame 数はties-to-even、Goはhalf-away-from-zeroで`.5` frame境界が異なる。~~
+  `math.RoundToEven`と2.5 frameのcharacterization testで修正済み。
 - Python の state snapshot は `protocol_version` を含めず、Go は含める。adapter と利用者に
   対する正規の state envelope を確認し、互換修正か明示的な protocol 精密化かを決める。
 - request ID の命名と、CLI／Scenario の進捗・エラー文字列は異なる。ID は相関性を、表示は
@@ -221,19 +221,19 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 1. Protocol と state ownership
 
-- [ ] non-default adapter state から hello 後の Model が同じ値に seed される
+- [x] non-default adapter state から hello 後の Model が同じ値に seed される
 - [ ] hello の role、protocol version、seed 用 get_state、失敗条件が一致する
 - [ ] get_state が state の値と型を失わず返す
 - [ ] default state の全 field、input path、numeric/bool type を比較する
 - [ ] connected／disconnected controller の snapshot を比較し、厳密化する場合は明記する
 - [ ] `set_state` の完全 snapshot、sequence、clock、validation を試験する
-- [ ] reset 後も writer sequence が巻き戻らず、次 frame が stale reject されない
+- [x] reset 後も writer sequence が巻き戻らず、次 frame が stale reject されない
 - [ ] async event、異なる request ID、空行、分割 packet、複数 reply を試験する
 - [ ] timeout、EOF、不正 JSON、oversize の互換領域と Go の厳密化領域を分ける
 
 ### 2. Math、高水準操作、補間
 
-- [ ] `lerp3`、`quat_mul`、`quat_yaw`、`quat_norm`、`slerp` を共通 vector で比較する
+- [x] `lerp3`、`quat_mul`、`quat_yaw`、`quat_norm`、`slerp` のPython 17 caseをGoへ1対1移植する
 - [ ] 0 ms、1 frame、複数 frame、`.5` frame 境界の frame 数を比較する
 - [ ] 各 frame の position、orientation、sequence、full snapshot を比較する
 - [ ] `move_head` の省略引数、position、orientation、default duration を比較する
@@ -308,7 +308,7 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 
 ### 8. Python test／probe／utilityの移植
 
-- [ ] `playspectra_math_test.py` の17 caseをGo tableへ1対1対応付ける
+- [x] `playspectra_math_test.py` の17 caseをGo tableへ1対1対応付ける
 - [ ] wait_for mock adapterの全checkをGo integration testへ移す
 - [ ] capture mockの全checkをGo integration testへ移す
 - [ ] frame_synchronizedの10 checkをGo live probeへ移す

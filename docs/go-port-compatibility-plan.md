@@ -166,6 +166,10 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 - ~~Python の state snapshot は `protocol_version` を含めず、Go は含める。~~ adapterへ送るstateを
   protocol self-describingにする精密化としてfixtureで固定済み。利用者向けCLI JSONのstate値も同じ
   schemaを返す。
+- ~~Go の `Compare` が bool を数値へ強制せず、`/click`／`/touch` の bool path で `near`／`eq`／`ne`／
+  `gt`／`lt` がPythonと異なる結果を返す。~~ Pythonの`float(True)==1.0`／`True==1`に合わせてboolを
+  1.0／0.0として比較する修正と、全operatorのtable testで固定済み。`true`／`false`はPythonの
+  `actual is True`と同じく型厳密のまま残す。
 - request ID の文字列はGo固有だが、一意性、response相関、frame順をfixtureで固定した。進捗は
   stderr、機械可読結果はstdoutの単一JSONという契約を全互換commandで固定した。
 

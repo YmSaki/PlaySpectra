@@ -558,15 +558,31 @@ func Resolve(node any, path []any) any {
 	return current
 }
 
+// comparisonFloat is asFloat plus Python's numeric view of booleans: the
+// reference control plane compared through float()/==, where float(True) is 1.0
+// and True == 1. Bool input paths (/click, /touch) are asserted with value 1/0,
+// so refusing to coerce them makes a legitimate press assertion time out and
+// makes "ne 0" pass on an unpressed button. Only Compare's numeric operators use
+// it; "true"/"false" stay identity checks like Python's `actual is True`.
+func comparisonFloat(value any) (float64, bool) {
+	if flag, ok := value.(bool); ok {
+		if flag {
+			return 1, true
+		}
+		return 0, true
+	}
+	return asFloat(value)
+}
+
 func Compare(actual any, op string, expected any, tolerance float64) bool {
 	switch op {
 	case "near":
-		a, aok := asFloat(actual)
-		b, bok := asFloat(expected)
+		a, aok := comparisonFloat(actual)
+		b, bok := comparisonFloat(expected)
 		return aok && bok && math.Abs(a-b) <= tolerance
 	case "eq":
-		if a, aok := asFloat(actual); aok {
-			if b, bok := asFloat(expected); bok {
+		if a, aok := comparisonFloat(actual); aok {
+			if b, bok := comparisonFloat(expected); bok {
 				return a == b
 			}
 		}
@@ -574,8 +590,8 @@ func Compare(actual any, op string, expected any, tolerance float64) bool {
 	case "ne":
 		return !Compare(actual, "eq", expected, tolerance)
 	case "gt", "lt":
-		a, aok := asFloat(actual)
-		b, bok := asFloat(expected)
+		a, aok := comparisonFloat(actual)
+		b, bok := comparisonFloat(expected)
 		if !aok || !bok {
 			return false
 		}

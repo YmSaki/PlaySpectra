@@ -78,6 +78,74 @@ func TestSeedHonorsDisconnectedStateAsIntentionalAccuracyImprovement(t *testing.
 	}
 }
 
+func TestValidateNamesTheOffendingFieldForEveryRejection(t *testing.T) {
+	// Validate is the gate every frame passes before it reaches the runtime, so
+	// each rejection has to say which device, which path, and why -- an operator
+	// reading only "validation_error" cannot tell a swapped [0,1]/[-1,1] range
+	// from a bool written to a numeric path. The messages are asserted whole:
+	// they are the contract, and a message that stops naming its field is the
+	// regression this test exists to catch.
+	for _, test := range []struct {
+		name    string
+		mutate  func(*State)
+		wantErr string
+	}{
+		{"hmd pose", func(s *State) { s.HMD.Head.Position = []float64{0, 1.6} }, "validation_error: hmd.head pose dimensions"},
+		{"controller grip pose", func(s *State) { s.Left.Grip.Orientation = []float64{0, 0, 1} }, "validation_error: left.grip pose dimensions"},
+		{"controller aim pose", func(s *State) { s.Right.Aim.Position = nil }, "validation_error: right.aim pose dimensions"},
+		{"missing input path", func(s *State) { delete(s.Right.Inputs, "/button/a/click") }, "validation_error: missing:/button/a/click hand:right"},
+		{"bool on numeric path", func(s *State) { s.Left.Inputs["/input/trigger/value"] = true }, "validation_error: input:/input/trigger/value hand:left requires number"},
+		{"number on bool path", func(s *State) { s.Right.Inputs["/button/a/click"] = 1.0 }, "validation_error: input:/button/a/click hand:right requires boolean"},
+		{"value above one", func(s *State) { s.Left.Inputs["/input/trigger/value"] = 1.0001 }, "validation_error: input:/input/trigger/value out of range"},
+		{"value below zero", func(s *State) { s.Left.Inputs["/input/squeeze/value"] = -0.0001 }, "validation_error: input:/input/squeeze/value out of range"},
+		{"axis above one", func(s *State) { s.Right.Inputs["/input/thumbstick/x"] = 1.5 }, "validation_error: input:/input/thumbstick/x out of range"},
+		{"axis below minus one", func(s *State) { s.Right.Inputs["/input/thumbstick/y"] = -1.5 }, "validation_error: input:/input/thumbstick/y out of range"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := DefaultModel().Snapshot(1)
+			test.mutate(&state)
+			err := state.Validate()
+			if err == nil {
+				t.Fatalf("%s was accepted", test.name)
+			}
+			if err.Error() != test.wantErr {
+				t.Fatalf("error = %q, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsTheLegitimateBoundaries(t *testing.T) {
+	// The counterweight to the rejection table: tightening a bound from <= to <
+	// or reusing [0,1] for an axis would still reject everything above, so these
+	// four are the inputs that tell a correct validator from an over-eager one.
+	for _, test := range []struct {
+		name  string
+		state State
+	}{
+		{"initial adapter snapshot has sequence 0", DefaultModel().Snapshot(0)},
+		{"trigger at full pull", inputState("left", "/input/trigger/value", 1.0)},
+		{"thumbstick at negative full deflection", inputState("right", "/input/thumbstick/x", -1.0)},
+		{"disconnected devices carry no pose or inputs", State{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.state.Validate(); err != nil {
+				t.Fatalf("valid state rejected: %v", err)
+			}
+		})
+	}
+}
+
+func inputState(hand, path string, value any) State {
+	state := DefaultModel().Snapshot(1)
+	if hand == "left" {
+		state.Left.Inputs[path] = value
+	} else {
+		state.Right.Inputs[path] = value
+	}
+	return state
+}
+
 func splitPath(path string) []any {
 	parts := []any{}
 	start := 0

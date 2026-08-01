@@ -170,6 +170,41 @@ func TestReplayerPreservesRelativeFrameTiming(t *testing.T) {
 	}
 }
 
+func TestReplayForwardsRecordedFramesWithoutValidatingThem(t *testing.T) {
+	// Characterization of the current behaviour, not an endorsement. Play only
+	// rewrites the envelope (sequence, clock, protocol_version) and forwards the
+	// rest verbatim, so a hand-edited or corrupted recording replays happily and
+	// the command still exits 0. The same frame through SetState -- the
+	// interactive path -- is rejected, which is what makes this a gap rather
+	// than a missing feature.
+	frame := DefaultModel().Snapshot(7).Raw()
+	frame["right"].(map[string]any)["inputs"].(map[string]any)["/input/trigger/value"] = 5.0
+
+	transport := newFakeTransport()
+	server := NewServer(transport, WithSleeper(func(time.Duration) {}))
+	if err := server.SetState(context.Background(), frame); err == nil {
+		t.Fatal("SetState accepted an out-of-range trigger")
+	}
+
+	transport = newFakeTransport()
+	count, err := NewReplayer(transport).Play(context.Background(), Recording{
+		Name: "corrupted", RateHz: 60, Frames: []RecordingFrame{{TMS: 0, State: frame}},
+	}, nil)
+	if err != nil || count != 1 {
+		t.Fatalf("replayed=%d err=%v", count, err)
+	}
+	states := sentStates(t, transport)
+	if len(states) != 1 {
+		t.Fatalf("set_state frames = %d", len(states))
+	}
+	if got := Resolve(states[0], []any{"right", "inputs", "/input/trigger/value"}); got != 5.0 {
+		t.Fatalf("replayed trigger = %v, want the recorded 5 forwarded unchanged", got)
+	}
+	if states[0]["sequence"] != 1.0 || states[0]["protocol_version"] != 1.0 {
+		t.Fatalf("replayed envelope = %v", states[0])
+	}
+}
+
 func TestReplayerEmptyRecordingDoesNotTouchTransport(t *testing.T) {
 	transport := newFakeTransport()
 	count, err := NewReplayer(transport).Play(context.Background(), Recording{Frames: []RecordingFrame{}}, nil)

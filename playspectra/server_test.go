@@ -131,9 +131,55 @@ func TestHelloSeedsNonDefaultAdapterState(t *testing.T) {
 }
 
 func TestHelloRejectsAdapterRoleFailure(t *testing.T) {
-	server := NewServer(fixedReplyTransport{response: map[string]any{"ok": false, "error": "writer already connected"}})
-	if err := server.Hello(context.Background(), "writer"); err == nil {
-		t.Fatal("failed hello was accepted")
+	// A refused hello is almost always the writer slot being held by another
+	// client, and the adapter's own sentence is the only diagnosis the operator
+	// gets, so it has to survive the wrap instead of collapsing into a generic
+	// "hello failed".
+	for _, test := range []struct {
+		name     string
+		response map[string]any
+		wantErr  string
+	}{
+		{"adapter message", map[string]any{"ok": false, "error": "writer already connected"}, "hello failed: writer already connected"},
+		{"rejection without a message", map[string]any{"ok": false}, "hello failed: map[ok:false]"},
+		{"no response at all", nil, "hello failed: empty response"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := NewServer(fixedReplyTransport{response: test.response}).Hello(context.Background(), "writer")
+			if err == nil {
+				t.Fatal("failed hello was accepted")
+			}
+			if err.Error() != test.wantErr {
+				t.Fatalf("error = %q, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+type grantedRoleTransport struct {
+	*fakeTransport
+	granted string
+}
+
+func (g grantedRoleTransport) Request(ctx context.Context, request map[string]any) (map[string]any, error) {
+	response, err := g.fakeTransport.Request(ctx, request)
+	if request["cmd"] == "hello" && response != nil {
+		response["role_granted"] = g.granted
+	}
+	return response, err
+}
+
+func TestHelloIgnoresGrantedRoleWhileReplayerEnforcesIt(t *testing.T) {
+	// Characterization of a deliberate asymmetry, not a recommendation: the
+	// Python Server.hello looked only at "ok", while its Recorder and Replayer
+	// also compared role_granted. Keeping that split pinned means making the two
+	// symmetric later is a conscious compatibility decision rather than drift.
+	transport := grantedRoleTransport{fakeTransport: newFakeTransport(), granted: "observer"}
+	if err := NewServer(transport, WithSleeper(func(time.Duration) {})).Hello(context.Background(), "writer"); err != nil {
+		t.Fatalf("Server.Hello now enforces role_granted: %v", err)
+	}
+	if err := NewReplayer(transport).Hello(context.Background()); err == nil {
+		t.Fatal("Replayer accepted an observer grant for a writer hello")
 	}
 }
 
@@ -497,6 +543,40 @@ func TestResolveAndCompareCoverPythonAssertionOperators(t *testing.T) {
 	} {
 		if got := Compare(test.actual, test.op, test.expected, test.tol); got != test.want {
 			t.Fatalf("Compare(%v,%s,%v)=%v want=%v", test.actual, test.op, test.expected, got, test.want)
+		}
+	}
+}
+
+func TestCompareCoercesBooleansLikePythonNumericOperators(t *testing.T) {
+	// Python's _cmp ran every numeric operator through float(), and float(True)
+	// is 1.0, so a bool input path answers near/eq/ne/gt/lt as 1/0. The whole
+	// table is the Python result, not the Go implementation's own output: the
+	// bool paths (/click, /touch) are exactly the ones scenarios assert with
+	// "value 1"/"value 0", so a Go-only refusal to coerce turns a legitimate
+	// press assertion into a timeout and an unpressed button into a passing
+	// "ne 0".
+	for _, test := range []struct {
+		actual, expected any
+		op               string
+		want             bool
+	}{
+		{true, 1, "eq", true}, {true, 1.0, "eq", true}, {true, 0, "eq", false},
+		{false, 0, "eq", true}, {false, 1, "eq", false}, {true, true, "eq", true},
+		{true, "x", "eq", false}, {true, nil, "eq", false},
+		{true, 0, "ne", true}, {false, 0, "ne", false},
+		{true, 1, "ne", false}, {false, 1, "ne", true},
+		{true, 0, "gt", true}, {false, 0, "gt", false},
+		{true, 1, "lt", false}, {false, 1, "lt", true},
+		{true, 1, "near", true}, {false, 0, "near", true}, {true, 0, "near", false},
+		// true/false are identity checks in Python (`actual is True`), so they
+		// stay type-strict and must not gain the numeric coercion above.
+		{true, nil, "true", true}, {1.0, nil, "true", false},
+		{false, nil, "false", true}, {0.0, nil, "false", false},
+		// None is not numeric in Python either, and only "ne" is satisfied by it.
+		{nil, 0, "ne", true}, {nil, 0, "eq", false}, {nil, 0, "near", false},
+	} {
+		if got := Compare(test.actual, test.op, test.expected, .01); got != test.want {
+			t.Errorf("Compare(%#v,%s,%#v)=%v want=%v", test.actual, test.op, test.expected, got, test.want)
 		}
 	}
 }

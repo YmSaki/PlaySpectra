@@ -29,6 +29,55 @@ func TestReportTextAndExitCode(t *testing.T) {
 	}
 }
 
+// TestCompatibilityCoverageIsIndependentOfTheReportResult separates the two
+// questions a probe answers: did its checks pass, and did it run the checks the
+// Python probe ran. A probe that quietly stopped adding checks still reports
+// OK() and exit 0 for whatever is left -- an empty report passes vacuously --
+// so this guard is the only thing between a dropped check and a green run. The
+// existing coverage only ever asserts the nil side of it, which a deleted guard
+// would satisfy just as well.
+func TestCompatibilityCoverageIsIndependentOfTheReportResult(t *testing.T) {
+	empty := NewReport("reset")
+	if !empty.OK() || empty.ExitCode() != 0 {
+		t.Fatalf("an empty report no longer looks green, so the guard is not the only signal: %+v", empty)
+	}
+	for _, test := range []struct {
+		name  string
+		count int
+		want  []string
+	}{
+		{"reset", 0, []string{"reset", "got 0", "want 20"}},
+		{"multi-observer", 10, []string{"multi-observer", "got 10", "want 11"}},
+		{"mcp", 15, []string{"mcp", "got 15", "want 14"}},
+	} {
+		report := NewReport(test.name)
+		for range test.count {
+			report.Add("fixture", true, nil)
+		}
+		err := report.ValidateCompatibilityCoverage()
+		if err == nil {
+			t.Errorf("%s with %d checks passed the coverage guard", test.name, test.count)
+			continue
+		}
+		for _, want := range test.want {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s coverage error is missing %q: %v", test.name, want, err)
+			}
+		}
+	}
+
+	// A probe with no Python ancestor has no inventory to be measured against,
+	// so it is unconstrained rather than expected to have zero checks.
+	untracked := NewReport("experimental")
+	untracked.Add("fixture", false, nil)
+	if err := untracked.ValidateCompatibilityCoverage(); err != nil {
+		t.Errorf("untracked report was held to an inventory: %v", err)
+	}
+	if err := NewReport("experimental").ValidateCompatibilityCoverage(); err != nil {
+		t.Errorf("empty untracked report was held to an inventory: %v", err)
+	}
+}
+
 func TestFrameSynchronizedProbeRetainsTenPythonChecks(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -49,6 +98,19 @@ func TestFrameSynchronizedProbeRetainsTenPythonChecks(t *testing.T) {
 	}
 }
 
+// TestCompatibilityCheckInventoryMatchesProbeSources works on two different
+// counts of the same probes, so the numbers below deliberately disagree:
+//
+//   - wantAddCalls counts report.Add call sites in the source. A call site
+//     inside a loop still counts once, which is why MultiObserver is 9 (one
+//     site broadcasts to three clients) and MCP is 13 (one site covers
+//     walk_forward and strafe).
+//   - the second table drives ValidateCompatibilityCoverage, whose expectations
+//     in compatibilityCheckCounts are checks after the loops run: 11 and 14.
+//
+// The source count catches a whole check being deleted; the runtime count
+// catches a loop losing an iteration. Both matter, and probe_counts_test.go
+// produces the runtime counts from real probe runs rather than from literals.
 func TestCompatibilityCheckInventoryMatchesProbeSources(t *testing.T) {
 	wantAddCalls := map[string]int{
 		"Server": 9, "Recording": 5, "FrameSynchronized": 10, "Reset": 20,
@@ -98,6 +160,7 @@ func TestCompatibilityCheckInventoryMatchesProbeSources(t *testing.T) {
 			t.Errorf("%s has %d report.Add calls, want %d from the Python compatibility inventory", function, got[function], want)
 		}
 	}
+	// Post-loop check counts, keyed by report name rather than function name.
 	for name, want := range map[string]int{
 		"server": 9, "record-replay": 5, "frame-synchronized": 10, "reset": 20,
 		"multi-observer": 11, "runtime-coupling": 2, "mcp": 14,

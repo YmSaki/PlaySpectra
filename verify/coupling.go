@@ -11,12 +11,6 @@ import (
 
 func Coupling(ctx context.Context, operateAddress, captureAddress string, targetZ, tolerance float64) (Report, error) {
 	report := NewReport("runtime-coupling")
-	if targetZ == 0 {
-		targetZ = -2.5
-	}
-	if tolerance <= 0 {
-		tolerance = 0.3
-	}
 	capture, err := protocol.Dial(ctx, captureAddress)
 	if err != nil {
 		return report, err
@@ -57,12 +51,22 @@ func Coupling(ctx context.Context, operateAddress, captureAddress string, target
 	if after == nil {
 		return report, fmt.Errorf("no post-move view: %v", rawAfter)
 	}
-	dx := math.Abs(numberOrZero(after["x"]) - numberOrZero(baseline["x"]))
-	dy := math.Abs(numberOrZero(after["y"]) - numberOrZero(baseline["y"]))
-	dz := numberOrZero(after["z"]) - numberOrZero(baseline["z"])
-	expectedDZ := targetZ - numberOrZero(baseline["z"])
-	report.Add("runtime HMD move reaches the app's xrLocateViews (z tracks command)", math.Abs(dz-expectedDZ) < tolerance, fmt.Sprintf("dz=%.3f expected=%.3f", dz, expectedDZ))
-	report.Add("pure-z command does not drift the view sideways", dx < tolerance && dy < tolerance, fmt.Sprintf("dx=%.3f dy=%.3f", dx, dy))
+	from, err := posePosition(baseline, "baseline")
+	if err != nil {
+		return report, err
+	}
+	to, err := posePosition(after, "post-move")
+	if err != nil {
+		return report, err
+	}
+	dx := math.Abs(to[0] - from[0])
+	dy := math.Abs(to[1] - from[1])
+	dz := to[2] - from[2]
+	expectedDZ := targetZ - from[2]
+	// The comparison is inclusive so that a tolerance of 0 means what it says:
+	// the view must land exactly on the command, not on nothing at all.
+	report.Add("runtime HMD move reaches the app's xrLocateViews (z tracks command)", math.Abs(dz-expectedDZ) <= tolerance, fmt.Sprintf("dz=%.3f expected=%.3f", dz, expectedDZ))
+	report.Add("pure-z command does not drift the view sideways", dx <= tolerance && dy <= tolerance, fmt.Sprintf("dx=%.3f dy=%.3f", dx, dy))
 	return report, nil
 }
 
@@ -80,4 +84,18 @@ func viewPose(ctx context.Context, client *protocol.Client) (map[string]any, map
 	return pose, response, nil
 }
 
-func numberOrZero(value any) float64 { result, _ := number(value); return result }
+// posePosition requires the runtime to have reported all three coordinates. A
+// missing axis read as 0 would be indistinguishable from a head resting at the
+// origin, which is a legal target, so an absent field is an error rather than a
+// value the checks can be scored against.
+func posePosition(pose map[string]any, label string) ([3]float64, error) {
+	var position [3]float64
+	for index, axis := range []string{"x", "y", "z"} {
+		value, ok := number(pose[axis])
+		if !ok {
+			return position, fmt.Errorf("%s view pose has no %s: %v", label, axis, pose)
+		}
+		position[index] = value
+	}
+	return position, nil
+}

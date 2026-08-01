@@ -28,7 +28,7 @@ Server／MCP／Recorder の3本だけではなく、**このリポジトリが�
 | `tools/playspectra_coupling_probe.py` | runtime HMD操作からapp `xrLocateViews`までのcoupling probe | `playspectra verify coupling` | 移植済み・削除 |
 | `tools/playspectra_png_stats.py` | PNG decode/unfilter、色統計、non-degenerate判定、CLI | `pngstats/`、`playspectra image-stats` | 移植済み・削除 |
 | `tools/playspectra_vrapp.py` | VRApp process、`[VRTEST]` parser、request/event wait、座標変換 | `vrapp/` | 移植済み・削除 |
-| `tools/playspectra_vrapp_test.py` | Godot real-app E2E、capture/pacing/interaction | `playspectra verify vrapp` | 移植済み・削除（live 25/25） |
+| `tools/playspectra_vrapp_test.py` | Godot real-app E2E、capture/pacing/interaction | `playspectra verify vrapp` | 移植済み・削除（live 25/25。実行ログ未保存のため未検証扱い） |
 | `tools/playspectra_mcp_verify.py` | 実MCP clientでserverをspawnし13 toolsを検証 | Go MCP client E2E／`playspectra verify mcp` | 移植済み・削除 |
 | `tools/playspectra_go_parity_test.py` | 移植中のPython/Go differential smoke | Go fixture／table test | 置換済み・削除 |
 
@@ -136,7 +136,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 | protocol live probes | あり | frame 10、reset 20、multi-observer 11 checkをGo commandへ移植 | 移植済み |
 | runtime coupling probe | あり | 旧2 checkをGo commandへ移植 | 移植済み |
 | PNG解析 | あり | filter 0-4、5 color types、全高sampling、rounding/error fixture | 移植済み |
-| VRApp driver／real-app E2E | あり | fake process testに加え実app／Monado／Layerで25/25 | 移植済み・live確認済み |
+| VRApp driver／real-app E2E | あり | fake process testに加え実app／Monado／Layerで25/25 | 移植済み・liveは未検証扱い（実行ログ未保存） |
 | MCP実client verifier | あり | dependency-free Go clientと14-check `verify mcp` | 移植済み |
 | setup/E2E内のPython heredoc | 除去済み | Go setup helperと内部subcommandをfixture test済み | 移植済み |
 | Windows／Linux binary | build 定義あり | cgo無効の両OS cross-build、単一main packageを確認 | ローカルbuild確認済み |
@@ -340,7 +340,7 @@ test harnessをGoへ移すときは、単にファイルを削除せず、Python
 - [x] VRAppのprocess lifecycle、line parser、request ID、event waitをfake processでGo testする
 - [x] STAGE↔GLOBAL変換とevent predicateをGo testへ移す
 - [x] VRApp E2Eのstartup、pose/input、capture、pacing、interaction全checkをGo suiteへ移す
-- [x] Go VRApp E2Eを実app／Monado／layer環境で再実行する（2026-07-31、25/25）
+- [x] Go VRApp E2Eを実app／Monado／layer環境で再実行する（2026-07-31、25/25。実行ログをリポジトリに残していないため未検証扱い。再実行は `scripts/run_vrapp_monado.sh`）
 - [x] MCP verifierをGo MCP clientで移し、13 toolsとscreenshotをlive stackで検証する
 - [x] Server 9-checkとRecorder 5-checkのself-verifyをGo verify commandへ移す
 - [x] Python版とGo版のcheck名／件数対応を固定し、欠落checkをGo testとlive commandで検出する

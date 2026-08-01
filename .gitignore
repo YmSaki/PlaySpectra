@@ -2,6 +2,10 @@
 node_modules/
 mcp/dist/
 /build/
+# Anchored: a bare "playspectra" pattern would match at every level and hide the
+# Go package directory. Only the root binary a bare `go build ./cmd/playspectra`
+# drops on Windows is ignored; the canonical output goes to build/.
+/playspectra.exe
 layer/build/
 layer/manifest/*.dll
 layer/manifest/*.so

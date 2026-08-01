@@ -43,8 +43,8 @@ The current implementation exposes 13 tools. Their names, schemas, defaults, des
 Against the Windows Monado stack:
 
 ~~~bash
-go build -o playspectra.exe ./cmd/playspectra
-PLAYSPECTRA_BIN="$PWD/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
+go build -o build/playspectra.exe ./cmd/playspectra
+PLAYSPECTRA_BIN="$PWD/build/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
 ~~~
 
 The verifier starts the MCP server over stdio, lists the tools, exercises operation and state observation, requests a screenshot, and runs an inline scenario. It needs a running stack; it is not a unit test.

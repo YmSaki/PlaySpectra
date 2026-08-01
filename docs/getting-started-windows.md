@@ -75,8 +75,8 @@ scripts/run_mcp_verify_monado.sh D3D11
 Build the control-plane executable, then point the harness at it:
 
 ~~~bash
-go build -o playspectra.exe ./cmd/playspectra
-PLAYSPECTRA_BIN="$PWD/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
+go build -o build/playspectra.exe ./cmd/playspectra
+PLAYSPECTRA_BIN="$PWD/build/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
 ~~~
 
 VRAppDummyGame is a separate Godot 4.7 repository. Export its console wrapper, then set PLAYSPECTRA_VRAPP_EXE or place it at the default sibling path before running:

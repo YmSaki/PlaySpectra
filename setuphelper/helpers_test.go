@@ -567,10 +567,19 @@ func TestScriptLauncherDoesNotTreatGoPackageDirectoryAsExecutable(t *testing.T) 
 		t.Fatal(err)
 	}
 	launcher := string(data)
-	for _, candidate := range []string{"playspectra.exe", "playspectra"} {
+	for _, candidate := range []string{"build/playspectra.exe", "build/playspectra"} {
 		guard := fmt.Sprintf(`[ -f "$PLAYSPECTRA_SOURCE_ROOT/%s" ] && [ -x "$PLAYSPECTRA_SOURCE_ROOT/%s" ]`, candidate, candidate)
 		if !strings.Contains(launcher, guard) {
 			t.Errorf("launcher must require %s to be a regular executable file", candidate)
+		}
+	}
+	// The source root holds the playspectra package directory, so resolving a
+	// candidate straight off it is what the -f guard above exists to survive.
+	// Searching it at all also lets a binary from an older -o playspectra run
+	// outrank the current build, so the launcher must not reference it.
+	for _, forbidden := range []string{`"$PLAYSPECTRA_SOURCE_ROOT/playspectra.exe"`, `"$PLAYSPECTRA_SOURCE_ROOT/playspectra"`} {
+		if strings.Contains(launcher, forbidden) {
+			t.Errorf("launcher must not resolve %s from the source root", forbidden)
 		}
 	}
 }

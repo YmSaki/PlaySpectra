@@ -35,7 +35,10 @@ tasks:
   build:go:
     desc: Build the current dependency-free Go control-plane binary
     cmds:
-      - go build -o playspectra ./cmd/playspectra
+      # -o <dir>/ lets Go pick the host-correct name (playspectra / playspectra.exe).
+      # An unsuffixed -o playspectra would resolve to the Go package directory of
+      # that name and drop the binary inside the source tree.
+      - go build -o {{.BUILD_DIR}}/ ./cmd/playspectra
 
   test:go:
     desc: Run Go Core, protocol, and MCP unit tests

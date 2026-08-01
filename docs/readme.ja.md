@@ -63,9 +63,9 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-go build -o playspectra ./cmd/playspectra
-./playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
-./playspectra run tools/scenarios/assert_demo.json
+go build -o build/playspectra ./cmd/playspectra
+./build/playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
+./build/playspectra run tools/scenarios/assert_demo.json
 ~~~
 
 このScenarioは、頭の移動、視線の回転、右手トリガーの入力、状態assert、仮想デバイスのresetを順番に実行します。すべてのassertが成功すると、runnerは終了コード0で終了します。

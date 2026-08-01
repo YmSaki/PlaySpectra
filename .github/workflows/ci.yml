@@ -50,10 +50,14 @@ jobs:
           cache: true
       - run: go test ./...
       - run: go vet ./...
+      # -o build/ is required, not cosmetic: the default output name collides with
+      # the playspectra/ Go package directory, which fails outright on Linux
+      # ("build output already exists and is a directory") and buries the binary
+      # inside the source tree on Windows.
       - name: Build cgo-free control plane
         env:
           CGO_ENABLED: "0"
-        run: go build ./cmd/playspectra
+        run: go build -o build/ ./cmd/playspectra
       - name: Reject owned Python source or script runtime dependencies
         if: runner.os == 'Linux'
         shell: bash

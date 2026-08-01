@@ -65,16 +65,16 @@ Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, or LAYER_SO when using d
 With a live adapter on :52702:
 
 ~~~bash
-go build -o playspectra ./cmd/playspectra
-./playspectra verify server --port 52702
-./playspectra verify record --port 52702
-./playspectra run tools/scenarios/assert_demo.json --port 52702
+go build -o build/playspectra ./cmd/playspectra
+./build/playspectra verify server --port 52702
+./build/playspectra verify record --port 52702
+./build/playspectra run tools/scenarios/assert_demo.json --port 52702
 ~~~
 
 For visual assertions, load the layer into the app and add the capture channel:
 
 ~~~bash
-./playspectra run tools/scenarios/capture_assert_demo.json --port 52702 --capture-port 52700
+./build/playspectra run tools/scenarios/capture_assert_demo.json --port 52702 --capture-port 52700
 ~~~
 
 The scenario and MCP formats are documented in [Scenario format](scenario-format.md) and [MCP tools](mcp-tools.md).

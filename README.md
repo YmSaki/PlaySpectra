@@ -62,9 +62,9 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-go build -o playspectra ./cmd/playspectra
-./playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
-./playspectra run tools/scenarios/assert_demo.json
+go build -o build/playspectra ./cmd/playspectra
+./build/playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
+./build/playspectra run tools/scenarios/assert_demo.json
 ~~~
 
 The Scenario moves the head, turns it, presses a right trigger, asserts the resulting state, and resets the virtual devices. When all assertions pass, the runner exits with status 0.

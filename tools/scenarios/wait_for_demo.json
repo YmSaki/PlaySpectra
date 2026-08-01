@@ -1,6 +1,6 @@
 {
   "name": "wait_for_demo",
-  "description": "Playwright-style auto-wait: after an operate step, wait_for the resulting state instead of a fixed wait(ms), then assert. Retrying asserts (timeout_ms) ride out interpolation/timing jitter. Drives the Monado adapter control channel (:52702) via playspectra_server.py.",
+  "description": "Playwright-style auto-wait: after an operate step, wait_for the resulting state instead of a fixed wait(ms), then assert. Retrying asserts (timeout_ms) ride out interpolation/timing jitter. Drives the Monado adapter control channel (:52702) via playspectra run.",
   "steps": [
     {"cmd": "hello", "role": "writer"},
     {"cmd": "move_head", "to": {"position": [0.0, 1.6, -1.5]}, "duration_ms": 300},

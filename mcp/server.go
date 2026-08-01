@@ -277,7 +277,7 @@ func (h *Handler) callTool(ctx context.Context, request map[string]any) (map[str
 		if !isArray {
 			path = []any{decodedPath}
 		}
-		met, waitErr := server.WaitFor(ctx, path, str("op", "near"), args["value"], num("tol", 0.01), integer("timeout_ms", 5000), 50, "")
+		met, waitErr := server.WaitFor(ctx, path, str("op", "near"), num("value", 0), num("tol", 0.01), integer("timeout_ms", 5000), 50, "")
 		if waitErr != nil {
 			return errorResult(waitErr), nil
 		}

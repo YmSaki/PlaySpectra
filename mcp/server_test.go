@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -328,22 +329,149 @@ func TestAdapterConnectionErrorIsReturnedAsToolError(t *testing.T) {
 }
 
 func TestWaitForAcceptsJSONScalarAndBareKeyLikePython(t *testing.T) {
-	for _, pathJSON := range []string{`"hmd"`, "hmd"} {
-		t.Run(pathJSON, func(t *testing.T) {
+	// Both path_json spellings must reach the same field. The condition compares
+	// against the field's real value (sequence is 0) instead of asking whether
+	// it differs from 0: a "ne 0" check is satisfied by nil too, so it would
+	// stay green even if path resolution returned nothing at all.
+	for _, pathJSON := range []string{`"sequence"`, "sequence"} {
+		for _, test := range []struct {
+			value float64
+			met   bool
+		}{{0, true}, {1, false}} {
+			t.Run(fmt.Sprintf("%s eq %g", pathJSON, test.value), func(t *testing.T) {
+				h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+					return playspectra.NewServer(newToolTransport(), playspectra.WithSleeper(func(time.Duration) {})), nil
+				})
+				response, _ := h.Handle(context.Background(), map[string]any{
+					"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+					"params": map[string]any{"name": "wait_for", "arguments": map[string]any{
+						"path_json": pathJSON, "op": "eq", "value": test.value, "timeout_ms": 0,
+					}},
+				})
+				result := response["result"].(map[string]any)
+				body := stringValue(result["content"].([]any)[0].(map[string]any)["text"])
+				if result["isError"] != false || !strings.Contains(body, fmt.Sprintf(`"met":%v`, test.met)) {
+					t.Fatalf("result=%v", result)
+				}
+			})
+		}
+	}
+}
+
+func TestArgumentRejectionMessagesAreTheToolSurface(t *testing.T) {
+	// These sentences are what an agent reads when a call is malformed, so they
+	// are part of the tool surface rather than an internal detail. Each case
+	// carries exactly one bad argument: validateArguments walks a map, so two
+	// faults at once would make the reported one depend on iteration order.
+	h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+		t.Error("a rejected call still opened an adapter connection")
+		return nil, errors.New("must not connect")
+	})
+	for _, test := range []struct {
+		name      string
+		tool      string
+		arguments map[string]any
+		want      string
+	}{
+		{"missing required argument", "move_head", map[string]any{"y": 1.6, "z": 0.0}, "Error executing tool move_head: x: field required"},
+		{"string where a number belongs", "move_head", map[string]any{"x": "0", "y": 1.6, "z": 0.0}, "Error executing tool move_head: x: expected number"},
+		{"number where a string belongs", "press", map[string]any{"hand": 1.0}, "Error executing tool press: hand: expected string"},
+		{"fraction where an integer belongs", "move_head", map[string]any{"x": 0.0, "y": 1.6, "z": 0.0, "duration_ms": 400.5}, "Error executing tool move_head: duration_ms: expected integer"},
+		{"unknown tool", "does_not_exist", map[string]any{}, "Unknown tool: does_not_exist"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response, _ := h.Handle(context.Background(), map[string]any{
+				"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+				"params": map[string]any{"name": test.tool, "arguments": test.arguments},
+			})
+			result := response["result"].(map[string]any)
+			got := stringValue(result["content"].([]any)[0].(map[string]any)["text"])
+			if result["isError"] != true || got != test.want {
+				t.Fatalf("result=%v want text %q", result, test.want)
+			}
+		})
+	}
+}
+
+func TestIntegerArgumentsArriveAsJSONFloatsAndAreAccepted(t *testing.T) {
+	// Every other test hands the handler Go literals, so the integer-typed
+	// arguments arrive as int. A real client sends JSON, and encoding/json
+	// decodes 400 into float64 -- tightening the check to a `.(int)` assertion
+	// would reject every genuine call while leaving the suite green. The request
+	// is therefore decoded from wire text rather than written as a Go map.
+	var request map[string]any
+	if err := json.Unmarshal([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"move_head",
+		"arguments":{"x":0,"y":1.6,"z":-2,"duration_ms":400}}}`), &request); err != nil {
+		t.Fatal(err)
+	}
+	transport := newToolTransport()
+	h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+		return playspectra.NewServer(transport, playspectra.WithSleeper(func(time.Duration) {})), nil
+	})
+	response, _ := h.Handle(context.Background(), request)
+	result := response["result"].(map[string]any)
+	if result["isError"] != false {
+		t.Fatalf("result = %v", result)
+	}
+	if got := playspectra.Resolve(transport.state, []any{"hmd", "head", "position", 2}); got != -2.0 {
+		t.Fatalf("head z = %v, want the request to have been executed", got)
+	}
+}
+
+func TestWaitForComparesBoolInputPathsNumericallyLikePython(t *testing.T) {
+	// The MCP boundary only offers a number-typed "value", so the documented way
+	// to wait on a bool path is 1/0. An unpressed /button/a/click must therefore
+	// answer "ne 0" with met=false (otherwise waiting for a press succeeds before
+	// anything is pressed) and "eq 0" with met=true.
+	for _, test := range []struct {
+		op  string
+		met bool
+	}{{"ne", false}, {"eq", true}} {
+		t.Run(test.op, func(t *testing.T) {
 			h := NewHandler(func(context.Context) (*playspectra.Server, error) {
 				return playspectra.NewServer(newToolTransport(), playspectra.WithSleeper(func(time.Duration) {})), nil
 			})
 			response, _ := h.Handle(context.Background(), map[string]any{
 				"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 				"params": map[string]any{"name": "wait_for", "arguments": map[string]any{
-					"path_json": pathJSON, "op": "ne", "value": 0.0, "timeout_ms": 0,
+					"path_json": `["right","inputs","/button/a/click"]`, "op": test.op, "value": 0.0, "timeout_ms": 0,
 				}},
 			})
 			result := response["result"].(map[string]any)
-			if result["isError"] != false || !strings.Contains(stringValue(result["content"].([]any)[0].(map[string]any)["text"]), `"met":true`) {
-				t.Fatalf("result=%v", result)
+			body := stringValue(result["content"].([]any)[0].(map[string]any)["text"])
+			if result["isError"] != false || !strings.Contains(body, fmt.Sprintf(`"met":%v`, test.met)) {
+				t.Fatalf("op=%s result=%v", test.op, result)
 			}
 		})
+	}
+}
+
+func TestWaitForOmittedArgumentsUseTheAdvertisedSchemaDefaults(t *testing.T) {
+	// A default invocation sends only path_json, so op/value/tol/timeout_ms must
+	// fall back to the values tools/list advertises (near, 0, 0.01, 5000) exactly
+	// like FastMCP applied the Python signature defaults. Head z starts at 0, so
+	// the condition already holds and the call must answer met=true on the first
+	// poll; a dropped value default makes near() unsatisfiable and turns every
+	// default invocation into a 5 s timeout. The server keeps its real sleeper so
+	// that regression shows up as elapsed time rather than a busy loop.
+	h := NewHandler(func(context.Context) (*playspectra.Server, error) {
+		return playspectra.NewServer(newToolTransport()), nil
+	})
+	started := time.Now()
+	response, _ := h.Handle(context.Background(), map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "wait_for", "arguments": map[string]any{
+			"path_json": `["hmd","head","position",2]`,
+		}},
+	})
+	elapsed := time.Since(started)
+	result := response["result"].(map[string]any)
+	body := stringValue(result["content"].([]any)[0].(map[string]any)["text"])
+	if result["isError"] != false || !strings.Contains(body, `"met":true`) {
+		t.Fatalf("result = %v", result)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("default wait_for took %v: it polled to the advertised timeout instead of matching immediately", elapsed)
 	}
 }
 

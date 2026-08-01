@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -61,6 +62,105 @@ func TestWaitForHonorsSinceAndContext(t *testing.T) {
 	defer cancel()
 	if event := app.WaitFor(ctx, Axis("left", "trigger"), app.Count()); event != nil {
 		t.Fatalf("old event satisfied wait: %v", event)
+	}
+}
+
+// TestWaitForGivesUpWhenTheProcessIsGone exercises the one branch that keeps a
+// crashed app from costing the whole suite its timeouts. Every wait in the
+// suite is bounded at 8 to 45 seconds, so without the done branch a run that
+// dies during startup would sit through all of them in turn instead of failing
+// at once. The existing wait coverage never closes done, so it only ever proves
+// the context branch.
+func TestWaitForGivesUpWhenTheProcessIsGone(t *testing.T) {
+	app := New(Config{})
+	app.consumeLine(`[VRTEST] {"t":"axis","hand":"left","name":"trigger"}`)
+	app.done = make(chan struct{})
+	close(app.done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	started := time.Now()
+	if event := app.WaitFor(ctx, Axis("right", "trigger"), 0); event != nil {
+		t.Fatalf("a predicate that matches nothing returned %v", event)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("waited %s for an event from a dead process", elapsed)
+	}
+
+	// Events already buffered before the process died are still delivered; the
+	// exit ends the waiting, not the reading.
+	if event := app.WaitFor(ctx, Axis("left", "trigger"), 0); event == nil {
+		t.Fatal("a buffered event was dropped because the process had exited")
+	}
+}
+
+// TestStartRejectsASecondLaunchButStaysRetryable pins the guard that keeps a
+// second Start from overwriting the first child's handle, which would strand a
+// GUI process with nothing left to kill it. A start that failed must not latch
+// that way, because the caller's next move is to retry.
+func TestStartRejectsASecondLaunchButStaysRetryable(t *testing.T) {
+	if os.Getenv("GO_WANT_VRAPP_HELPER") == "1" {
+		vrappHelperProcess()
+		return
+	}
+	app := New(Config{
+		Executable: os.Args[0],
+		Arguments:  []string{"-test.run=TestStartRejectsASecondLaunchButStaysRetryable", "--"},
+		Env:        append(os.Environ(), "GO_WANT_VRAPP_HELPER=1"),
+	})
+	if err := app.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Stop()
+	err := app.Start()
+	if err == nil {
+		t.Fatal("a second Start replaced the running child's handle")
+	}
+	if err.Error() != "VRApp is already started" {
+		t.Fatalf("second start error = %v", err)
+	}
+
+	absent := New(Config{Executable: filepath.Join(t.TempDir(), "absent.exe")})
+	first := absent.Start()
+	if first == nil {
+		t.Fatal("starting a missing executable succeeded")
+	}
+	second := absent.Start()
+	if second == nil {
+		t.Fatal("a failed start left the app latched as running")
+	}
+	if strings.Contains(second.Error(), "already started") {
+		t.Fatalf("a failed start blocks the retry: %v", second)
+	}
+}
+
+// TestTranslateWithoutAUsableOriginPassesThrough records what happens when the
+// app's pose snapshot has no origin: STAGE and GLOBAL coordinates are treated
+// as the same frame. Every interaction target in the suite is a GLOBAL position
+// converted through this, so a runtime that stopped reporting an origin would
+// silently reach for the wrong place rather than fail. The conversion is left
+// as it is -- the suite, not this function, is where a missing origin should be
+// noticed.
+func TestTranslateWithoutAUsableOriginPassesThrough(t *testing.T) {
+	tests := []struct {
+		name   string
+		origin Event
+		want   []float64
+	}{
+		{"no origin at all", Event{}, []float64{1, 2, 3}},
+		{"an origin without a position", Event{"rot": []any{0.0, 0.0, 0.0, 1.0}}, []float64{1, 2, 3}},
+		{"a position that is not a vector", Event{"pos": "0,0,0"}, []float64{1, 2, 3}},
+		{"a short position translates what it covers", Event{"pos": []any{10.0, 10.0}}, []float64{11, 12, 3}},
+		// A non-numeric member is skipped rather than held open, so the axes
+		// after it shift down one: z's offset lands on y.
+		{"a non-numeric member shifts the axes after it", Event{"pos": []any{10.0, "up", 20.0}}, []float64{11, 22, 3}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := StageToGlobal([]float64{1, 2, 3}, test.origin); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("StageToGlobal = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

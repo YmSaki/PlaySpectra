@@ -120,6 +120,11 @@ func ExtractMonado(zipPath, destination string) (int, error) {
 		}
 		count++
 	}
+	// A Monado CI archive always carries an install/ tree. Nothing there means
+	// the artifact layout changed, not that there was nothing to do.
+	if count == 0 {
+		return 0, fmt.Errorf("%s: extracted 0 files, the archive has no install/ tree", zipPath)
+	}
 	return count, nil
 }
 

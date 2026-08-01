@@ -186,6 +186,9 @@ Python が受理する正常入力の結果を変えないことを compatibilit
   float だが、Core の bool input を型どおり表せる拡張として互換入力を壊さないか確認する。
 - `set_state` scenario step、`status`、`set_trigger` alias、doctor、session は Go の追加機能であり、
   Python 互換達成数には含めない。
+- Go の `internal extract-monado` は 1 件も展開できなかった archive を error にする。Monado CI の
+  artifact 構成が変わって `install/` 配下が空になった場合、旧挙動は `extracted 0 files` を出して
+  exit 0 で返し、`scripts/setup_monado.sh` が空の展開先に VERSION.txt を書いて先へ進んでいた。
 - Go の `verify coupling` は `--target-z`／`--tolerance` を Go 独自に追加した引数であり（Python の
   coupling probe は `TARGET_Z=-2.5`／`TOL=0.3` の定数のみで引数を持たない）、`0` を「未指定」と読んで
   default へ差し替える sentinel を持っていた。原点を狙う `--target-z 0` と厳密一致を求める

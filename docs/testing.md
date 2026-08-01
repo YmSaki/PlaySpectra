@@ -13,10 +13,10 @@ The script currently covers:
 | Suite | What it covers | Recorded suite size |
 | --- | --- | --- |
 | mcp/ | TypeScript node:test math suite | 42 |
-| Go control plane | Core, protocol, CLI, Scenario, MCP, recording, probes, setup helpers | 239 tests/subtests |
+| Go control plane | Core, protocol, CLI, Scenario, MCP, recording, probes, setup helpers | 377 tests/subtests |
 | layer/ | CTest host helpers | 92 on Windows, 83 on non-Windows |
 | Monado submodule | Standalone PlaySpectra protocol parser/content-signature tests | 43 |
-| Total | Dependency-complete local gate | 416 on Windows, 407 on non-Windows |
+| Total | Dependency-complete local gate | 554 on Windows, 545 on non-Windows |
 
 These are suite counts, not a promise that every environment has all dependencies installed. The script reports a missing Go toolchain, GCC, submodule, or other prerequisite as a named SKIP. A failure makes the exit code non-zero; SKIP does not. The final line distinguishes ALL GREEN from GREEN WITH SKIPS.
 

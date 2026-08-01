@@ -1,9 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net"
 	"os"
@@ -390,6 +395,224 @@ func TestCLIBadArgsJSONUsesExitTwoWithoutConnecting(t *testing.T) {
 	}
 }
 
+func TestArgsJSONSilentlyDiscardsTypedFlags(t *testing.T) {
+	// Characterization of the current behaviour, not a recommendation: --args
+	// replaces the entire argument object, so a typed flag passed alongside it
+	// is discarded without a warning and the command still exits 0. The pair of
+	// runs is the point -- the same --z reaches the device in the second run,
+	// which is what makes the first one a silent loss rather than a no-op.
+	for _, test := range []struct {
+		name  string
+		args  []string
+		wantZ float64
+	}{
+		{"typed flag alongside --args", []string{"move-head", "--args", `{"duration_ms":0}`, "--z", "-7"}, 0},
+		{"typed flag alone", []string{"move-head", "--z", "-7", "--duration-ms", "0"}, -7},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := startCLIAdapter(t)
+			args := append([]string{"cmd"}, test.args...)
+			code, stdout, stderr := captureRun(t, append(args, "--port", strconv.Itoa(adapter.port()))...)
+			adapter.close(t)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			var output map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &output); err != nil {
+				t.Fatal(err)
+			}
+			if got := core.Resolve(output["state"], []any{"hmd", "head", "position", 2}); got != test.wantZ {
+				t.Fatalf("head z = %v, want %v", got, test.wantZ)
+			}
+		})
+	}
+}
+
+func TestScenarioArgumentSplitDropsSingleDashFlags(t *testing.T) {
+	// run/record/replay separate the file path from the flags themselves, and
+	// that splitter only recognises "--". Characterization of what that costs:
+	// a single-dash flag is dropped, so the command silently keeps the default
+	// :52702 and talks to whatever is listening there instead of the requested
+	// target; when the flag comes first, its name is taken as the file path.
+	for _, test := range []struct {
+		name      string
+		args      []string
+		wantPath  string
+		wantFlags []string
+	}{
+		{"double dash is kept", []string{"scenario.json", "--port", "52999"}, "scenario.json", []string{"--port", "52999"}},
+		{"single dash is dropped", []string{"scenario.json", "-port", "52999"}, "scenario.json", []string{}},
+		{"leading single dash becomes the path", []string{"-port", "52999", "scenario.json"}, "-port", []string{}},
+		{"second positional is dropped", []string{"a.json", "b.json"}, "a.json", []string{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, flags := firstPathAndFlags(test.args)
+			if path != test.wantPath || !reflect.DeepEqual(flags, test.wantFlags) {
+				t.Fatalf("path=%q flags=%v, want path=%q flags=%v", path, flags, test.wantPath, test.wantFlags)
+			}
+		})
+	}
+
+	// The leading-flag form is observable end to end without a network: the
+	// scenario path becomes "-port", so the run dies on the file read.
+	code, stdout, stderr := captureRun(t, "run", "-port", "52999", "scenario.json")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "-port") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestScenarioWithoutAssertionsExitsZero(t *testing.T) {
+	// A scenario that asserts nothing is reported as a pass: {"asserts":0,
+	// "ok":true} with exit 0. That is the documented contract, and the cost of
+	// it is that a misspelled "Steps" key produces a run indistinguishable from
+	// a successful one -- pinned here so the contract is a decision on record.
+	adapter := startCLIAdapter(t)
+	path := t.TempDir() + "/typo.json"
+	scenario := `{"name":"typo","Steps":[{"cmd":"assert","get":["hmd","head","position",2],"op":"eq","value":-9}]}`
+	if err := os.WriteFile(path, []byte(scenario), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureRun(t, "run", path, "--port", strconv.Itoa(adapter.port()))
+	adapter.close(t)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	var summary map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary["asserts"] != float64(0) || summary["ok"] != true || summary["failed"] != float64(0) {
+		t.Fatalf("summary=%v", summary)
+	}
+}
+
+func TestDoctorReportsBothChannelsButExitsOnOperateAlone(t *testing.T) {
+	// doctor is the liveness signal the setup scripts read, so both halves
+	// matter: the JSON has to describe capture as well, and the exit code has to
+	// come from the operate channel alone -- a capture port that is down must
+	// not fail the check, and an operate port that is down must.
+	open, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer open.Close()
+	reachable := open.Addr().(*net.TCPAddr).Port
+	spare, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreachable := spare.Addr().(*net.TCPAddr).Port
+	_ = spare.Close()
+
+	for _, test := range []struct {
+		name             string
+		operate, capture int
+		wantCode         int
+	}{
+		{"capture down does not fail doctor", reachable, unreachable, 0},
+		{"operate down fails doctor", unreachable, reachable, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			code, stdout, stderr := captureRun(t, "doctor", "--port", strconv.Itoa(test.operate), "--capture-port", strconv.Itoa(test.capture))
+			if code != test.wantCode || stderr != "" {
+				t.Fatalf("code=%d, want %d; stderr=%q", code, test.wantCode, stderr)
+			}
+			var report map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &report); err != nil {
+				t.Fatalf("stdout=%q: %v", stdout, err)
+			}
+			if report["version"] != version {
+				t.Fatalf("version=%v", report["version"])
+			}
+			for channel, port := range map[string]int{"operate": test.operate, "capture": test.capture} {
+				probed, ok := report[channel].(map[string]any)
+				if !ok || probed["host"] != "127.0.0.1" || probed["port"] != float64(port) {
+					t.Fatalf("%s = %v", channel, report[channel])
+				}
+				if probed["reachable"] != (port == reachable) {
+					t.Fatalf("%s reachable = %v", channel, probed["reachable"])
+				}
+				if diagnosis, _ := probed["error"].(string); port != reachable && diagnosis == "" {
+					t.Fatalf("%s carries no diagnosis: %v", channel, probed)
+				}
+			}
+		})
+	}
+}
+
+func TestLegacyDashDashCmdMatchesTheCmdSubcommand(t *testing.T) {
+	// --cmd is the old single-command CLI's entry point and scripts still use
+	// it, so it has to produce the same stdout as the subcommand, not merely
+	// work.
+	outputs := map[string]string{}
+	for _, entry := range [][]string{{"cmd", "get-state"}, {"--cmd", "get-state"}} {
+		adapter := startCLIAdapter(t)
+		code, stdout, stderr := captureRun(t, append(append([]string{}, entry...), "--port", strconv.Itoa(adapter.port()))...)
+		adapter.close(t)
+		if code != 0 || stderr != "" {
+			t.Fatalf("%v: code=%d stderr=%q", entry, code, stderr)
+		}
+		outputs[entry[0]] = stdout
+	}
+	if outputs["cmd"] != outputs["--cmd"] {
+		t.Fatalf("--cmd stdout:\n%s\ncmd stdout:\n%s", outputs["--cmd"], outputs["cmd"])
+	}
+	code, stdout, stderr := captureRun(t, "--cmd")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "--cmd requires an operation") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestImageStatsFailsOnTruncatedPNG(t *testing.T) {
+	// A capture read while it is still being written is a real, recurring
+	// failure, and the only signal a script gets is the exit code: the existing
+	// coverage only walks paths that exit 0 (missing file, non-PNG), so a
+	// regression that swallowed decode errors would stay green. The truncation
+	// cuts into the IDAT payload rather than between chunks -- stopping short of
+	// a chunk header instead yields a well-formed header with no pixel data,
+	// which is reported as an unsupported encoding and still exits 0.
+	full := encodedPNG(t, 64, 64)
+	marker := bytes.Index(full, []byte("IDAT"))
+	if marker < 0 {
+		t.Fatal("fixture has no IDAT chunk")
+	}
+	directory := t.TempDir()
+	good, truncated := directory+"/good.png", directory+"/truncated.png"
+	if err := os.WriteFile(good, full, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(truncated, full[:marker+8], 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := captureRun(t, "image-stats", good)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "non-degenerate: True") {
+		t.Fatalf("intact PNG: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	code, stdout, stderr = captureRun(t, "image-stats", good, truncated)
+	if code != 1 {
+		t.Fatalf("truncated PNG: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, truncated) || !strings.Contains(stdout, good) {
+		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func encodedPNG(t *testing.T, width, height int) []byte {
+	t.Helper()
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			canvas.Set(x, y, color.RGBA{R: uint8(x * 3), G: uint8(y * 5), B: uint8(x ^ y), A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, canvas); err != nil {
+		t.Fatal(err)
+	}
+	return encoded.Bytes()
+}
+
 func TestImageStatsCLICompatibilityOutput(t *testing.T) {
 	path := t.TempDir() + "/not-image.png"
 	if err := os.WriteFile(path, []byte("not png"), 0o600); err != nil {
@@ -423,6 +646,56 @@ func TestVerifyCommandRejectsMissingAndUnknownSuite(t *testing.T) {
 		code, stdout, stderr := captureRun(t, args...)
 		if code != 2 || stdout != "" || stderr == "" {
 			t.Fatalf("args=%v code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+	}
+}
+
+// TestInternalExtractMonadoFailsWhenNothingWasExtracted pins the exit code the
+// setup scripts read. An archive whose layout no longer puts anything under
+// install/ used to print "extracted 0 files" and exit 0, so the script carried
+// on to launch a runtime that had never been unpacked.
+func TestInternalExtractMonadoFailsWhenNothingWasExtracted(t *testing.T) {
+	zipPath := t.TempDir() + "/monado.zip"
+	file, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	writer, err := archive.Create("build/bin/monado-service.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("moved out of install/")); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	destination := t.TempDir() + "/monado"
+	code, stdout, stderr := captureRun(t, "internal", "extract-monado", "--zip", zipPath, "--destination", destination)
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "0 files") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+// TestVerifyCouplingFlagsCarryThePythonProbeConstants pins where the coupling
+// probe's constants live. verify.Coupling used to substitute its own defaults
+// for a zero target or tolerance, which silently rewrote a caller asking for the
+// origin or for an exact match; now the CLI flags are the only place the Python
+// probe's TARGET_Z and TOL survive, so losing them here would change what the
+// command measures without failing anything else.
+func TestVerifyCouplingFlagsCarryThePythonProbeConstants(t *testing.T) {
+	code, stdout, stderr := captureRun(t, "verify", "coupling", "--not-a-flag")
+	if code != 2 || stdout != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	for _, want := range []string{"-target-z float", "(default -2.5)", "-tolerance float", "(default 0.3)"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("coupling usage is missing %q: %s", want, stderr)
 		}
 	}
 }

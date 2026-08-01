@@ -63,9 +63,9 @@ The local aggregate script records these dependency-complete suite sizes:
 
 - mcp/: 42 node:test cases.
 - layer/: 92 Windows or 83 non-Windows CTest cases; the DXGI-specific cases are Windows-only.
-- Go control plane: 239 tests/subtests across Core, protocol, CLI, Scenario, MCP, recording, probes, and setup helpers.
+- Go control plane: 377 tests/subtests across Core, protocol, CLI, Scenario, MCP, recording, probes, and setup helpers.
 - Monado submodule protocol suite: 43 standalone C cases.
-- Total: 416 on Windows or 407 on non-Windows.
+- Total: 554 on Windows or 545 on non-Windows.
 
 The verification set deliberately includes negative controls: a failed state assertion returns non-zero, capture-assert distinguishes stable from changed images, and the Godot harness reports absent application/capture prerequisites as explicit SKIPs. These details are retained here so README status labels remain auditable without making the README a test journal.
 

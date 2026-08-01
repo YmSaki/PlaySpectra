@@ -143,7 +143,7 @@ Python が受理する正常入力の結果を変えないことを compatibilit
 
 現在の自動チェックは次の状態で通る。
 
-- `go test ./...`: 8 packages、239 tests/subtests
+- `go test ./...`: 8 packages、377 tests/subtests
 - `go vet ./...`
 - `CGO_ENABLED=0`のWindows／Linux build
 - Go fixtureによる全frame、state、summary、CLI、MCP、record/replayの互換確認

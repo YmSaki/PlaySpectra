@@ -23,10 +23,9 @@ Compiled into the layer binary:
 | lodepng | `ed6fe5825c6a4fbb7f58ab35a4231c7543cd452a` | zlib |
 | nlohmann/json | v3.11.3 | MIT |
 | OpenXR-SDK-Source (headers) | release-1.1.42 | Apache-2.0 |
-| Vulkan-Headers | not pinned | Apache-2.0 |
+| Vulkan-Headers | v1.3.280 | Apache-2.0 |
 
-Revisions are pinned in `layer/CMakeLists.txt`, except Vulkan-Headers, which the build does not
-fetch: it is expected at the untracked `third_party/Vulkan-Headers/`.
+Revisions are pinned in `layer/CMakeLists.txt`.
 
 ## Monado runtime bundle
 

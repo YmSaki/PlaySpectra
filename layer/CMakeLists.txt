@@ -49,6 +49,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Vulkan-Headers: headers only, for capture_vulkan.cpp (<vulkan/vulkan.h>) on every platform --
+# capture.cpp dispatches to the Vulkan backend on Windows too. SOURCE_SUBDIR _none skips the
+# project's own CMake (same trick as lodepng above); we add the include dir by hand. The pin
+# matches the tree previously expected at the untracked third_party/Vulkan-Headers/, which made
+# fresh clones unbuildable because nothing fetched it.
+FetchContent_Declare(
+  vulkan_headers
+  GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+  GIT_TAG        v1.3.280
+  SOURCE_SUBDIR  _none
+)
+FetchContent_MakeAvailable(vulkan_headers)
+
 add_library(playspectra_layer SHARED
   src/layer_entry.cpp
   src/hooks_action.cpp
@@ -78,7 +91,7 @@ endif()
 
 target_include_directories(playspectra_layer PRIVATE
   ${lodepng_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/Vulkan-Headers/include
+  ${vulkan_headers_SOURCE_DIR}/include
 )
 
 target_link_libraries(playspectra_layer PRIVATE

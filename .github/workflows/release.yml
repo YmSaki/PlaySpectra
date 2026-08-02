@@ -1,0 +1,258 @@
+# Release packaging (issue #11): on a v* tag, run the unit gates, build the three distribution
+# units per platform, assemble "download and extract" packages, smoke-test them from the staged
+# tree (never from the source tree), and attach them to a GitHub Release with SHA-256 checksums.
+#
+# Package contents (decided in the distribution plan; Q1: the Monado runtime IS bundled -- a stock
+# Monado has no drv_playspectra, so a runtime we build is the only way users can get one):
+#   playspectra-<os>-amd64/
+#     playspectra(.exe)      Go control plane, version stamped from the tag
+#     LICENSE                MPL-2.0 (this repository)
+#     THIRD_PARTY_NOTICES.md
+#     SOURCE.txt             MPL-2.0 §3.2 source-availability notice (tag + commit)
+#     licenses/              full texts: Monado fork LICENSES/ + (Windows) vcpkg copyrights
+#     runtime/               cmake --install output: relative-path openxr_monado.json + bin/
+#     layer/                 playspectra_layer.dll/.so + loader manifest beside it
+#
+# Known first-cut boundaries (tracked in issue #11):
+#   - The Windows layer DLL is built with MSVC here (needs the VC++ runtime, near-universal);
+#     the MinGW fully-static build documented in the repo is a follow-up for the workflow.
+#   - The Linux runtime links system packages (apt list in docs/getting-started-linux.md);
+#     the package documents them rather than bundling.
+#   - vulkan-1.dll is intentionally not bundled: the Vulkan loader comes with GPU drivers
+#     (verified: a moved install tree probes fine against the system loader).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  build-windows:
+    name: package windows-amd64
+    needs: gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Build Go control plane (version = tag)
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o stage/pkg/playspectra.exe ./cmd/playspectra
+
+      # vcpkg binary cache: the first Monado configure builds glslang etc. from source (20-40 min);
+      # with this cache warm the job drops to minutes. Manifest mode pins the dependency set, so
+      # the key only needs to change when vcpkg.json does.
+      - name: vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('runtime/monado-playspectra/vcpkg.json') }}
+
+      - name: Configure Monado (MSVC + vcpkg manifest)
+        shell: bash
+        env:
+          # NO_DEFAULT_FEATURES is a license constraint, not an optimization: the default usb/gui
+          # features pull libusb (LGPL-2.1) and SDL2 into the bundle (THIRD_PARTY_NOTICES.md).
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-cache,readwrite"
+        run: |
+          cmake -S runtime/monado-playspectra -B build/monado -A x64 \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON \
+            -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
+      - name: Build Monado (service / cli / OpenXR client)
+        run: cmake --build build/monado --config Release --target monado-service cli openxr_monado
+      - name: Install Monado into the package (relative manifest + runtime DLLs)
+        run: cmake --install build/monado --config Release --prefix stage/pkg/runtime
+
+      - name: Build layer
+        run: |
+          cmake -S layer -B build/layer
+          cmake --build build/layer --config Release --target playspectra_layer
+
+      - name: Assemble package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage/pkg/layer stage/pkg/licenses
+          cp layer/manifest/XrApiLayer_playspectra.json stage/pkg/layer/
+          cp build/layer/Release/playspectra_layer.dll stage/pkg/layer/
+          cp LICENSE THIRD_PARTY_NOTICES.md stage/pkg/
+          # Full license texts for everything redistributed (THIRD_PARTY_NOTICES.md requires this):
+          # the Monado fork's REUSE set, plus the vcpkg-built DLLs' copyright files.
+          cp runtime/monado-playspectra/LICENSES/*.txt stage/pkg/licenses/
+          for c in build/monado/vcpkg_installed/x64-windows/share/*/copyright; do
+            cp "$c" "stage/pkg/licenses/vcpkg-$(basename "$(dirname "$c")")-copyright.txt"
+          done
+          # MPL-2.0 §3.2: tell recipients where the Source Code Form lives.
+          {
+            echo "PlaySpectra ${GITHUB_REF_NAME} (windows-amd64)"
+            echo "Source code: https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "The bundled Monado runtime is built from the fork pinned as a submodule at"
+            echo "runtime/monado-playspectra in that tree."
+          } > stage/pkg/SOURCE.txt
+
+      - name: Smoke test from the staged package (not the source tree)
+        shell: bash
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        run: |
+          set -euo pipefail
+          cd stage/pkg
+          ./playspectra.exe doctor || true # reachability probe; ports are down by design here
+          # Machine-checked: the packaged runtime must enumerate the virtual devices on its own.
+          ./runtime/bin/monado-cli.exe probe | grep "PlaySpectra HMD"
+          test -f runtime/openxr_monado.json
+          test -f layer/playspectra_layer.dll
+
+      - name: Zip + checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv stage/pkg "stage/playspectra-windows-amd64"
+          cd stage
+          7z a "playspectra-${GITHUB_REF_NAME}-windows-amd64.zip" playspectra-windows-amd64 > /dev/null
+          sha256sum "playspectra-${GITHUB_REF_NAME}-windows-amd64.zip" > "playspectra-${GITHUB_REF_NAME}-windows-amd64.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: |
+            stage/playspectra-*.zip
+            stage/playspectra-*.zip.sha256
+          if-no-files-found: error
+
+  build-linux:
+    name: package linux-amd64
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Build Go control plane (version = tag)
+        env:
+          CGO_ENABLED: "0"
+        run: go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o stage/pkg/playspectra ./cmd/playspectra
+
+      - name: Install Monado build dependencies
+        # Same list as docs/getting-started-linux.md (task setup:linux-deps).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config glslang-tools \
+            libvulkan-dev libeigen3-dev libcjson-dev \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
+            libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
+            libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
+
+      - name: Configure + build Monado
+        run: |
+          cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
+            -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
+          cmake --build build/monado --parallel --target monado-service cli openxr_monado
+      - name: Install Monado into the package
+        run: cmake --install build/monado --prefix stage/pkg/runtime
+
+      - name: Build layer
+        run: |
+          cmake -S layer -B build/layer -G Ninja
+          cmake --build build/layer --parallel --target playspectra_layer
+
+      - name: Assemble package
+        run: |
+          set -euo pipefail
+          mkdir -p stage/pkg/layer stage/pkg/licenses
+          cp build/layer/playspectra_layer.so stage/pkg/layer/
+          # B2: the tracked manifest is Windows-shaped (.dll); generate the .so one here until the
+          # per-platform manifest generation moves into the layer's CMake.
+          cat > stage/pkg/layer/XrApiLayer_playspectra.json <<'EOF'
+          {
+            "file_format_version": "1.0.0",
+            "api_layer": {
+              "name": "XR_APILAYER_playspectra",
+              "library_path": "./playspectra_layer.so",
+              "api_version": "1.0",
+              "implementation_version": "1",
+              "description": "PlaySpectra instrumentation layer"
+            }
+          }
+          EOF
+          cp LICENSE THIRD_PARTY_NOTICES.md stage/pkg/
+          cp runtime/monado-playspectra/LICENSES/*.txt stage/pkg/licenses/
+          {
+            echo "PlaySpectra ${GITHUB_REF_NAME} (linux-amd64)"
+            echo "Source code: https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "The bundled Monado runtime is built from the fork pinned as a submodule at"
+            echo "runtime/monado-playspectra in that tree. It links system libraries; the"
+            echo "package list is documented in docs/getting-started-linux.md."
+          } > stage/pkg/SOURCE.txt
+
+      - name: Smoke test from the staged package
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        run: |
+          set -euo pipefail
+          cd stage/pkg
+          CLI="$(find runtime -name monado-cli -type f | head -1)"
+          test -n "$CLI"
+          "$CLI" probe | grep "PlaySpectra HMD"
+          find runtime -name 'openxr_monado.json' | grep -q . # manifest installed
+          test -f layer/playspectra_layer.so
+
+      - name: Tar + checksum
+        run: |
+          set -euo pipefail
+          mv stage/pkg "stage/playspectra-linux-amd64"
+          cd stage
+          tar czf "playspectra-${GITHUB_REF_NAME}-linux-amd64.tar.gz" playspectra-linux-amd64
+          sha256sum "playspectra-${GITHUB_REF_NAME}-linux-amd64.tar.gz" > "playspectra-${GITHUB_REF_NAME}-linux-amd64.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: |
+            stage/playspectra-*.tar.gz
+            stage/playspectra-*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    name: attach to GitHub Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Create release with assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check ./*.sha256
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "PlaySpectra ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            ./*.zip ./*.zip.sha256 ./*.tar.gz ./*.tar.gz.sha256

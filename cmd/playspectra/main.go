@@ -26,7 +26,9 @@ import (
 	"github.com/YmSaki/PlaySpectra/vrapp"
 )
 
-const version = "0.1.0"
+// Overridden by release builds via -ldflags "-X main.version=vX.Y.Z" (a const cannot be).
+// The default marks locally built binaries as such.
+var version = "0.1.0-dev"
 
 func main() { os.Exit(run(os.Args[1:])) }
 

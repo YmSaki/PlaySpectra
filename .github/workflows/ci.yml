@@ -8,8 +8,8 @@ name: CI
 #              xr_math) -- windows, matching where these 92 tests are validated -- plus a build of
 #              the playspectra_layer binary itself on windows and ubuntu (every dependency,
 #              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
-#   - monado : GCC build of the Monado runtime + devicecore (compile only, no service run) --
-#              ubuntu. See the job comment for why this exists.
+#   - monado : build + stage-install of the Monado runtime + devicecore on both release
+#              toolchains (MSVC windows / GCC ubuntu). No service run. See the job comment.
 # Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
 # service and cannot run on a hosted runner.
 
@@ -17,6 +17,12 @@ on:
   push:
   pull_request:
   workflow_call: # release.yml runs these same gates before producing any publishable artifact
+    inputs:
+      skip_monado_build:
+        description: "Caller builds Monado itself; skip the duplicate monado-build job"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -102,18 +108,27 @@ jobs:
         run: ctest --test-dir layer/build -C Release -E loader_test --output-on-failure
 
   monado-build:
-    name: Monado runtime build (ubuntu)
-    # The dev loop builds Monado with MSVC only, and MSVC treats implicit function declarations
-    # in C as a warning -- so a missing-include break that GCC rejects outright
-    # (-Werror=implicit-function-declaration is in Monado's own flags) compiles clean everywhere
-    # until release.yml's Linux package job hits it at tag time (how v0.1.0-rc1 failed). This job
-    # is the PR-time GCC compile of the runtime + devicecore. Build only: no service run, no E2E.
-    runs-on: ubuntu-latest
+    name: Monado runtime build (${{ matrix.os }})
+    # PR-time build + stage-install of the runtime with the same flags release.yml packages with.
+    # Every release failure class so far was invisible until tag time because nothing in the PR
+    # gate compiled or installed Monado on the release toolchains:
+    #   rc1 linux   : missing include -- MSVC only warns on implicit declarations, GCC -Werrors
+    #   rc2 windows : the runner's VS generation (newer than the dev boxes') dropped a header
+    #   rc2 linux   : an install rule with an absolute DESTINATION escaping --prefix
+    # The cmake --install step is load-bearing: it is what catches the rc2-linux class.
+    # Skipped when release.yml calls this workflow -- its package jobs build the same tree.
+    if: ${{ !inputs.skip_monado_build }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one OS failing must not cancel (and thereby mask) the other's result
+      matrix:
+        os: [windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install Monado build dependencies
+        if: runner.os == 'Linux'
         # Same list as release.yml / docs/getting-started-linux.md (task setup:linux-deps).
         run: |
           sudo apt-get update
@@ -124,11 +139,58 @@ jobs:
             libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
             libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
             libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
-      - name: Configure + build (same targets as release packaging)
+      - name: vcpkg binary cache
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('runtime/monado-playspectra/vcpkg.json') }}
+      - name: Configure + build + stage-install (Linux)
+        if: runner.os == 'Linux'
+        # Flag-for-flag and target-for-target the same as release.yml's Linux package job -- the
+        # rationale comments live there.
         run: |
           cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
-          cmake --build build/monado --parallel --target monado-service cli openxr_monado
+          cmake --build build/monado --parallel --target monado-service cli openxr_monado monado-ctl
+          cmake --install build/monado --prefix stage/smoke
+      - name: Configure + build + stage-install (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-cache,readwrite"
+        # Flag-for-flag the same as release.yml's Windows package job (no monado-ctl: targets/ctl
+        # is non-Windows) -- the rationale comments live there.
+        run: |
+          cmake -S runtime/monado-playspectra -B build/monado -A x64 \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
+            -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
+          cmake --build build/monado --config Release --target monado-service cli openxr_monado
+          cmake --install build/monado --config Release --prefix stage/smoke
+      # Same machine check as the release package smoke. rc1/rc2 never reached that step on
+      # either OS, so without this the first-ever run of the packaged probe would be at tag time.
+      - name: Staged probe smoke
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        # 2>&1 is load-bearing: Monado's logging (the device enumeration included) goes to
+        # stderr; probe's stdout never contains the device names (measured, not assumed).
+        run: ./stage/smoke/bin/monado-cli.exe probe 2>&1 | grep "PlaySpectra HMD"
+      - name: Staged probe smoke
+        if: runner.os == 'Linux'
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        run: |
+          set -euo pipefail
+          CLI="$(find stage/smoke -name monado-cli -type f | head -1)"
+          test -n "$CLI"
+          "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
 
   layer-build:
     name: layer binary build (${{ matrix.os }})

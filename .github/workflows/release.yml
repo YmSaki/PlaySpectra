@@ -33,6 +33,10 @@ permissions:
 jobs:
   gate:
     uses: ./.github/workflows/ci.yml
+    with:
+      # The package jobs below are themselves full Monado builds; the gate's own monado-build
+      # job would compile the same tree a second time in the same run.
+      skip_monado_build: true
 
   build-windows:
     name: package windows-amd64
@@ -69,9 +73,16 @@ jobs:
           # features pull libusb (LGPL-2.1) and SDL2 into the bundle (THIRD_PARTY_NOTICES.md).
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-cache,readwrite"
         run: |
+          # OPENVR / STEAMVR_PLUGIN are SteamVR-integration components this package does not
+          # ship, and their install rules expand CMAKE_INSTALL_PREFIX at configure time into an
+          # absolute DESTINATION that escapes the --prefix override at staging time. MONADO_GUI
+          # is explicitly off to keep the flag set identical to the Linux job (there SDL2 would
+          # flip it on; here the manifest carries no SDL2 to begin with).
           cmake -S runtime/monado-playspectra -B build/monado -A x64 \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
       - name: Build Monado (service / cli / OpenXR client)
         run: cmake --build build/monado --config Release --target monado-service cli openxr_monado
@@ -115,7 +126,8 @@ jobs:
           cd stage/pkg
           ./playspectra.exe doctor || true # reachability probe; ports are down by design here
           # Machine-checked: the packaged runtime must enumerate the virtual devices on its own.
-          ./runtime/bin/monado-cli.exe probe | grep "PlaySpectra HMD"
+          # 2>&1: Monado logs the enumeration to stderr; probe's stdout never carries it.
+          ./runtime/bin/monado-cli.exe probe 2>&1 | grep "PlaySpectra HMD"
           test -f runtime/openxr_monado.json
           test -f layer/playspectra_layer.dll
 
@@ -166,10 +178,20 @@ jobs:
             libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
 
       - name: Configure + build Monado
+        # Same OPENVR/STEAMVR_PLUGIN rationale as the Windows configure: not shipped, and their
+        # absolute-DESTINATION install rules escape --prefix (this leg died on /usr/local/share
+        # at rc2). MONADO_GUI is off for install/package coherence too: on Linux the apt SDL2
+        # would flip it on, its install rule expects a monado-gui binary this job never builds,
+        # and shipping it would drag SDL2 into the bundle (THIRD_PARTY_NOTICES.md keeps it out).
+        # monado-ctl must be built: targets/ctl has no gating option (always added with the
+        # service feature on non-Windows) and its install rule fails unless the binary was
+        # built -- and the service control CLI is genuinely useful in the package anyway.
         run: |
           cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
-          cmake --build build/monado --parallel --target monado-service cli openxr_monado
+          cmake --build build/monado --parallel --target monado-service cli openxr_monado monado-ctl
       - name: Install Monado into the package
         run: cmake --install build/monado --prefix stage/pkg/runtime
 
@@ -216,7 +238,7 @@ jobs:
           cd stage/pkg
           CLI="$(find runtime -name monado-cli -type f | head -1)"
           test -n "$CLI"
-          "$CLI" probe | grep "PlaySpectra HMD"
+          "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
           find runtime -name 'openxr_monado.json' | grep -q . # manifest installed
           test -f layer/playspectra_layer.so
 

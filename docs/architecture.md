@@ -56,8 +56,7 @@ The OpenXR layer's input override is a test aid. The primary input path for the 
 
 ## Distribution boundary
 
-At runtime there are three processes, and the distribution units follow them rather than a single
-"native bundle":
+At runtime there are three processes, and the distribution units follow them:
 
 1. The cgo-free `playspectra` executable: CLI, MCP server, JSON Scenario Runner, high-level
    operations/interpolation, state management, assertions, record/replay, doctor, and

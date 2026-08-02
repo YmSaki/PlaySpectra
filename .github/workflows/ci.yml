@@ -8,6 +8,8 @@ name: CI
 #              xr_math) -- windows, matching where these 92 tests are validated -- plus a build of
 #              the playspectra_layer binary itself on windows and ubuntu (every dependency,
 #              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
+#   - monado : GCC build of the Monado runtime + devicecore (compile only, no service run) --
+#              ubuntu. See the job comment for why this exists.
 # Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
 # service and cannot run on a hosted runner.
 
@@ -98,6 +100,35 @@ jobs:
         run: cmake --build layer/build --config Release --target playspectra_test
       - name: Run tests
         run: ctest --test-dir layer/build -C Release -E loader_test --output-on-failure
+
+  monado-build:
+    name: Monado runtime build (ubuntu)
+    # The dev loop builds Monado with MSVC only, and MSVC treats implicit function declarations
+    # in C as a warning -- so a missing-include break that GCC rejects outright
+    # (-Werror=implicit-function-declaration is in Monado's own flags) compiles clean everywhere
+    # until release.yml's Linux package job hits it at tag time (how v0.1.0-rc1 failed). This job
+    # is the PR-time GCC compile of the runtime + devicecore. Build only: no service run, no E2E.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Monado build dependencies
+        # Same list as release.yml / docs/getting-started-linux.md (task setup:linux-deps).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config glslang-tools \
+            libvulkan-dev libeigen3-dev libcjson-dev \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
+            libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
+            libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
+      - name: Configure + build (same targets as release packaging)
+        run: |
+          cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
+            -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
+          cmake --build build/monado --parallel --target monado-service cli openxr_monado
 
   layer-build:
     name: layer binary build (${{ matrix.os }})

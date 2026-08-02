@@ -48,9 +48,9 @@ The DLL list assumes the documented Windows build, which passes
 `-DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON`. Enabling the vcpkg manifest's default `usb` and `gui`
 features additionally pulls in libusb (LGPL-2.1), hidapi, zlib, and SDL2, which this list does not
 cover. vcpkg also produces `pthreadVC3.dll` and `pthreadVSE3.dll`; which of the three ships is
-decided at packaging time. The Monado source is submodule revision
-`cfcf5aa68d570ac91352fe7a8ebab790c7c0a6ba` and the vcpkg baseline is
-`4334d8b4c8916018600212ab4dd4bbdc343065d1`.
+decided at packaging time. The Monado source revision is the one pinned by the
+`runtime/monado-playspectra` submodule gitlink (release packages record the exact tree in their
+`SOURCE.txt`); the vcpkg baseline is `4334d8b4c8916018600212ab4dd4bbdc343065d1`.
 
 Licensing boundary: the `runtime/monado-playspectra` submodule is not covered by this repository's
 MPL-2.0 license. It is a Monado fork and keeps upstream's licensing, which is REUSE-compliant and

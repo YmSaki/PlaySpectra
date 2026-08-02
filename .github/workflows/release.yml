@@ -126,7 +126,8 @@ jobs:
           cd stage/pkg
           ./playspectra.exe doctor || true # reachability probe; ports are down by design here
           # Machine-checked: the packaged runtime must enumerate the virtual devices on its own.
-          ./runtime/bin/monado-cli.exe probe | grep "PlaySpectra HMD"
+          # 2>&1: Monado logs the enumeration to stderr; probe's stdout never carries it.
+          ./runtime/bin/monado-cli.exe probe 2>&1 | grep "PlaySpectra HMD"
           test -f runtime/openxr_monado.json
           test -f layer/playspectra_layer.dll
 
@@ -237,7 +238,7 @@ jobs:
           cd stage/pkg
           CLI="$(find runtime -name monado-cli -type f | head -1)"
           test -n "$CLI"
-          "$CLI" probe | grep "PlaySpectra HMD"
+          "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
           find runtime -name 'openxr_monado.json' | grep -q . # manifest installed
           test -f layer/playspectra_layer.so
 

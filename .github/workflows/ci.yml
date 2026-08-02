@@ -179,7 +179,9 @@ jobs:
         shell: bash
         env:
           PLAYSPECTRA_ENABLE: "1"
-        run: ./stage/smoke/bin/monado-cli.exe probe | grep "PlaySpectra HMD"
+        # 2>&1 is load-bearing: Monado's logging (the device enumeration included) goes to
+        # stderr; probe's stdout never contains the device names (measured, not assumed).
+        run: ./stage/smoke/bin/monado-cli.exe probe 2>&1 | grep "PlaySpectra HMD"
       - name: Staged probe smoke
         if: runner.os == 'Linux'
         env:
@@ -188,7 +190,7 @@ jobs:
           set -euo pipefail
           CLI="$(find stage/smoke -name monado-cli -type f | head -1)"
           test -n "$CLI"
-          "$CLI" probe | grep "PlaySpectra HMD"
+          "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
 
   layer-build:
     name: layer binary build (${{ matrix.os }})

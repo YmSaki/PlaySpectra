@@ -67,6 +67,11 @@ CLI・JSON シナリオ実行・録画・再生・自動テストが乗る。
   MCP/シナリオは Monado 固有型や SteamVR 固有型を直接触らない。Adapter が各 Runtime の型
   (`xrt_space_relation` / `DriverPose_t` / `XrPosef`) へ変換する。上位機能が増えても
   Adapter を頻繁に触らずに済む、が設計意図。
+  【更新 2026-08-02】✅ この宣言どおりに実装を是正: Core(NDJSON プロトコル・VirtualDeviceState・
+  TCP 制御チャネル)を Monado submodule 内から **repo 直下 `devicecore/`(runtime 中立 C・MPL-2.0)** へ
+  切り出した。各 Adapter は Core を自 Runtime のプロセスへ静的リンクする(Runtime の同期コールバックに
+  即答するため in-process 必須)。submodule 側は型変換の殻のみ。SteamVR Adapter(G3)は driver/ の
+  スケルトンの独自プロトコルを捨てて同じ Core をリンクする。
 - **Device Backend (Runtime Adapter)**: 仮想デバイス状態を各 Runtime の正規デバイス経路へ公開する。
   Monado Adapter と SteamVR Adapter。**「どれか一方」ではなく複数並立**。
 - **Instrumentation (OpenXR API Layer)**: 【補正 2026-07-19】Layer は Monado/SteamVR と

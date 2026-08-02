@@ -42,6 +42,8 @@ OpenXR standardizes the application-to-runtime boundary. The runtime-to-device-d
 
 PlaySpectra uses a common Virtual Device Core plus a Runtime Adapter for each runtime. The core carries the runtime-neutral device state; an adapter translates that state into the native device path of its runtime. The Monado adapter is the current working backend. The SteamVR adapter remains planned.
 
+The core is implemented once, as runtime-neutral C in [`devicecore/`](../devicecore/): the NDJSON protocol, the shared `VirtualDeviceState`, and the TCP control channel. Each adapter compiles it into its runtime's process — the Monado fork pulls it into `drv_playspectra` — because runtimes query device state through synchronous in-process callbacks and accept no out-of-process devices. The adapter shell that remains runtime-side only converts the core's state into its runtime's native types (`xrt_space_relation` today, `DriverPose_t` for SteamVR later); the control channel a client connects to is owned by the core, not by the shell.
+
 ## Responsibility boundaries
 
 - Operation interfaces are peers: CLI, JSON scenarios, and MCP all call the same Server.
@@ -54,16 +56,19 @@ The OpenXR layer's input override is a test aid. The primary input path for the 
 
 ## Distribution boundary
 
-The intended release boundary is two distribution units, not literally two files:
+At runtime there are three processes, and the distribution units follow them:
 
-1. A native C++ bundle containing the Monado Runtime Adapter, virtual HMD/controllers, the OpenXR
-   instrumentation layer, and D3D11/D3D12/Vulkan capture. It may contain multiple executables,
-   DLLs/shared objects, loader manifests, and runtime JSON files required by the platform.
-2. One cgo-free `playspectra` executable containing the CLI, MCP server, JSON Scenario Runner,
-   high-level operations/interpolation, state management, assertions, record/replay, doctor, and
+1. The cgo-free `playspectra` executable: CLI, MCP server, JSON Scenario Runner, high-level
+   operations/interpolation, state management, assertions, record/replay, doctor, and
    session/process management.
+2. The runtime process hosting the device core plus its adapter shell — today `monado-service`
+   with the virtual HMD/controllers compiled in (multiple executables, DLLs/shared objects,
+   loader manifests, and runtime JSON files as the platform requires).
+3. The target application's process, which the OpenXR instrumentation layer (with D3D11/D3D12/
+   Vulkan capture) joins via the OpenXR loader. The layer never links against any runtime, and it
+   lives wherever the observed application runs — not necessarily beside the runtime bundle.
 
-The Go executable does not link the C++ artifacts. The two units communicate only over the existing
+The Go executable does not link the C/C++ artifacts. The units communicate only over the existing
 NDJSON/TCP operate (`:52702`) and capture (`:52700`) boundaries. The compiled control plane has no
 language-runtime dependency, while the native artifacts remain
 independent of Go and cgo.

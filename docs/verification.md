@@ -13,7 +13,7 @@ A status is always scoped. For example, “D3D12 verified” means the D3D12 cap
 
 | Area | Status | Evidence and boundary |
 | --- | --- | --- |
-| Monado Adapter: virtual HMD and left/right controllers | **Verified** | Monado enumerates head/left/right devices, an OpenXR app reads poses, and set_state changes pose/input. Sources: runtime/monado-playspectra/src/xrt/drivers/playspectra/ and tools/playspectra_headless_probe.c, tools/playspectra_action_probe.c. |
+| Monado Adapter: virtual HMD and left/right controllers | **Verified** | Monado enumerates head/left/right devices, an OpenXR app reads poses, and set_state changes pose/input. Sources: devicecore/ (protocol/state/control channel), runtime/monado-playspectra/src/xrt/drivers/playspectra/ (Monado shell), and tools/playspectra_headless_probe.c, tools/playspectra_action_probe.c. |
 | Monado control channel on :52702 | **Verified** | set_state, get_state, haptics broadcast, multiple observers, writer exclusion, frame_synchronized, and reset are implemented. The recorded Windows runs include frame 10/10, reset 20/20, and the multi-observer core. Sources: `playspectra verify frame`, `verify reset`, and `verify multiobs`. |
 | PlaySpectra Core | **Verified** | move_head, look, walk_forward, strafe, trigger, press, set_input, move_controller, reset, get_state, wait_for, scenario execution, and capture assertions are implemented. The self-checking live run records 9/9. Source: `playspectra verify server`. |
 | Recorder and Replayer | **Verified** | An observer records timestamped state frames and a writer replays them with fresh monotonic sequence values. The recorded live Windows Monado verification is 5/5. Source: `playspectra verify record`. |
@@ -30,7 +30,7 @@ A status is always scoped. For example, “D3D12 verified” means the D3D12 cap
 | Runtime-level operate coupling | **Verified** | A set_state sent through :52702 reaches a live app's xrLocateViews without relying on layer pose override. Source: `playspectra verify coupling`. |
 | Headless capture resolution | **Verified** | The headless path uses the resolution declared by the virtual HMD; the recorded hello_xr and VRAppDummyGame paths use 1080x1200 per eye. Source: runtime/monado-playspectra/src/xrt/compositor/null/null_compositor.c and the Windows E2E harnesses. |
 | OpenVR application through OpenComposite | **Partially verified** | The recorded integration has 15 PASS and 1 SKIP for the OpenVR-to-OpenXR path. This is not SteamVR Adapter completion. Source: scripts/integration_openvr_test.sh. |
-| SteamVR Adapter | **Planned** | driver/ contains an earlier skeleton. Reconnection to the current core and Windows verification remain. Source: .claude/steamvr-driver-plan.md. |
+| SteamVR Adapter | **Planned** | driver/ contains an earlier skeleton. Connecting it to the shared device core (devicecore/) and Windows verification remain. Source: .claude/steamvr-driver-plan.md. |
 | Windows physical-HMD display compositor | **Not yet verified** | The recorded application E2E uses XRT_COMPOSITOR_NULL=1. It proves headless rendering/capture, not presentation to a physical headset. |
 | Unity application | **Not yet verified** | The OpenXR-level design is intended to be engine-independent, but no Unity application E2E result is claimed. |
 | Unreal Engine application | **Not yet verified** | No Unreal application E2E result is claimed. |

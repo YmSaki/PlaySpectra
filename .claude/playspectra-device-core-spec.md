@@ -3,7 +3,8 @@
 作成: 2026-07-19 / 改訂: 2026-07-19 rev2(ユーザーレビュー反映)。正典 `playspectra-architecture.md` の M1。
 **✅ 実装・実測済みの現行プロトコル仕様**(2026-07-30 ステータス是正: 旧「ドラフト・再レビュー待ち」のまま
 M2 実装→E2E 検証まで完了し、本仕様どおりの実装が Windows/WSL2 で稼働中。fov/解像度/refresh の実値も
-確定済み — 1080x1200 / 90Hz、`playspectra_control.c:309` 付近)。
+確定済み — 1080x1200 / 90Hz。実装は `devicecore/playspectra_control.c` の add_descriptor、
+値の注入元は Monado 殻 `playspectra_interface.h` の PLAYSPECTRA_HMD_* 定数)。
 基盤決定(ユーザー確定): 基準空間=**STAGE**、メッセージ=**完全スナップショット/フレーム**、
 クロック=**Server が sequence 所有・時刻はモード別**、座標規約=OpenXR 既定。
 

@@ -291,6 +291,8 @@ flowchart TD
 - The OpenXR layer observes the application process; it is not a replacement for the Runtime Adapter.
 - The same operation model supports AI operation, CLI/JSON replay, and automated assertions.
 
+The virtual HMD and controllers are implemented once as a runtime-neutral device core ([`devicecore/`](devicecore/)) that each Runtime Adapter compiles into its runtime's process; the adapter itself is only a thin conversion shell.
+
 The Monado operation channel is `127.0.0.1:52702`. The layer capture channel is `127.0.0.1:52700`. Detailed design rationale is documented in [Architecture](docs/architecture.md).
 
 ## Development and testing
@@ -311,7 +313,7 @@ The [support tables above](#current-support) are the authoritative status summar
 
 Roadmap items are separate from current capabilities:
 
-- SteamVR Adapter: implement the adapter for the current Virtual Device Core and verify it on Windows.
+- SteamVR Adapter: connect an adapter shell to the shared device core (`devicecore/`) and verify it on Windows.
 - Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
 - Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
 - Legacy TypeScript MCP in `mcp/`: retire the non-canonical implementation after downstream users have moved to the Go MCP command.

@@ -9,7 +9,7 @@
 #   - mcp/     node:test   (pure quaternion/vector math)                            -> 42 cases
 #   - layer/   gtest/ctest (capture/pixel/pose helpers + xr_math/dxgi/pose_override) -> 92 Win / 83 non-Win (DXGI is WIN32-only)
 #   - Go       go test     (Core, protocol, Scenario, MCP, record/replay, setup helpers, probes)
-#   - submodule playspectra_proto (gcc standalone: frame verdict + content_sig)       -> 43 cases
+#   - devicecore playspectra_proto (gcc standalone: frame verdict + content_sig)      -> 43 cases
 #
 # WHY: GitHub Actions runs the environment-independent MCP and layer suites, while this script adds
 # the Go control-plane and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
@@ -67,20 +67,22 @@ else
 fi
 
 echo ""
-echo "== submodule: playspectra_proto (gcc standalone) =="
-PROTO="runtime/monado-playspectra/src/xrt/drivers/playspectra"
-if command -v gcc >/dev/null 2>&1 && [ -f "$PROTO/playspectra_proto_test.c" ]; then
+echo "== devicecore: playspectra_proto (gcc standalone) =="
+PROTO="devicecore"
+CJSON="runtime/monado-playspectra/src/external/cjson"
+if command -v gcc >/dev/null 2>&1 && [ -f "$PROTO/playspectra_proto_test.c" ] && [ -f "$CJSON/cjson/cJSON.c" ]; then
   mkdir -p build
-  # No Monado deps: proto parse/verdict/content_sig test compiles from proto.c + bundled cJSON only.
-  if gcc -I runtime/monado-playspectra/src/external/cjson -I "$PROTO" \
+  # No Monado deps: proto parse/verdict/content_sig test compiles from proto.c + bundled cJSON only
+  # (cJSON source itself still lives in the Monado submodule -- hence the submodule presence check).
+  if gcc -I "$CJSON" -I "$PROTO" \
          "$PROTO/playspectra_proto_test.c" "$PROTO/playspectra_proto.c" \
-         runtime/monado-playspectra/src/external/cjson/cjson/cJSON.c -o build/proto_test.exe; then
+         "$CJSON/cjson/cJSON.c" -o build/proto_test.exe; then
     ./build/proto_test.exe || { echo ">> proto tests FAILED"; fail=1; }
   else
     echo ">> proto build FAILED"; fail=1
   fi
 else
-  note_skip "proto" "gcc or submodule source not found"
+  note_skip "proto" "gcc or submodule cJSON not found"
 fi
 
 echo ""

@@ -33,6 +33,10 @@ permissions:
 jobs:
   gate:
     uses: ./.github/workflows/ci.yml
+    with:
+      # The package jobs below are themselves full Monado builds; the gate's own monado-build
+      # job would compile the same tree a second time in the same run.
+      skip_monado_build: true
 
   build-windows:
     name: package windows-amd64
@@ -69,9 +73,13 @@ jobs:
           # features pull libusb (LGPL-2.1) and SDL2 into the bundle (THIRD_PARTY_NOTICES.md).
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-cache,readwrite"
         run: |
+          # OPENVR / STEAMVR_PLUGIN are SteamVR-integration components this package does not
+          # ship, and their install rules expand CMAKE_INSTALL_PREFIX at configure time into an
+          # absolute DESTINATION that escapes the --prefix override at staging time.
           cmake -S runtime/monado-playspectra -B build/monado -A x64 \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
       - name: Build Monado (service / cli / OpenXR client)
         run: cmake --build build/monado --config Release --target monado-service cli openxr_monado
@@ -166,8 +174,12 @@ jobs:
             libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
 
       - name: Configure + build Monado
+        # Same OPENVR/STEAMVR_PLUGIN rationale as the Windows configure: not shipped, and their
+        # absolute-DESTINATION install rules escape --prefix (this leg died on /usr/local/share
+        # at rc2).
         run: |
           cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
+            -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
           cmake --build build/monado --parallel --target monado-service cli openxr_monado
       - name: Install Monado into the package

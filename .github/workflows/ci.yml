@@ -147,22 +147,28 @@ jobs:
           key: vcpkg-${{ runner.os }}-${{ hashFiles('runtime/monado-playspectra/vcpkg.json') }}
       - name: Configure + build + stage-install (Linux)
         if: runner.os == 'Linux'
+        # Flag-for-flag and target-for-target the same as release.yml's Linux package job -- the
+        # rationale comments live there.
         run: |
           cmake -S runtime/monado-playspectra -B build/monado -G Ninja \
             -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
-          cmake --build build/monado --parallel --target monado-service cli openxr_monado
+          cmake --build build/monado --parallel --target monado-service cli openxr_monado monado-ctl
           cmake --install build/monado --prefix stage/smoke
       - name: Configure + build + stage-install (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
           VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-cache,readwrite"
+        # Flag-for-flag the same as release.yml's Windows package job (no monado-ctl: targets/ctl
+        # is non-Windows) -- the rationale comments live there.
         run: |
           cmake -S runtime/monado-playspectra -B build/monado -A x64 \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON \
             -DXRT_FEATURE_OPENVR=OFF -DXRT_FEATURE_STEAMVR_PLUGIN=OFF \
+            -DXRT_MODULE_MONADO_GUI=OFF \
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
           cmake --build build/monado --config Release --target monado-service cli openxr_monado
           cmake --install build/monado --config Release --prefix stage/smoke

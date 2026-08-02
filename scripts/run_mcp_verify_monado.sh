@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Full-chain check of the PlaySpectra MCP server (the AI-agent-facing interface) against the LIVE
 # Windows-built Monado stack. Stands up monado-service (:52702) + hello_xr with the capture layer
 # (:52700) via lib_monado_stack.sh, then runs playspectra verify mcp, which spawns the MCP

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Fetch the Monado Windows CI build into third_party/monado/ (xcopy-deployable, no install).
 # Reproduces the runtime validated by the 2026-07-16 PoC (.claude/monado-poc-plan.md).
 #

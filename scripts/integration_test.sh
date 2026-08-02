@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # GAP-10 integration test: drive the playspectra layer against a real OpenXR app (hello_xr) under the
 # Meta XR Simulator, and assert the engine-independent surfaces (profile/binding interception, view
 # override, sync-semantics round-trip, non-degenerate capture) via integration_hello_xr.mjs.

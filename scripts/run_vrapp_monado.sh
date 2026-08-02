@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # End-to-end verification against a REAL ENGINE app: VRAppDummyGame (Godot 4.7, OpenXR, D3D12) driven on
 # the Windows-built Monado (PlaySpectra virtual-device driver, operate channel :52702) while the
 # playspectra capture layer (:52700) observes the frames it renders.

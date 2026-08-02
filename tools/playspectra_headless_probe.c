@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // PlaySpectra headless OpenXR pose-reader (M2.2/M2.3 verification).
 // XR_MND_headless -> no graphics binding/compositor swapchains. Uses
 // XR_KHR_convert_timespec_time to build a valid XrTime from the monotonic clock, so

@@ -318,6 +318,12 @@ Roadmap items are separate from current capabilities:
 
 The [roadmap](docs/roadmap.md) keeps these boundaries separate from current features.
 
+## License
+
+PlaySpectra is released under the [Mozilla Public License 2.0](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The `runtime/monado-playspectra` submodule is a Monado fork, and this repository's MPL-2.0 does not cover it. It keeps upstream Monado's licensing: predominantly BSL-1.0, including the PlaySpectra driver sources inside it, with other licenses recorded in the submodule's `LICENSES/` directory.
+
 ## Documentation index
 
 - [Architecture](docs/architecture.md)

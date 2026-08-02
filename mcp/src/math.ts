@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Quaternion helpers for the ergonomic yaw/pitch/roll interface. The LAYER is the single source of
 // truth for injected poses (sticky state); tools that need the current pose (vr_move, later
 // vr_look_at) query it via pose_get/head_get rather than mirroring state, so they always act on

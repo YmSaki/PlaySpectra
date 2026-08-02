@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // PlaySpectra controller-input E2E probe (M2 Stage 2 verification).
 // Sets up an OpenXR action set bound to /interaction_profiles/oculus/touch_controller,
 // runs the frame loop (to progress the session to FOCUSED), then each frame syncs actions

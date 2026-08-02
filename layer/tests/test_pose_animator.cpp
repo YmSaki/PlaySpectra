@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Host-run unit tests for pose_animator (the durationMs glide evaluator). The animator is pure
 // state-machine logic over (target, seq, durationMs, now) -- no runtime, no sockets -- so it is
 // unit-testable without a headset. The animator state is TU-global, so every test starts from

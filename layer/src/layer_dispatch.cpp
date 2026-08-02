@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Layer dispatch table + single-instance state implementation. Moved verbatim from
 // layer_entry.cpp (refactor phase 3); behaviour is unchanged (same resolution, same lock
 // discipline, same single-instance model).

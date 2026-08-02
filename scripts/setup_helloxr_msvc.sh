@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Build the MSVC hello_xr (D3D11/D3D12 plugins compiled in) and deploy to third_party/hello_xr_msvc/.
 # The MinGW hello_xr (layer/build/_deps) has no D3D plugins; this one has no Vulkan (unless a Vulkan
 # SDK is installed) -- the two are complementary. Point integration_test.sh at this exe via:

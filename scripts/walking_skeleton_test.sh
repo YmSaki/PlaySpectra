@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # End-to-end walking-skeleton test:
 #   raw client -> vr_input(squeeze=1.0) -> playspectra layer -> XR_EXT_conformance_automation
 #   -> hello_xr detects grab > 0.9 -> xrApplyHapticFeedback -> layer logs it.

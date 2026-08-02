@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # OpenVR-path integration test: hellovr_dx12 (OpenVR app) -> OpenComposite -> playspectra layer -> Monado.
 # Prereqs (one-time): scripts/setup_monado.sh, scripts/setup_opencomposite.sh, scripts/setup_hellovr.sh.
 # Runtime is Monado by design (OpenComposite needs an OpenXR runtime; matrix stays minimal).

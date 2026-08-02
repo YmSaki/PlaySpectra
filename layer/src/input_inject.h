@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Input injection -- the CA and non-CA paths of the single "inject button/analog input" responsibility.
 // Extracted from layer_entry.cpp (refactor phase 6) so both halves live in one translation unit:
 //   [C] ApplyPendingInputs -- on a runtime WITH XR_EXT_conformance_automation, drain queued MCP

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Run the hello_xr bring-up app against the current XR_RUNTIME_JSON (Meta simulator by default).
 # Usage: scripts/run_hello_xr.sh [seconds] [graphics-api]
 #   seconds: how long to let it run before killing (default 12)

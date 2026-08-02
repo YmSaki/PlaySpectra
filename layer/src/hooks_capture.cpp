@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Frame-capture hook cluster implementation. Moved verbatim from layer_entry.cpp (refactor
 // R04); behaviour is unchanged (same passthrough + capture.cpp notifications). See hooks_capture.h.
 #include "hooks_capture.h"

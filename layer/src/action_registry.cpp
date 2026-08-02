@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Action discovery registry + shared action mutex implementation. Moved verbatim from
 // layer_entry.cpp (refactor phase 4); behaviour is unchanged (same data, same algorithms,
 // same lock discipline -- see action_registry.h for the shared-mutex invariants).

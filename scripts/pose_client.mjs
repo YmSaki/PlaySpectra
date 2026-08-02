@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // "前ならえ" (arms-forward) pose demo client for the playspectra control channel.
 // Marks both controllers active, sets a sticky grip pose per hand (arms extended forward in the
 // layer's LOCAL space), holds it while re-affirming `active`, then captures screenshots.

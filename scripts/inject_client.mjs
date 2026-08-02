@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Standalone walking-skeleton test client: speaks the raw NDJSON control protocol to the
 // playspectra layer (no MCP layer involved), to validate control channel + conformance-automation
 // input injection. Connects with retry, marks the right controller active, drives squeeze/value

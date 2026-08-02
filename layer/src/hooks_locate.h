@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Locate/reference-space hook cluster -- the head/VIEW + controller-pose override hooks that drive
 // pose_override.cpp. Extracted from openxr_agent_layer.cpp (refactor R04) as a move only: the hook
 // bodies are unchanged and the dispatch table (kHooks[] in openxr_agent_layer.cpp) still references

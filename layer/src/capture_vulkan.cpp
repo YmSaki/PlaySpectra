@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Vulkan color/depth-readback backend for PlaySpectra frame capture. See capture_backends.h for the
 // interface contract; this is the reference implementation the D3D11/D3D12 backends mirror.
 //

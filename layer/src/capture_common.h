@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Shared color-readback helpers for every capture backend (Vulkan / D3D11 / D3D12).
 //
 // Extracted move-only (refactor R01) from the three backends, where the same three tail steps were

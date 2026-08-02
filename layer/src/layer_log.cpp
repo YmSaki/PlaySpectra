@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Shared layer logger implementation. Moved verbatim from layer_entry.cpp (refactor phase 1),
 // then extended with a wall-clock timestamp prefix: correlating this log against the app's own log
 // and the integration harness's sleeps is how flakes and glide timing get diagnosed, and without

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Build the OpenVR sample app (hellovr_dx12, x64) and deploy it with the OpenComposite openvr_api.dll
 # to third_party/hellovr/ -- the OpenVR-side test app for the playspectra stack (no Steam/SteamVR).
 #

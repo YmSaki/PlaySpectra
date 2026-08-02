@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // durationMs interpolation -- the evaluator that turns a sticky pose TARGET (with an optional
 // durationMs) into the pose to inject THIS instant. This is the "glide" half of the design split
 // agreed in the refactor plan (§5.1): the control channel's sticky store owns the TARGET (what the

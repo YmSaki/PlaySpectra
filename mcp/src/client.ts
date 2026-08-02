@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Control-channel client: NDJSON over localhost TCP to the OpenXR API layer (control_channel.cpp).
 // The layer's TCP server only exists once the VR app has created an XrInstance, so we connect
 // lazily and treat "connection refused" as "no VR app running yet" rather than a hard error.

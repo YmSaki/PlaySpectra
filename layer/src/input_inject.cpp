@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Input injection (CA + non-CA fallback) implementation. Moved verbatim from layer_entry.cpp
 // (refactor phase 6); behaviour is unchanged (same data, same algorithms, same lock discipline -- see
 // input_inject.h for the GAP-08 fallback description and the ActionMutex()/two-phase invariants).

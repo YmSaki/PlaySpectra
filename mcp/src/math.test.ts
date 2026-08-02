@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // Unit tests for the pure quaternion/vector math in math.ts. Fully environment-independent
 // (no layer, no socket, no GPU) -- these are the first tests wired into CI.
 // Run: npm test  (node --import tsx --test).

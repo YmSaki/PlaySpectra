@@ -273,6 +273,12 @@ flowchart TD
 - 実機HMDの表示compositor、アプリ全体のdeterministic timing：不足している検証結果を追加する
 - legacy TypeScript MCP：現行MCPへ移行後に廃止する
 
+## ライセンス
+
+PlaySpectraのライセンスは[Mozilla Public License 2.0](../LICENSE)です。第三者コンポーネントは[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)に記載しています。
+
+`runtime/monado-playspectra` submoduleはMonadoのforkで、このリポジトリのMPL-2.0は適用されません。upstream Monadoのライセンス構成をそのまま引き継いでおり、PlaySpectraドライバーのソースを含めて大部分はBSL-1.0ですが、それ以外のライセンスのファイルもあります。submoduleの`LICENSES/`を参照してください。
+
 ## ドキュメント
 
 - [英語版README（正典）](../README.md)

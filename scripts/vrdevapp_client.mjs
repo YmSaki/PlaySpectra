@@ -1,3 +1,9 @@
+// Copyright (c) 2026 PlaySpectra contributors
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
 // VRDevApp verification client for the playspectra layer control channel (:52700).
 // Always runs discovery: status (session/CA/framesObserved), actions dump (the app's registered
 // action bindings -- so the movement stick's real source path is measured, not guessed), and a

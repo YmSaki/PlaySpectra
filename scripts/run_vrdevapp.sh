@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # Launch VRDevApp (Godot 4.7.1 OpenXR app, bin/VRDevApp.exe) under the playspectra layer on the current
 # runtime (metasim by default), wait for the control channel, run vrdevapp_client.mjs, then tear
 # down. VRDevApp is the track1 verification target (real engine app, not hello_xr): its floating

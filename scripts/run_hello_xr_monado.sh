@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 PlaySpectra contributors
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
 # End-to-end verification: a real OpenXR app (hello_xr) driven on the Windows-built Monado runtime
 # (PlaySpectra virtual-device driver, control channel :52702) while the playspectra capture layer
 # (:52700) observes the frames it renders -- the full PlaySpectra stack against a real engine app, on

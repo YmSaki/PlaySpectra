@@ -15,7 +15,7 @@ This page separates current interfaces from work that is planned or not yet veri
 
 ## Planned or not yet verified
 
-- SteamVR Adapter: reconnect the earlier driver skeleton in driver/ to the current Virtual Device Core, then verify Windows runtime and application behavior.
+- SteamVR Adapter: reconnect the earlier driver skeleton in driver/ to the shared device core (`devicecore/`), replacing the skeleton's own ad-hoc protocol, then verify Windows runtime and application behavior.
 - Unity application E2E: not yet verified.
 - Unreal application E2E: not yet verified.
 - Physical-HMD display compositor: not yet verified; current Windows E2E uses XRT_COMPOSITOR_NULL=1.

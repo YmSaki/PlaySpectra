@@ -260,6 +260,8 @@ flowchart TD
 - OpenXR Instrumentation Layerはアプリ内の描画結果を観測します。Runtime Adapterの代替ではありません。
 - 同じ操作モデルを、AI操作、CLI/JSONの再現、assertに使用できます。
 
+仮想HMDとコントローラーの実体は、ランタイム中立のdevice core（[`devicecore/`](../devicecore/)）として1回だけ実装され、各Runtime AdapterがRuntimeのプロセスへコンパイルして取り込みます。Adapter自体は薄い型変換の殻です。
+
 詳細な設計理由は[Architecture](architecture.md)、完全な検証根拠は[Verification matrix](verification.md)、代表テストは[Testing](testing.md)を参照してください。
 
 ## Project status and roadmap
@@ -268,7 +270,7 @@ flowchart TD
 
 今後の予定は、現在の機能とは分けて管理します。
 
-- SteamVR Adapter：現行Virtual Device Coreへ接続するAdapterを実装し、Windowsで検証する
+- SteamVR Adapter：共有device core（`devicecore/`）へ接続するAdapter殻を実装し、Windowsで検証する
 - Unity、Unreal、AR/MR固有アプリ：アプリE2Eの検証結果を追加する
 - 実機HMDの表示compositor、アプリ全体のdeterministic timing：不足している検証結果を追加する
 - legacy TypeScript MCP：現行MCPへ移行後に廃止する

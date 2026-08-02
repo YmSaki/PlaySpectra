@@ -56,7 +56,10 @@ decided at packaging time. The Monado source is submodule revision
 Licensing boundary: the `runtime/monado-playspectra` submodule is not covered by this repository's
 MPL-2.0 license. It is a Monado fork and keeps upstream's licensing, which is REUSE-compliant and
 multi-license; the submodule's `LICENSES/` directory holds the full set. The PlaySpectra driver
-sources inside it (`src/xrt/drivers/playspectra/`) are BSL-1.0.
+shell sources inside it (`src/xrt/drivers/playspectra/`) are BSL-1.0. The fork's build also
+compiles this repository's first-party device core (`devicecore/`, MPL-2.0) into the Monado
+binaries, so a distributed `monado-service` contains MPL-2.0 code and MPL-2.0's source-availability
+terms apply to it alongside the licenses above.
 
 ## Build-time only
 

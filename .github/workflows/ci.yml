@@ -172,6 +172,23 @@ jobs:
             -DXRT_BUILD_DRIVER_PLAYSPECTRA=ON -DXRT_MODULE_MONADO_CLI=ON
           cmake --build build/monado --config Release --target monado-service cli openxr_monado
           cmake --install build/monado --config Release --prefix stage/smoke
+      # Same machine check as the release package smoke. rc1/rc2 never reached that step on
+      # either OS, so without this the first-ever run of the packaged probe would be at tag time.
+      - name: Staged probe smoke
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        run: ./stage/smoke/bin/monado-cli.exe probe | grep "PlaySpectra HMD"
+      - name: Staged probe smoke
+        if: runner.os == 'Linux'
+        env:
+          PLAYSPECTRA_ENABLE: "1"
+        run: |
+          set -euo pipefail
+          CLI="$(find stage/smoke -name monado-cli -type f | head -1)"
+          test -n "$CLI"
+          "$CLI" probe | grep "PlaySpectra HMD"
 
   layer-build:
     name: layer binary build (${{ matrix.os }})

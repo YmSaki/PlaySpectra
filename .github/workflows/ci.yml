@@ -5,14 +5,16 @@ name: CI
 #   - mcp/   : node:test suite for the pure quaternion/vector math (no layer, no socket) -- ubuntu
 #   - layer/ : gtest suite for the pure helper functions (capture_common / pixel_convert /
 #              pose_animator / dxgi_formats / action_helpers / pose_override + header-only
-#              xr_math). Built with only the playspectra_test target so it needs no Vulkan SDK /
-#              D3D / third_party -- windows, matching where these 92 tests are validated.
+#              xr_math) -- windows, matching where these 92 tests are validated -- plus a build of
+#              the playspectra_layer binary itself on windows and ubuntu (every dependency,
+#              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
 # Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
 # service and cannot run on a hosted runner.
 
 on:
   push:
   pull_request:
+  workflow_call: # release.yml runs these same gates before producing any publishable artifact
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -90,10 +92,36 @@ jobs:
       # cmake auto-detects the newest installed VS; the test build is generator-agnostic.
       - name: Configure
         run: cmake -S layer -B layer/build -DPLAYSPECTRA_BUILD_TESTS=ON
-      # Only the test target -- this deliberately avoids building playspectra_layer, so no Vulkan
-      # headers (third_party/, gitignored) or D3D are needed. FetchContent pulls googletest / OpenXR
-      # headers / nlohmann_json / lodepng.
+      # Only the test target here; the layer binary itself is covered by layer-build below.
+      # FetchContent pulls googletest / OpenXR headers / nlohmann_json / lodepng.
       - name: Build playspectra_test
         run: cmake --build layer/build --config Release --target playspectra_test
       - name: Run tests
         run: ctest --test-dir layer/build -C Release -E loader_test --output-on-failure
+
+  layer-build:
+    name: layer binary build (${{ matrix.os }})
+    # Proves a clean checkout can build the shippable playspectra_layer DLL/.so -- the gap that
+    # let the untracked third_party/Vulkan-Headers dependency go unnoticed (issue #11): the test
+    # target above never compiles the Vulkan capture backend, so only this job exercises the
+    # FetchContent pin of Vulkan-Headers on a machine with no local checkout.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one OS failing must not cancel (and thereby mask) the other's result
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # The fetched OpenXR SDK's configure demands an xlib presentation backend on Linux
+      # (src/cmake/presentation.cmake FATAL_ERRORs without the X11 dev headers). Same packages as
+      # the documented Linux prerequisites in docs/getting-started-linux.md, X/GL subset only.
+      - name: Install X11/GL dev headers (OpenXR SDK configure)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev libgl1-mesa-dev
+      - name: Configure
+        run: cmake -S layer -B layer/build
+      - name: Build playspectra_layer
+        run: cmake --build layer/build --config Release --target playspectra_layer

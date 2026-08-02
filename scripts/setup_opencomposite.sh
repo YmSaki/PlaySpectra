@@ -15,6 +15,7 @@
 # Usage: scripts/setup_opencomposite.sh
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib_playspectra.sh"
 DEST="${ROOT}/third_party/opencomposite"
 URL="https://znix.xyz/OpenComposite/download.php?arch=x64&branch=openxr"
 
@@ -24,19 +25,7 @@ curl -fSL -o "${DEST}/openvr_api.dll" "$URL"
 
 # Mechanical sanity check: PE header, COFF machine field must be 0x8664 (x64). Catches HTML error
 # pages and wrong-arch downloads before M2 ever loads the DLL into a process.
-python - "${DEST}/openvr_api.dll" <<'EOF'
-import struct, sys
-p = sys.argv[1]
-b = open(p, 'rb').read()
-ok = len(b) > 0x1000 and b[:2] == b'MZ'
-if ok:
-    pe_off = struct.unpack_from('<I', b, 0x3C)[0]
-    ok = b[pe_off:pe_off+4] == b'PE\x00\x00' and struct.unpack_from('<H', b, pe_off+4)[0] == 0x8664
-if not ok:
-    print(f'PE check: FAILED ({len(b)} bytes; not a PE32+ x64 DLL - download broken?)')
-    sys.exit(1)
-print(f'PE check: x64 OK ({len(b)} bytes)')
-EOF
+ps_run internal check-pe-x64 "${DEST}/openvr_api.dll"
 
 echo "source: ${URL} fetched $(date -u +%Y-%m-%dT%H:%MZ) (AppVeyor build, openxr branch)" > "${DEST}/VERSION.txt"
 echo "[setup_opencomposite] done -> ${DEST}/openvr_api.dll"

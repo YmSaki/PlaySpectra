@@ -14,8 +14,8 @@ eye image, and assert on both.
 
 - **Operate + state-observe → the Runtime Adapter, `127.0.0.1:52702`** (the Monado adapter's control
   channel; `set_state` / `get_state` / `reset`, writer-exclusive). This is the "real" input path — the
-  app reads the injected poses/inputs exactly as it would real hardware (verified at runtime level by
-  `playspectra_coupling_probe.py` 2/2, and by a real engine app's own `[VRTEST]` reports, 24/24).
+  app reads the injected poses/inputs exactly as it would real hardware (verified by
+  `playspectra verify coupling` and by a real engine app's own `[VRTEST]` reports).
 - **Screen capture → the OpenXR layer, `127.0.0.1:52700`** (on-demand `screenshot` / recording). Capture
   must live in the layer because it reads the app's own swapchain images, in-process.
 
@@ -23,25 +23,17 @@ One `Server` connects to both; `--capture-port 52700` enables the capture channe
 
 ## Files
 
-| File | What |
+| Path | What |
 |---|---|
-| `playspectra_server.py` | The **Server / Scenario Runner** (operate + observe + assert + capture-assert). CLI. |
-| `playspectra_record.py` | **Recorder + Replay** — observer records a state trajectory; writer replays it. |
-| `playspectra_mcp.py` | **MCP server** — exposes the Server as MCP tools so an AI agent can drive/observe (needs `pip install mcp`). |
-| `playspectra_mcp_verify.py` | Drives the MCP server with a real MCP client (end-to-end check). |
-| `playspectra_math_test.py` | **Unit tests** for the Server's pure interpolation math (lerp3/quat_mul/quat_yaw/quat_norm/slerp) — stdlib `unittest`, no socket/host app/pip needed. |
-| `playspectra_frame_test.py` | E2E test for `frame_synchronized` conflict resolution (apply/idempotent/conflict) against a live control channel. |
-| `playspectra_multiobs_test.py` | E2E test for multiple simultaneous observer connections on the control channel. |
-| `playspectra_reset_test.py` | E2E test for `reset` restoring head/controller state to the builder-initial values. |
-| `playspectra_waitfor_test.py` | Deterministic, in-environment test for `wait_for` / retrying `assert` (mocks the `:52702` protocol — no Monado/GPU needed). |
-| `playspectra_capture_assert_test.py` | Deterministic, in-environment test for `assert_capture`'s retry path (mocks both `:52702` and `:52700` — no layer/GPU needed). |
-| `playspectra_coupling_probe.py` | Runtime-level probe: confirms an injected `set_state` actually reaches a live app's `xrLocateViews` (needs a live stack — see `scripts/run_hello_xr_monado.sh`). |
-| `playspectra_vrapp.py` | Driver for the real-engine test app (**VRAppDummyGame**, Godot 4.7, sibling repo): speaks its `[VRTEST]` stdout/stdin contract and does the STAGE↔GLOBAL conversion. |
-| `playspectra_vrapp_test.py` | Real-engine-app E2E (launch / pose+input reach / capture / interaction) — the 24/24 suite behind `scripts/run_vrapp_monado.sh`. |
-| `playspectra_png_stats.py` | Measures whether a capture is an actually-rendered image or a flat fill (stdlib-only; samples all rows). |
+| `cmd/playspectra` | The single **CLI / Scenario / MCP / Recorder / Replayer / verification** executable. |
+| `playspectra/` | Shared control-plane Core, state model, assertions, and record/replay. |
+| `protocol/` | NDJSON/TCP client for Runtime Adapter and capture channels. |
+| `mcp/` Go files | Dependency-free stdio MCP frontend and client. |
+| `verify/` | Live frame, reset, multi-observer, coupling, Server, Recorder, and MCP probes. |
+| `vrapp/` | VRAppDummyGame driver and 25-check live suite. |
+| `pngstats/` | Capture image statistics and non-degenerate image checks. |
 | `playspectra_action_probe.c` / `playspectra_headless_probe.c` | C probes used as the OpenXR host for the E2E tests above (device enumeration / action-reach checks). |
 | `scenarios/*.json` | Sample scenarios (walk_and_look, assert_demo, capture_assert_demo, controller_ops, big_view_change, wait_for_demo, operate_completeness). |
-| `requirements.txt` | Python deps (only the MCP pieces need `mcp`; the rest are stdlib-only). |
 
 ## Prerequisites
 
@@ -55,23 +47,23 @@ whole loop against `hello_xr`.
 
 ```bash
 # Run a JSON scenario (operate + assert) against the adapter:
-python3 tools/playspectra_server.py tools/scenarios/assert_demo.json
+playspectra run tools/scenarios/assert_demo.json
 
 # CLI operate interface: run ONE command (any scenario-step cmd) and print the state as JSON.
 # stdout is clean JSON (progress goes to stderr); an assert/wait_for that fails exits non-zero.
-python3 tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
-python3 tools/playspectra_server.py --cmd get_state
-python3 tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
+playspectra cmd move-head --x 0 --y 1.6 --z -1 --duration-ms 400
+playspectra cmd get-state
+playspectra cmd wait-for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
 
 # Add visual-regression (screen) asserts via the layer capture channel:
-python3 tools/playspectra_server.py tools/scenarios/capture_assert_demo.json --capture-port 52700
+playspectra run tools/scenarios/capture_assert_demo.json --capture-port 52700
 
 # Built-in self-checking runs (exit non-zero on failure):
-python3 tools/playspectra_server.py --verify          # Server operate/observe
-python3 tools/playspectra_record.py  --verify         # record + replay
+playspectra verify server
+playspectra verify record
 
 # Expose the Server to an AI agent over MCP (stdio):
-python3 tools/playspectra_mcp.py
+playspectra mcp
 ```
 
 ## Scenario format
@@ -105,7 +97,7 @@ Observe + assert steps:
 
 ## MCP tools
 
-`playspectra_mcp.py` exposes: `move_head`, `look`, `walk_forward`, `strafe`, `press`, `set_trigger`,
+`playspectra mcp` exposes: `move_head`, `look`, `walk_forward`, `strafe`, `press`, `set_trigger`,
 `move_controller`, `set_input`, `reset` (operate); `get_state`, `wait_for` (auto-wait until a
 state condition holds) (observe); `screenshot` → an MCP image block (the agent *sees* the rendered
 eye); `run_scenario` (operate + assert). The Server connects lazily on the first tool call, so the

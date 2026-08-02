@@ -1,18 +1,16 @@
 # MCP tools
 
-The current MCP interface is tools/playspectra_mcp.py. It is a stdio FastMCP server that wraps the same PlaySpectra Server used by the CLI and JSON runner.
+The current MCP interface is the stdio server built into the cgo-free Go `playspectra` executable. It uses the same Core as the CLI and JSON runner.
 
 ## Start the server
 
-The MCP package is the only Python tool dependency. Use a virtual environment:
+Start the MCP frontend directly:
 
 ~~~bash
-python3 -m venv .venv-mcp
-.venv-mcp/bin/python -m pip install -r tools/requirements.txt
-.venv-mcp/bin/python tools/playspectra_mcp.py
+playspectra mcp
 ~~~
 
-On Windows Git Bash, use .venv-mcp/Scripts/python.exe. The server connects lazily on the first tool call.
+The compiled executable has no language-runtime or package dependency. The server connects lazily on the first tool call.
 
 The server uses:
 
@@ -38,16 +36,15 @@ The server uses:
 | wait_for | path_json, optional op=near, value=0.0, tol=0.01, timeout_ms=5000 | Poll state until the condition is met and return met plus state. |
 | run_scenario | scenario_json | Run a serialized JSON scenario and return the assertion summary. |
 
-The current implementation exposes 13 tools. Tool names and parameter defaults above are taken from tools/playspectra_mcp.py.
+The current implementation exposes 13 tools. Their names, schemas, defaults, descriptions, and result shapes are compatibility-tested.
 
 ## Live verification
 
 Against the Windows Monado stack:
 
 ~~~bash
-python -m venv .venv-mcp
-.venv-mcp/Scripts/python.exe -m pip install -r tools/requirements.txt
-PY=.venv-mcp/Scripts/python.exe scripts/run_mcp_verify_monado.sh D3D11
+go build -o build/playspectra.exe ./cmd/playspectra
+PLAYSPECTRA_BIN="$PWD/build/playspectra.exe" scripts/run_mcp_verify_monado.sh D3D11
 ~~~
 
 The verifier starts the MCP server over stdio, lists the tools, exercises operation and state observation, requests a screenshot, and runs an inline scenario. It needs a running stack; it is not a unit test.

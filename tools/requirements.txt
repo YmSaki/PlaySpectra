@@ -1,9 +1,0 @@
-# Python dependencies for the PlaySpectra tools.
-#
-# Most tools (playspectra_server.py, playspectra_record.py, the *_test.py harnesses) use only the
-# standard library and need nothing here. The MCP server + its verifier need the Model Context
-# Protocol SDK:
-#
-#   pip install -r tools/requirements.txt
-#
-mcp>=1.0            # playspectra_mcp.py (MCP server) and playspectra_mcp_verify.py

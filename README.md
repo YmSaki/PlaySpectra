@@ -45,10 +45,11 @@ If you want to run the JSON Scenario directly, run one of the following blocks i
 ~~~bash
 set -e
 source scripts/lib_monado_stack.sh
+source scripts/lib_playspectra.sh
 mstack_env D3D11
 mstack_up D3D11 120
 trap mstack_down EXIT
-python tools/playspectra_server.py tools/scenarios/assert_demo.json
+ps_run run tools/scenarios/assert_demo.json
 ~~~
 
 **WSL2 or Ubuntu (bash)**
@@ -61,17 +62,9 @@ export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
-python - <<'PY'
-import socket, sys, time
-for _ in range(60):
-    with socket.socket() as sock:
-        sock.settimeout(0.3)
-        if sock.connect_ex(("127.0.0.1", 52702)) == 0:
-            sys.exit(0)
-    time.sleep(0.3)
-raise SystemExit("PlaySpectra control channel :52702 did not become ready")
-PY
-python tools/playspectra_server.py tools/scenarios/assert_demo.json
+go build -o build/playspectra ./cmd/playspectra
+./build/playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
+./build/playspectra run tools/scenarios/assert_demo.json
 ~~~
 
 The Scenario moves the head, turns it, presses a right trigger, asserts the resulting state, and resets the virtual devices. When all assertions pass, the runner exits with status 0.
@@ -79,8 +72,8 @@ The Scenario moves the head, turns it, presses a right trigger, asserts the resu
 To issue individual operations through PlaySpectra-CLI, run:
 
 ~~~bash
-python tools/playspectra_server.py --cmd move_head --args '{"to":{"position":[0,1.6,-1]},"duration_ms":400}'
-python tools/playspectra_server.py --cmd get_state
+playspectra cmd move-head --x 0 --y 1.6 --z -1 --duration-ms 400
+playspectra cmd get-state
 ~~~
 
 ## Current support
@@ -164,7 +157,7 @@ All paths require the Monado submodule. Do not reuse build directories, CMake ca
 - Runtime: Windows Monado service.
 - Application: Windows OpenXR application.
 - Graphics: D3D11, D3D12, or Vulkan.
-- Prerequisites: Visual Studio 2022 with MSVC and the C++ workload, CMake, Git Bash, Python 3, and a Vulkan SDK with glslang.
+- Prerequisites: Visual Studio 2022 with MSVC and the C++ workload, CMake, Git Bash, Go 1.22+, Python 3 for the native Monado source build, and a Vulkan SDK with glslang.
 
 **Steps**
 
@@ -187,7 +180,7 @@ See the complete [Windows setup](docs/getting-started-windows.md), including the
 - Runtime: Linux Monado inside WSL2.
 - Application: Linux OpenXR application inside WSL2.
 - Graphics: Vulkan, usually software Vulkan (`lavapipe`).
-- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu/WSL2 build dependencies.
+- Prerequisites: Git, Go 1.22+, Python 3 for the native Monado source build, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu/WSL2 build dependencies.
 
 **Steps**
 
@@ -214,7 +207,7 @@ See the complete [Linux/WSL2 setup](docs/getting-started-linux.md).
 - Runtime: native Linux Monado.
 - Application: Linux OpenXR application.
 - Graphics: Vulkan through a software or hardware ICD.
-- Prerequisites: Git, Python 3, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu build dependencies.
+- Prerequisites: Git, Go 1.22+, Python 3 for the native Monado source build, CMake, Ninja, Go Task, `build-essential` (including GCC/G++), and the Ubuntu build dependencies.
 
 **Steps**
 
@@ -232,11 +225,11 @@ Set `VK_ICD_FILENAMES` when the default Vulkan ICD is not the intended one. See 
 
 ### CLI / Server
 
-`tools/playspectra_server.py` is both the shared Server and a one-command CLI. It executes commands such as `move_head`, `look`, `press`, and `get_state`, and can read the resulting device state back.
+The `playspectra` executable contains the shared control-plane Core and CLI. It executes commands such as `move_head`, `look`, `press`, and `get_state`, and can read the resulting device state back.
 
 ~~~bash
-python tools/playspectra_server.py --cmd look --args '{"yaw_deg":90,"duration_ms":400}'
-python tools/playspectra_server.py --cmd wait_for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
+playspectra cmd look --yaw-deg 90 --duration-ms 400
+playspectra cmd wait-for --args '{"get":["hmd","head","position",2],"op":"near","value":-1}'
 ~~~
 
 See [CLI and Server details](tools/README.md).
@@ -260,25 +253,21 @@ A JSON Scenario is an ordered sequence of operations and assertions. Its minimum
 The checked-in examples cover movement, controller input, state assertions, visual assertions, and waiting. A failing assertion makes the runner exit non-zero.
 
 ~~~bash
-python tools/playspectra_server.py tools/scenarios/walk_and_look.json
-python tools/playspectra_record.py --verify
+playspectra run tools/scenarios/walk_and_look.json
+playspectra verify record
 ~~~
 
 See the [scenario format](docs/scenario-format.md) and [sample scenarios](tools/scenarios/).
 
 ### MCP
 
-PlaySpectra-MCP is the interface that lets an AI agent operate and observe an XR application. It uses the same operation model as PlaySpectra-CLI and JSON Scenarios. The current server uses stdio and is implemented in `tools/playspectra_mcp.py`.
-
-Set it up in a dedicated environment:
+PlaySpectra-MCP is the interface that lets an AI agent operate and observe an XR application. It uses the same operation model as PlaySpectra-CLI and JSON Scenarios. The MCP server uses stdio and is built into the same executable.
 
 ~~~bash
-python -m venv .venv-mcp
-.venv-mcp/bin/python -m pip install -r tools/requirements.txt
-.venv-mcp/bin/python tools/playspectra_mcp.py
+playspectra mcp
 ~~~
 
-On Windows Git Bash, use .venv-mcp/Scripts/python.exe instead. The server exposes movement/input, state observation, auto-wait, screenshot, reset, and run_scenario tools. See [MCP tools](docs/mcp-tools.md) for the exact list and the live verification command.
+No language runtime or package installation is needed for the compiled executable. The server exposes movement/input, state observation, auto-wait, screenshot, reset, and run_scenario tools. See [MCP tools](docs/mcp-tools.md) for the exact list and the live verification command.
 
 ## Architecture overview
 
@@ -312,7 +301,7 @@ The representative local gate is:
 bash scripts/run_all_tests.sh
 ~~~
 
-It runs the MCP, layer, Python-tool, and Monado-protocol unit suites. A missing toolchain is reported as a named SKIP; ALL GREEN and GREEN WITH SKIPS are intentionally distinct. Live Monado/app E2E is separate because it needs a runtime and application process. GitHub Actions runs the environment-independent MCP suite on Ubuntu and layer suite on Windows; the workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
+It runs the Go control-plane, legacy MCP, layer, and Monado-protocol unit suites. A missing toolchain is reported as a named SKIP; ALL GREEN and GREEN WITH SKIPS are intentionally distinct. Live Monado/app E2E is separate because it needs a runtime and application process. GitHub Actions runs the cgo-free Go suite on Windows and Linux, the legacy MCP suite on Ubuntu, and the layer suite on Windows; the workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 See [Testing](docs/testing.md) for individual commands, suite counts, CI boundaries, and skip conditions.
 
@@ -325,7 +314,7 @@ Roadmap items are separate from current capabilities:
 - SteamVR Adapter: implement the adapter for the current Virtual Device Core and verify it on Windows.
 - Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
 - Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
-- Legacy TypeScript MCP in `mcp/`: retire it after the current MCP interface has fully replaced it.
+- Legacy TypeScript MCP in `mcp/`: retire the non-canonical implementation after downstream users have moved to the Go MCP command.
 
 The [roadmap](docs/roadmap.md) keeps these boundaries separate from current features.
 

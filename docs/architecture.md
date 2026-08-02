@@ -30,7 +30,7 @@ OpenXR Instrumentation Layer
  screenshot / recording / action discovery / diagnostics
 ~~~
 
-The current operation interface is the Python Server in tools/playspectra_server.py. It owns high-level commands such as move_head, look, walk_forward, strafe, controller input, reset, and scenario assertions. It converts those commands into interpolated full-state frames.
+The current operation interface is the cgo-free Go `playspectra` executable. Its shared Core owns high-level commands such as move_head, look, walk_forward, strafe, controller input, reset, and scenario assertions, and converts them into interpolated full-state frames. CLI, JSON Scenario, MCP, record/replay, and process management are subcommands over that Core.
 
 The current Monado adapter receives those frames through the NDJSON/TCP control channel at 127.0.0.1:52702. The application reads the virtual HMD and controller devices through the normal runtime path.
 
@@ -51,6 +51,22 @@ PlaySpectra uses a common Virtual Device Core plus a Runtime Adapter for each ru
 - The OpenXR layer observes the app and supports test instrumentation; it is not a replacement for the runtime backend.
 
 The OpenXR layer's input override is a test aid. The primary input path for the current Monado E2E is the adapter control channel.
+
+## Distribution boundary
+
+The intended release boundary is two distribution units, not literally two files:
+
+1. A native C++ bundle containing the Monado Runtime Adapter, virtual HMD/controllers, the OpenXR
+   instrumentation layer, and D3D11/D3D12/Vulkan capture. It may contain multiple executables,
+   DLLs/shared objects, loader manifests, and runtime JSON files required by the platform.
+2. One cgo-free `playspectra` executable containing the CLI, MCP server, JSON Scenario Runner,
+   high-level operations/interpolation, state management, assertions, record/replay, doctor, and
+   session/process management.
+
+The Go executable does not link the C++ artifacts. The two units communicate only over the existing
+NDJSON/TCP operate (`:52702`) and capture (`:52700`) boundaries. The compiled control plane has no
+language-runtime dependency, while the native artifacts remain
+independent of Go and cgo.
 
 ## Execution modes
 

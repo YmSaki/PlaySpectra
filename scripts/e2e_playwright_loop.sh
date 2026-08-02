@@ -2,7 +2,7 @@
 # End-to-end "VR Playwright" loop verification (WSL2 / Linux): OPERATE -> app re-renders -> OBSERVE,
 # and assert the observation changed. This ties together every PlaySpectra piece:
 #
-#   Server (tools/playspectra_server.py) injects a head pose via the Monado adapter control channel
+#   The playspectra Go control plane injects a head pose via the Monado adapter control channel
 #   (:52702) -> an ordinary OpenXR app (hello_xr -g Vulkan2) reads the new pose and re-renders a
 #   different view -> the PlaySpectra OpenXR layer (loaded into the app) captures the rendered left
 #   eye to PNG -> we assert the post-injection PNG DIFFERS from the baseline PNG, proving the capture
@@ -20,11 +20,13 @@ MONADO_BUILD="${MONADO_BUILD:-$HOME/monado-playspectra/build}"
 HELLOXR="${HELLOXR:-$HOME/OpenXR-SDK-Source/build/src/tests/hello_xr/hello_xr}"
 LAYER_SO="${LAYER_SO:-$HOME/layer_build/playspectra_layer.so}"
 TOOLS="${TOOLS:-$(cd "$(dirname "$0")/../tools" && pwd)}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib_playspectra.sh"
 VK_ICD="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}"
 WORK="${WORK:-$HOME/ps_e2e}"
 
 for f in "$MONADO_BUILD/openxr_monado-dev.json" "$HELLOXR" "$LAYER_SO" \
-         "$TOOLS/playspectra_server.py" "$TOOLS/scenarios/big_view_change.json"; do
+         "$TOOLS/scenarios/big_view_change.json"; do
   [ -e "$f" ] || { echo "MISSING PREREQ: $f"; exit 5; }
 done
 
@@ -45,14 +47,12 @@ export PLAYSPECTRA_CAPTURE_TEST=8 PLAYSPECTRA_CAPTURE_DIR="$CAPS" XRT_LOG=warn
 LOG="$WORK/helloxr.log"; rm -f "$LOG"
 timeout 40 bash -c "sleep 36 | '$HELLOXR' -g Vulkan2" > "$LOG" 2>&1 &
 APP=$!
-python3 - <<'PY'
-import socket, time, sys
-for _ in range(60):
-    s=socket.socket(); s.settimeout(0.3)
-    if s.connect_ex(("127.0.0.1",52702))==0: s.close(); print("CTRL_UP"); sys.exit(0)
-    s.close(); time.sleep(0.3)
-print("CTRL_TIMEOUT"); sys.exit(1)
-PY
+ps_run internal wait-tcp --address 127.0.0.1:52702 --timeout 18s --interval 300ms || {
+  echo "CTRL_TIMEOUT"
+  kill "$APP" 2>/dev/null
+  wait "$APP" 2>/dev/null
+  exit 2
+}
 kill -0 "$APP" 2>/dev/null || { echo APP_DIED; tail -15 "$LOG"; exit 3; }
 
 echo "=== baseline (default state, 6s) ==="
@@ -63,7 +63,7 @@ BASE_LAST=$(ls "$RECDIR"/rec_*.png 2>/dev/null | sort | tail -1)
 echo "baseline last: $(basename "$BASE_LAST" 2>/dev/null)"
 
 echo "=== inject big_view_change (held, no reset) ==="
-python3 "$TOOLS/playspectra_server.py" "$TOOLS/scenarios/big_view_change.json" --rate 60
+ps_run run "$TOOLS/scenarios/big_view_change.json" --rate 60
 
 echo "=== post (5s) ==="
 sleep 5
@@ -71,21 +71,7 @@ POST_LAST=$(ls "$RECDIR"/rec_*.png 2>/dev/null | sort | tail -1)
 echo "post last: $(basename "$POST_LAST" 2>/dev/null)"
 kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null
 
-python3 - "$RECDIR" "$BASE_LAST" "$POST_LAST" <<'PY'
-import sys, os, glob, hashlib
-recdir, base_last, post_last = sys.argv[1:4]
-files = sorted(glob.glob(os.path.join(recdir, "rec_*.png")))
-h = lambda f: hashlib.sha256(open(f,"rb").read()).hexdigest()[:12]
-distinct = {h(f) for f in files}
-bh = h(base_last) if base_last and os.path.exists(base_last) else None
-ph = h(post_last) if post_last and os.path.exists(post_last) else None
-print("frames:", len(files), "distinct contents:", len(distinct))
-print("baseline hash:", bh, "post hash:", ph)
-ok = len(distinct) >= 2 and bh and ph and bh != ph
-print(("PASS" if len(distinct)>=2 else "FAIL"), "capture tracks state (>=2 distinct contents)")
-print(("PASS" if (bh and ph and bh!=ph) else "FAIL"), "post-injection frame differs from baseline")
-sys.exit(0 if ok else 1)
-PY
+ps_run internal compare-captures --recording "$RECDIR" --baseline "$BASE_LAST" --post "$POST_LAST"
 RC=$?
 echo "e2e rc=$RC"
 exit "$RC"

@@ -107,10 +107,20 @@ jobs:
     # FetchContent pin of Vulkan-Headers on a machine with no local checkout.
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false # one OS failing must not cancel (and thereby mask) the other's result
       matrix:
         os: [windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
+      # The fetched OpenXR SDK's configure demands an xlib presentation backend on Linux
+      # (src/cmake/presentation.cmake FATAL_ERRORs without the X11 dev headers). Same packages as
+      # the documented Linux prerequisites in docs/getting-started-linux.md, X/GL subset only.
+      - name: Install X11/GL dev headers (OpenXR SDK configure)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev libgl1-mesa-dev
       - name: Configure
         run: cmake -S layer -B layer/build
       - name: Build playspectra_layer

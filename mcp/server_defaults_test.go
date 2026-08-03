@@ -38,13 +38,11 @@ var requiredToolArguments = map[string]map[string]any{
 	"run_scenario":    {"scenario_json": `{"steps":[]}`},
 }
 
-// TestDefaultInvocationOfEveryToolMatchesExplicitDefaults is the comparison the
-// Go port promised in docs/go-port-compatibility-plan.md: calling a tool with
-// only its required arguments must be indistinguishable from calling it with
-// every schema default spelled out. FastMCP applied the Python signature
-// defaults for free, so a handler that forgets one is a silent port regression
-// (wait_for's value default was exactly that). Nothing in the compared output
-// is time-dependent, so the results are compared verbatim rather than
+// TestDefaultInvocationOfEveryToolMatchesExplicitDefaults verifies the contract:
+// calling a tool with only its required arguments must be indistinguishable from
+// calling it with every schema default spelled out. A handler that forgets to
+// apply one of its own defaults is a silent regression. Nothing in the compared
+// output is time-dependent, so the results are compared verbatim rather than
 // normalised.
 func TestDefaultInvocationOfEveryToolMatchesExplicitDefaults(t *testing.T) {
 	definitions := toolDefinitions()

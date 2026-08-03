@@ -5,13 +5,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Action/input + teardown hook cluster -- the action-system observers (create/attach/state/haptic),
-// the GAP-08 non-CA fallback readers, and the three teardown hooks (xrDestroySession/xrDestroyInstance/
-// xrDestroySpace, which fan out across the pose/registry/fallback state). Extracted from
-// openxr_agent_layer.cpp (refactor R04) as a move only: the hook bodies are unchanged and the dispatch
-// table (kHooks[] in openxr_agent_layer.cpp) still references these by name. No cross-cluster
-// file-local state, so this header publishes only the hook prototypes. Prototypes are in the global
-// namespace to match the linkage the dispatch table uses (kHooks references them unqualified). See
-// openxr_agent_layer.cpp for the dispatch wiring.
+// the non-CA fallback readers, and the three teardown hooks (xrDestroySession/xrDestroyInstance/
+// xrDestroySpace, which fan out across the pose/registry/fallback state). The dispatch table
+// (kHooks[] in layer_entry.cpp) references these by name. No cross-cluster file-local state, so this
+// header publishes only the hook prototypes. Prototypes are in the global namespace to match the
+// linkage the dispatch table uses (kHooks references them unqualified). See layer_entry.cpp for the
+// dispatch wiring.
 #pragma once
 
 #include <openxr/openxr.h>

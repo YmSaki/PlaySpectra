@@ -5,21 +5,20 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Input injection -- the CA and non-CA paths of the single "inject button/analog input" responsibility.
-// Extracted from layer_entry.cpp (refactor phase 6) so both halves live in one translation unit:
+// Both halves live in one translation unit:
 //   [C] ApplyPendingInputs -- on a runtime WITH XR_EXT_conformance_automation, drain queued MCP
 //       injections and push them into the runtime (xrSetInputDeviceState* / xrSetInputDeviceLocationEXT)
 //       from inside the xrSyncActions hook, so the runtime latches the new state on this sync;
-//   [G] the GAP-08 non-CA fallback (ApplyFallbackSync / AggregateFallback + the accessors below) -- on a
+//   [G] the non-CA fallback (ApplyFallbackSync / AggregateFallback + the accessors below) -- on a
 //       runtime WITHOUT conformance_automation the layer emulates the OpenXR action system itself.
 // Hook_xrSyncActions picks the path with `if (CaEnabled()) ApplyPendingInputs else ApplyFallbackSync`.
 // The fallback state (the sticky (action, subactionPath) store, the active-set set, the emulated profile,
 // the pending synthetic InteractionProfileChanged, the approximate sync counter) and the [G] helpers
 // (ActionsBoundTo, FallbackActionState) are TU-private in input_inject.cpp; this header publishes only
-// what the (thin, remaining) hooks in layer_entry.cpp call. Behaviour -- data, algorithms, lock
-// discipline -- is unchanged; this is a move only.
+// what the hooks in hooks_action.cpp call.
 //
 // ---------------------------------------------------------------------------------------------
-// GAP-08 non-CA input fallback, in full (moved verbatim from the original hook cluster). On a runtime
+// Non-CA input fallback, in full. On a runtime
 // WITHOUT XR_EXT_conformance_automation we can't push button/analog state into the runtime, so the layer
 // emulates the OpenXR action system itself:
 //   - drained MCP injections are latched into a sticky (action, subactionPath) store on xrSyncActions;
@@ -35,8 +34,8 @@
 //
 // LOCK DISCIPLINE: all [G] state is guarded by ActionMutex() (owned by action_registry -- see
 // action_registry.h). The reverse lookup reads g_actions (cluster F's container), so a SEPARATE lock
-// would invert the acquisition order relative to F/E; the single shared mutex is the reviewed design
-// (do not split it). ApplyFallbackSync is TWO-PHASE: it resolves each injection's subactionPath (ToPath
+// would invert the acquisition order relative to F/E; the single shared mutex is required.
+// ApplyFallbackSync is TWO-PHASE: it resolves each injection's subactionPath (ToPath
 // -> the runtime) BEFORE taking ActionMutex(), then takes the lock -- never call a runtime entry point
 // while holding ActionMutex(). Each accessor below documents whether the caller must already hold it.
 // ---------------------------------------------------------------------------------------------

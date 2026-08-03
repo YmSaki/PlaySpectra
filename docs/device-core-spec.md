@@ -1,16 +1,16 @@
-# PlaySpectra Virtual Device Core — VirtualDeviceState / 通信仕様 (M1 rev2 ドラフト)
+# PlaySpectra Virtual Device Core — VirtualDeviceState / 通信仕様
 
-作成: 2026-07-19 / 改訂: 2026-07-19 rev2(ユーザーレビュー反映)。正典 `playspectra-architecture.md` の M1。
-**✅ 実装・実測済みの現行プロトコル仕様**(2026-07-30 ステータス是正: 旧「ドラフト・再レビュー待ち」のまま
-M2 実装→E2E 検証まで完了し、本仕様どおりの実装が Windows/WSL2 で稼働中。fov/解像度/refresh の実値も
-確定済み — 1080x1200 / 90Hz。実装は `devicecore/playspectra_control.c` の add_descriptor、
-値の注入元は Monado 殻 `playspectra_interface.h` の PLAYSPECTRA_HMD_* 定数)。
-基盤決定(ユーザー確定): 基準空間=**STAGE**、メッセージ=**完全スナップショット/フレーム**、
-クロック=**Server が sequence 所有・時刻はモード別**、座標規約=OpenXR 既定。
+PlaySpectra Server と Runtime Adapter の境界を定める正式仕様。**✅ 実装・実測済みの現行プロトコル**
+(protocol_version 1)であり、実装は [`devicecore/`](../devicecore/)(NDJSON パース = `playspectra_proto`、
+共有状態 = `playspectra_state`、TCP 制御チャネル = `playspectra_control`)。Monado Adapter が
+127.0.0.1:52702 でこの仕様どおりに稼働する。
 
-rev2 で厳密化した契約: (1) set_state=完全スナップショット(継承なし)、(2) tracking を valid/tracked/connected に分離、
-(3) 入力を semantic-path 集合へ、(4) grip/aim は独立状態、(5) frame_synchronized=論理ステップ、
-(6) プロトコル運用規則(request_id/writer排他/エラー分類)、(7) M2 段階化(→ architecture §8)。
+基盤となる決定: 基準空間 = **STAGE**、メッセージ = **完全スナップショット/フレーム**、
+クロック = **Server が sequence を所有・時刻はモード別**、座標規約 = OpenXR 既定。
+
+契約の要点: (1) set_state = 完全スナップショット(継承なし)、(2) tracking を valid/tracked/connected に
+分離、(3) 入力は semantic-path 集合、(4) grip/aim は独立状態、(5) frame_synchronized = 論理ステップ、
+(6) プロトコル運用規則(request_id / writer 排他 / エラー分類)。
 
 ---
 
@@ -19,7 +19,7 @@ rev2 で厳密化した契約: (1) set_state=完全スナップショット(継�
 - **座標系**: 右手系・**+Y 上 / +X 右 / −Z 前**・単位 **メートル**。OpenXR/Monado と同一。
 - **四元数**: `[x, y, z, w]`(正規化)。OpenVR `DriverPose_t` は `[w,x,y,z]` 順なので SteamVR Adapter が並べ替える(§6)。
 - **基準空間 (canonical)**: **STAGE** = 床が y=0、原点は床上プレイエリア中心、+Y 上。
-  各 Runtime の原点差([[local-space-origin-per-runtime]])は **Adapter が吸収**する。Core は常に STAGE 表現。
+  Runtime ごとの原点差(例: LOCAL 原点の高さは Runtime により異なる)は **Adapter が吸収**する。Core は常に STAGE 表現。
 - **軸**: thumbstick x/y ∈ `[-1,1]`(x=右+, y=前+)。`/value` 系(trigger/squeeze)∈ `[0,1]`。
 - **速度**: 線速度 m/s、角速度 rad/s。
 - **時刻とモード**(§4): `sequence` は Server 所有の単調増加。`clock.mode` がモードを表す。
@@ -109,12 +109,13 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 - 値型は suffix で決まる: `/value` → float[0,1]、`/x`・`/y` → float[-1,1]、`/click`・`/touch` → bool。
 - **存在有無は Descriptor(§3)が宣言**。未対応入力(path 非存在)と「現在 false の入力」を区別する。
 - **完全性**: set_state は、その hand の Descriptor が宣言した path を**すべて**含む(欠落=validation_error)。
-- **system 等 runtime 予約入力は application 入力から分離**する。M1 の正典 application 入力に
+  **この完全性検証は未実装**(§7): 現行実装は欠落 path を検証せず既定値(0/false)のまま適用する。
+- **system 等 runtime 予約入力は application 入力から分離**する。正典の application 入力に
   `system` を無条件で含めない。必要時は別名前空間 `runtime_reserved`(任意・完全性対象外)に置く:
   ```jsonc
   "runtime_reserved": { "/input/system/click": false }   // 任意。Runtime が公開できない場合あり
   ```
-- 初期実装が内部で固定 struct を使うのは可。ただし**ワイヤ形式は semantic path + Descriptor 宣言**とする。
+- 実装が内部で固定 struct を使うのは可。ただし**ワイヤ形式は semantic path + Descriptor 宣言**とする。
 
 ---
 
@@ -145,7 +146,10 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 }
 ```
 
-fov/解像度/refresh の実値は Runtime 実測が正。M2 で Monado から取得して確定する(ここは形のみ)。
+上の JSON はワイヤ形式の完全形を示す例。**現行実装の hello 応答 descriptor が返すのは
+`protocol_version` と `hmd` の3値(recommended_eye_width / recommended_eye_height / refresh_hz)のみ**で、
+実値は各 Adapter が `playspectra_control_config` 経由で注入する(Monado Adapter の現行値: 1080x1200/眼・90 Hz)。
+`fov` と `controllers` ブロックの送出は未実装(§7)。
 
 ---
 
@@ -157,12 +161,12 @@ fov/解像度/refresh の実値は Runtime 実測が正。M2 で Monado から�
 - **frame_synchronized**: `clock = { "mode":"frame_synchronized", "logical_frame": <int> }`。
   - `logical_frame` は **PlaySpectra Server が発行する論理ステップ番号**。
     **OpenXR アプリ frame や compositor frame との一致は保証しない**(名は実質 logical-frame-synchronized)。
-    実 Runtime frame との相関は **M2 で計測して確定**する。
+    実 Runtime frame との相関は未計測(§7)。
   - Adapter は各 logical_frame で「対応する最新 state を一度適用」する。
   - **同一 logical_frame の重複**: 内容が同一なら**冪等成功**、内容が異なれば **conflict_error**(§5)。
   - 遅れて届いた state(既に次の frame を適用済み): 破棄しつつ `applied:false, reason:"stale_frame"` を返す。
-- `predicted_display_time` 等の**物理**時刻は Runtime/Adapter 由来。Core には持たせず、M2 で
-  sequence/logical_frame と相関づける(pose timestamp / submitted frame / screenshot correlation)。
+- `predicted_display_time` 等の**物理**時刻は Runtime/Adapter 由来。Core には持たせない。
+  sequence/logical_frame との相関づけ(pose timestamp / submitted frame / screenshot correlation)は未実施(§7)。
 
 ---
 
@@ -205,7 +209,7 @@ fov/解像度/refresh の実値は Runtime 実測が正。M2 で Monado から�
 → { "cmd":"set_state", "request_id":"s42", "state": { …§2.2… } }
 ← { "request_id":"s42", "ok":true, "applied":true, "sequence":12345, "logical_frame":120 }
 ← { "request_id":"s42", "ok":true, "applied":false, "reason":"stale_frame" }          // 遅延/latest-wins 破棄
-← { "request_id":"s42", "ok":false, "error_type":"validation_error", "error":"missing:/input/trigger/value", "hand":"left" }
+← { "request_id":"s42", "ok":false, "error_type":"validation_error", "error":"missing:/input/trigger/value", "hand":"left" }  // 仕様上の形。入力完全性検証は未実装(§7)
 ← { "request_id":"s42", "ok":false, "error_type":"conflict_error", "error":"frame_content_mismatch", "logical_frame":120 }
 
 // 問い合わせ(observer/writer)
@@ -214,7 +218,7 @@ fov/解像度/refresh の実値は Runtime 実測が正。M2 で Monado から�
 → { "cmd":"reset",     "request_id":"r1" }   ← { "request_id":"r1", "ok":true }        // writer のみ
 
 // イベント(Adapter→Server, 非要求・request_id なし)
-← { "event":"haptics", "hand":"left", "amplitude":0.5, "duration_ms":100, "frequency_hz":160 }  // 詳細は M2 以降
+← { "event":"haptics", "hand":"left", "amplitude":0.5, "duration_ms":100, "frequency_hz":160 }  // 詳細スキーマは未確定(§7)
 ```
 
 ---
@@ -234,24 +238,18 @@ fov/解像度/refresh の実値は Runtime 実測が正。M2 で Monado から�
 
 ---
 
-## 7. 未確定 / 後続で確定 (deferred)
+## 7. 未確定 / 未実装 (deferred)
 
-- fov/recommended 解像度/refresh の実値: M2 で Monado から実測して Descriptor を確定。
+- **入力の完全性検証(§2.4)**: 未実装。現行実装は受信 path を既知の固定リストへ写像するだけで、
+  欠落 path は検証されず既定値(0/false)のまま適用される。§5.4 の `missing:/input/…` 形式の
+  validation_error は現行実装では発生しない(実在する missing は `missing:state` と
+  `missing:clock.logical_frame` のみ)。
+- **`runtime_reserved` 分離(§2.4)**: 未実装。現行実装は `/input/system/click` を通常の inputs として受理する。
+- **Descriptor の `controllers` / `fov` 送出(§3)**: 未実装。現行の hello 応答 descriptor は
+  `protocol_version` と `hmd` 3値のみ。
 - velocity 供給元: Server 供給 or Adapter が pose 差分から推定 — 実測して選ぶ(protocol は null 許容で両対応)。
 - haptics 逆方向イベントの詳細スキーマ(振幅/周波数/持続の単位・複数チャンネル)。
-- logical_frame と実 Runtime frame の相関計測(M2)。
+- logical_frame と実 Runtime frame の相関計測。
 - Trackers / Hand / Eye / Face(将来。Descriptor と State を後方互換拡張)。
 - `patch_state`(部分更新)の要否と設計。
 - protocol_version 昇格規則(破壊的変更で +1、Descriptor で能力ネゴ)。
-
----
-
-## 8. M1 完了条件 (DoD)
-
-- [x] 座標規約・基準空間・単位(§1)
-- [x] PoseState(valid/tracked/connected 分離)・VirtualDeviceState 完全スナップショット(§2)
-- [x] semantic-path 入力モデル + system 分離 + Descriptor 宣言(§2.4, §3)
-- [x] grip/aim 独立状態(§2.3)
-- [x] frame_synchronized=論理ステップの限定定義・realtime latest-wins / frame 競合規則(§4)
-- [x] プロトコル運用規則(request_id / writer 排他 / エラー分類 / フレーミング / 未知フィールド)(§5)
-- [ ] **ユーザー再レビュー承認** → 承認後 M2(段階化: architecture §8 M2.1〜M2.5)着手

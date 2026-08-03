@@ -4,7 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// PlaySpectra controller-input E2E probe (M2 Stage 2 verification).
+// PlaySpectra controller-input E2E probe.
 // Sets up an OpenXR action set bound to /interaction_profiles/oculus/touch_controller,
 // runs the frame loop (to progress the session to FOCUSED), then each frame syncs actions
 // and prints the left hand thumbstick / trigger / grip pose. With PLAYSPECTRA_ENABLE=1 +

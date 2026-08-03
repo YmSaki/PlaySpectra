@@ -163,7 +163,7 @@ std::string CaptureOutputDir() {
 
 // Resolve the depth swapchain's last-released image for `view` and read it back. Returns the
 // {available:...} depth JSON. When the app chained no depth info, this is the honest "no depth
-// submitted" answer (CLAUDE.md: never fabricate depth). Vulkan only (the only implemented backend).
+// submitted" answer (never fabricate depth). Vulkan only (the only implemented backend).
 json ResolveDepth(const EndFrameSnapshot::View& view) {
   if (!view.hasDepth) {
     return {{"available", false},

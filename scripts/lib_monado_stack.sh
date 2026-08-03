@@ -5,8 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-# Shared bring-up for the run_*_monado.sh Windows E2E harnesses (extracted from the three that had
-# copied it verbatim). Source it, then:
+# Shared bring-up for the run_*_monado.sh Windows E2E harnesses. Source it, then:
 #   mstack_env  "$GFX"            # sets HELLO selection, VULKAN_SDK, PATH, XR_*/PLAYSPECTRA_* env; cd repo root
 #   mstack_up   "$GFX" "$SECS"    # starts monado-service (:52702) + hello_xr w/ layer (:52700);
 #                                 # sets SVC_PID/APP_PID and MSTACK_SVCLOG/MSTACK_APPLOG; returns 0 iff :52700 up

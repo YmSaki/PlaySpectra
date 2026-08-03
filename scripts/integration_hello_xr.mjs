@@ -7,9 +7,8 @@
 // Deep integration test for the playspectra OpenXR layer, driven against hello_xr (a real, standard
 // OpenXR app) through the layer's TCP NDJSON control channel.
 //
-// GAP-10 asks us to validate the layer against a real engine on ENGINE-INDEPENDENT surfaces. The
-// project's own Godot app does not (yet) initialise OpenXR, so per the user's decision we assert those
-// same surfaces against hello_xr, which exercises the identical OpenXR paths any engine would:
+// The project's own Godot app does not initialise OpenXR, so these surfaces are asserted against
+// hello_xr, which exercises the identical OpenXR paths any engine would:
 //   (a) profile / binding interception  -> `actions` dumps attached action sets with bound paths
 //   (b) pose/view override reaches the runtime answer -> `head` injection moves the `view` result
 //   (c) sync semantics round-trip       -> injecting grab>0.9 makes hello_xr buzz -> `haptics` grows
@@ -239,7 +238,7 @@ async function main() {
           `distinctColors=${png.distinctColors} dominant=${(png.dominantFraction * 100).toFixed(1)}%`);
   }
 
-  // (d2) MSAA resolve (R08): when the harness forces a multisampled swapchain via
+  // (d2) MSAA resolve: when the harness forces a multisampled swapchain via
   // HELLO_XR_SAMPLE_COUNT (patched hello_xr, see setup_helloxr_msvc.sh), the capture must have gone
   // through the resolve path and report it -- a silent single-sample fallback would hide a broken
   // resolve. Skipped (not emitted) when the env is unset: stock hello_xr is always single-sample.
@@ -250,7 +249,7 @@ async function main() {
           JSON.stringify({ sampleCount: shot.sampleCount, msaaResolved: shot.msaaResolved }));
   }
 
-  // (d3) HDR decode (R10): when the harness forces the 16F swapchain via HELLO_XR_HDR (patched
+  // (d3) HDR decode: when the harness forces the 16F swapchain via HELLO_XR_HDR (patched
   // hello_xr, see setup_helloxr_msvc.sh), the capture must have gone through the half->sRGB decode
   // and say so. If the runtime does not enumerate R16G16B16A16_FLOAT, hello_xr falls back to an
   // 8-bit format -- that is a runtime capability limit, not a layer defect, so it is an explicit
@@ -270,7 +269,7 @@ async function main() {
     }
   }
 
-  // (d4) 8-bit TYPELESS acceptance (R17): with HELLO_XR_TYPELESS the patched hello_xr requests
+  // (d4) 8-bit TYPELESS acceptance: with HELLO_XR_TYPELESS the patched hello_xr requests
   // R8G8B8A8_TYPELESS when the runtime enumerates it. Neither current runtime (metasim/monado)
   // does on D3D11 -- probed 2026-07-16 -- so on them this prints the explicit SKIP and the layer
   // path is covered by code review + the D3D12 sibling rule; a runtime that does enumerate it
@@ -288,8 +287,8 @@ async function main() {
 
   // (e) depth-request path degrades honestly. Meta sim submits no XrCompositionLayerDepthInfoKHR, so
   // this exercises the withDepth parse -> dispatch -> ResolveDepth honest {available:false} degrade
-  // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is NOT
-  // reached here (no depth swapchain) and stays review-only -- documented, not silently assumed green.
+  // and must not error/crash. NOTE: the Vulkan depth-READBACK body (VulkanReadbackDepthToPng) is not
+  // reached here (no depth swapchain)
   const dshot = await rpc({ cmd: "screenshot", eye: "dominant", withDepth: true, timeoutMs: 8000 });
   check("withDepth request degrades gracefully (color ok, depth honest available:false)",
         dshot.ok === true && dshot.depth != null && typeof dshot.depth.available === "boolean",

@@ -4,8 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Shared layer logger. Extracted from layer_entry.cpp (refactor phase 1) so the three
-// translation units that use it stop re-declaring the same extern by hand (the old "implicit ABI").
+// Shared layer logger, declared once so the three translation units that use it stop re-declaring the
+// same extern by hand (the old "implicit ABI").
 #pragma once
 
 namespace playspectra {

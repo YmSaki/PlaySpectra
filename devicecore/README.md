@@ -21,5 +21,5 @@ out-of-process devices. The Monado fork pulls them in via `PLAYSPECTRA_DEVICECOR
 same sources. The wire protocol on `127.0.0.1:52702` (Monado) is the only contract a client —
 the Go `playspectra` control plane — depends on.
 
-Protocol specification: [.claude/playspectra-device-core-spec.md](../.claude/playspectra-device-core-spec.md).
+Protocol specification: [docs/device-core-spec.md](../docs/device-core-spec.md).
 Architecture context: [docs/architecture.md](../docs/architecture.md).

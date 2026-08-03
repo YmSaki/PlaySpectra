@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/env.sh:*)",
+      "Bash(source scripts/env.sh:*)",
+      "Bash(bash scripts/run_hello_xr.sh:*)",
+      "Bash(bash scripts/head_test.sh:*)",
+      "Bash(bash scripts/pose_test.sh:*)",
+      "Bash(bash scripts/integration_test.sh:*)",
+      "Bash(bash scripts/integration_openvr_test.sh:*)",
+      "Bash(bash scripts/walking_skeleton_test.sh:*)",
+      "Bash(node scripts/head_client.mjs:*)",
+      "Bash(node scripts/pose_client.mjs:*)",
+      "Bash(node scripts/inject_client.mjs:*)",
+      "Bash(node scripts/integration_hello_xr.mjs:*)",
+      "Bash(node scripts/integration_openvr.mjs:*)",
+      "Bash(taskkill:*)",
+      "Bash(layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr.exe:*)",
+      "Bash(bash scripts/run_vrdevapp.sh:*)",
+      "Bash(node scripts/vrdevapp_client.mjs:*)",
+      "Bash(bin/VRDevApp.exe:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": false,
+    "clangd-lsp@claude-plugins-official": true
+  }
+}

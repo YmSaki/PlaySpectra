@@ -50,7 +50,7 @@ playspectra_state_create(void)
 	}
 	ps_mutex_init(&s->mutex);
 	s->refcount = 1;
-	// head は all-zero(playspectra_pose のフラグ全 false = pose 無効)。旧実装の
+	// head は all-zero(playspectra_pose のフラグ全 false = pose 無効)。Monado の
 	// XRT_SPACE_RELATION_ZERO(flags=0)と同じ意味。calloc 済みなので明示代入は不要。
 	return s;
 }

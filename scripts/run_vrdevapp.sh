@@ -7,7 +7,7 @@
 
 # Launch VRDevApp (Godot 4.7.1 OpenXR app, bin/VRDevApp.exe) under the playspectra layer on the current
 # runtime (metasim by default), wait for the control channel, run vrdevapp_client.mjs, then tear
-# down. VRDevApp is the track1 verification target (real engine app, not hello_xr): its floating
+# down. VRDevApp is the real-engine verification target (not hello_xr): its floating
 # input/coordinate window and North/East/West/South wall labels are the observation oracle.
 #
 # Godot is a GUI app with its own loop (unlike hello_xr it does NOT quit on stdin EOF), so we launch

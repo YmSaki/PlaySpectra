@@ -1,6 +1,6 @@
 {
   "name": "operate_completeness",
-  "description": "Completeness of the operate surface (CLAUDE.md north star: every action type, BOTH hands). controller_ops covers move_controller(right)+set_input(left); this covers the mirror hands plus set_trigger(both) and strafe -- the paths not exercised elsewhere. All self-checked via assert against get_state (app-independent, :52702 only). strafe/walk_forward release the stick to neutral, so we assert the release; their locomotion effect is app-side (see run_scenario_e2e_monado.sh).",
+  "description": "Completeness of the operate surface (every action type, BOTH hands). controller_ops covers move_controller(right)+set_input(left); this covers the mirror hands plus set_trigger(both) and strafe -- the paths not exercised elsewhere. All self-checked via assert against get_state (app-independent, :52702 only). strafe/walk_forward release the stick to neutral, so we assert the release; their locomotion effect is app-side (see run_scenario_e2e_monado.sh).",
   "steps": [
     {"cmd": "hello", "role": "writer"},
     {"cmd": "trigger", "hand": "right", "value": 0.8, "duration_ms": 150},

@@ -86,11 +86,8 @@ TEST(CaptureCommonTest, BuildCaptureSuccessJson_FormatsCorrectly) {
 }
 
 /*
-このテストは `DecodeHdrRowsToSrgb` (R10) が、行パディング(rowPitch > w*8)を含む
-R16G16B16A16_FLOAT バッファを正しく 8-bit RGBA へ decode するかを検査します。
-理由: 本関数の新規リスクはまさに行ピッチ処理(Vulkan のタイト詰めループとの唯一の差分)で、
-ピッチずれは「斜行した壊れ画像」を無言で生むため。値は sRGB 変換の丸めに依存しない
-端点(linear 0.0 -> 0, linear 1.0 -> 255)のみを使います(half: 0x0000 / 0x3C00)。
+DecodeHdrRowsToSrgb の行ピッチ処理を検査する。rowPitch > w*8 のずれは斜行した壊れ画像を無言で生む。
+値は sRGB 丸めに依存しない端点のみを使う(half: 0x0000 / 0x3C00)。
 */
 TEST(CaptureCommonTest, DecodeHdrRowsToSrgb_HonorsRowPitchAndEndpoints) {
     const uint32_t w = 2, h = 2;

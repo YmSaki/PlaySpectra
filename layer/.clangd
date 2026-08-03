@@ -1,0 +1,19 @@
+# clangd 用のコンパイルデータベース指定。
+#
+# 背景: layer/ の既存ビルド (layer/build/) は "MinGW Makefiles" ジェネレータで構成されており、
+# CMake の CMAKE_EXPORT_COMPILE_COMMANDS は Ninja/Makefile系ジェネレータでのみ有効なため
+# layer/build/ からは compile_commands.json が生成されない。そこで clangd 専用に別ディレクトリ
+# (build-clangd/) へ Ninja ジェネレータで configure のみ行い (ビルドはしない)、そこから
+# compile_commands.json を生成して参照する。
+#
+# このツリーの include は大半が FetchContent 由来 (OpenXR-SDK / nlohmann_json / lodepng /
+# Vulkan-Headers)。それらの実体パスは configure しないと確定しないので、手書きの -I 列挙では
+# 追随できない (バージョンを上げるたびに壊れる)。DB 経由なら CMakeLists.txt が唯一の真実になる。
+#
+# 再生成が必要になったら (CMakeLists.txt 変更・新規ソース追加など) リポジトリルートで:
+#   bash scripts/gen_compile_commands.sh layer
+#
+# build-clangd/ は .gitignore で無視される (git 追跡対象外)。build-clangd/ は configure 専用で、
+# 実ビルドに使う layer/build/ とは独立している。
+CompileFlags:
+  CompilationDatabase: build-clangd

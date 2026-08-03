@@ -12,12 +12,12 @@
 // DLL and we present two virtual controllers whose poses and buttons we control — reaching any
 // SteamVR game regardless of OpenXR extension support. Capture/head-override stay in the layer.
 //
-// VD2 scope: NDJSON/TCP control channel (127.0.0.1:52701, same wire protocol as the layer's
+// Implements: NDJSON/TCP control channel (127.0.0.1:52701, same wire protocol as the layer's
 // :52700) driving sticky pose injection + input components, oculus_touch masquerade (hypothesis
 // H3 — so existing games' Touch bindings resolve), and a real_poses command exposing
 // IVRServerDriverHost::GetRawTrackedDevicePoses (hypothesis H2). Coexistence with the physical
-// Rift Touch pair (hypothesis H1: roles follow the most-recently-active device) is VERIFIED BY
-// MEASUREMENT, not assumed — see .claude/steamvr-driver-plan.md.
+// Rift Touch pair depends on SteamVR assigning hand roles to the
+// most-recently-active device (hypothesis H1, unverified in this environment — see docs/steamvr-adapter.md).
 //
 // This code runs inside vrserver.exe: an uncaught exception kills the whole SteamVR session, so
 // every entry point swallows exceptions (same "never throws" discipline as the layer's

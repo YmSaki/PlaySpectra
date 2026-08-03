@@ -78,7 +78,7 @@ tasks:
     cmds:
       - node scripts/integration_hello_xr.mjs
 
-  # --- M2 (Monado Virtual HMD) build-environment entry points ---
+  # --- Monado Virtual HMD build-environment entry points ---
 
   monado:deps:
     desc: Print the packages needed to build the Monado PlaySpectra fork (Ubuntu). Informational only; installs nothing.
@@ -93,7 +93,7 @@ tasks:
       - 'echo "    libxcb-randr0-dev libxrandr-dev libxxf86vm-dev ninja-build pkg-config python3 \\"'
       - 'echo "    wayland-protocols"'
       - 'echo ""'
-      - 'echo "M2.1 first blockers (this env is missing these): ninja-build glslang-tools libvulkan-dev libeigen3-dev"'
+      - 'echo "First blockers (this env is missing these): ninja-build glslang-tools libvulkan-dev libeigen3-dev"'
 
   monado:proto:test:
     desc: Compile+run the standalone PlaySpectra NDJSON protocol parser test (no Monado build needed)
@@ -103,7 +103,7 @@ tasks:
       - '{{.BUILD_DIR}}/playspectra_proto_test{{if eq OS "windows"}}.exe{{end}}'
 
   # Full Monado configure/build use the existing configure:monado / build:monado tasks.
-  # The M2 build env (Linux/WSL) runs those after `task monado:deps` packages are installed;
+  # The Monado build env (Linux/WSL) runs those after `task monado:deps` packages are installed;
   # XRT_BUILD_DRIVER_PLAYSPECTRA defaults ON so no extra flag is needed.
 
   # --- Environment setup + work prep (Linux / WSL / cloud) ---

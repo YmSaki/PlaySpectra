@@ -5,12 +5,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // durationMs interpolation -- the evaluator that turns a sticky pose TARGET (with an optional
-// durationMs) into the pose to inject THIS instant. This is the "glide" half of the design split
-// agreed in the refactor plan (§5.1): the control channel's sticky store owns the TARGET (what the
-// caller asked for), the animator owns the interpolation state (where the glide currently is:
-// start pose, start time, last evaluated value). No new parallel system: every existing injection
-// path (sticky re-apply on xrSyncActions, controller locate override, head/VIEW override) simply
-// evaluates its target through here before using it, exactly where it used to read the raw target.
+// durationMs) into the pose to inject THIS instant. This is the "glide" half of the design split:
+// the control channel's sticky store owns the TARGET (what the caller asked for), the animator owns
+// the interpolation state (where the glide currently is: start pose, start time, last evaluated
+// value). Every injection path (sticky re-apply on xrSyncActions, controller locate override,
+// head/VIEW override) runs this evaluation at the point where it reads the raw target.
 //
 // Semantics (Playwright-like, linear):
 //   - durationMs == 0 (the default)  -> snap to the target immediately (the pre-existing behaviour).
@@ -44,7 +43,7 @@
 namespace playspectra {
 
 // Result of evaluating an animated target at one instant. linVel/angVel are the glide's closed-form
-// derivative (constant over a linear glide) -- the receptacle for the OPTIONAL §5.2 "real velocity"
+// derivative (constant over a linear glide) -- the receptacle for the OPTIONAL "real velocity"
 // extension. Today's callers only consume `pose` (located velocities stay zeroed as before).
 struct EvaluatedPose {
   XrPosef pose;                              // evaluated pose (LOCAL space, same as the target)

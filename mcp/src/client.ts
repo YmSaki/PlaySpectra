@@ -14,9 +14,7 @@ export const HOST = "127.0.0.1";
 export const PORT = Number(process.env.PLAYSPECTRA_PORT ?? "52700");
 
 // A well-formed reply line is small JSON. Cap the accumulation buffer so anything holding the port
-// that streams bytes without a newline cannot grow it unbounded and exhaust memory. Reported by
-// Jules/Sentinel (PR #5); the read loop moved server.ts -> client.ts in the R20 split, so the fix
-// lands here.
+// that streams bytes without a newline cannot grow it unbounded and exhaust memory.
 const MAX_LINE_BYTES = 1 << 20; // 1 MiB
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };

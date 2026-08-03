@@ -14,7 +14,7 @@
 // buffer (resolving MSAA into a single-sample intermediate first), and encode an 8-bit RGBA PNG via
 // lodepng -- decoding R16G16B16A16_SFLOAT (HDR) to sRGB along the way. Depth (Vulkan-only,
 // nice-to-have) is linearized to view-space metres and encoded as a 16-bit grayscale PNG. Unsupported
-// formats and MSAA return an explicit error json, never a silently-broken image (CLAUDE.md).
+// formats and MSAA return an explicit error json, never a silently-broken image.
 
 #ifdef _WIN32
 #include <windows.h>  // LoadLibraryA / GetProcAddress -- the layer loads Vulkan entry points at
@@ -101,7 +101,7 @@ VkQueue g_vk_queue = VK_NULL_HANDLE;
 VkCommandPool g_vk_pool = VK_NULL_HANDLE;
 VkCommandBuffer g_vk_cmd = VK_NULL_HANDLE;
 VkFence g_vk_fence = VK_NULL_HANDLE;
-// GAP-07(c): true between a successful vkQueueSubmit and the fence being observed signalled. If a
+// In-flight capture fence semantics: true between a successful vkQueueSubmit and the fence being observed signalled. If a
 // readback times out waiting for its fence, this stays true so FreeVulkanResources waits the fence
 // before destroying the pool/buffer/fence the GPU may still be reading (readback and destroy are both
 // on the app thread and serialized, but a timed-out submit is the one case work can outlive the call).
@@ -110,7 +110,7 @@ VkBuffer g_vk_staging = VK_NULL_HANDLE;
 VkDeviceMemory g_vk_staging_mem = VK_NULL_HANDLE;
 VkDeviceSize g_vk_staging_size = 0;
 
-// Reusable single-sample intermediate image for MSAA resolve (GAP-03). Multisample swapchain images
+// Reusable single-sample intermediate image for MSAA resolve. Multisample swapchain images
 // cannot be copied to a buffer directly; we vkCmdResolveImage into this device-local image (same
 // format as the source) and copy from it. Lazily (re)created on size/format change, freed at session
 // destroy. Its extent is exactly w x h and it is single-layer, so copies from it use origin {0,0,0}
@@ -171,7 +171,7 @@ void LoadVulkan() {
   ok &= LoadDeviceFn(g_vk.resetCommandBuffer, "vkResetCommandBuffer");
   ok &= LoadDeviceFn(g_vk.cmdPipelineBarrier, "vkCmdPipelineBarrier");
   ok &= LoadDeviceFn(g_vk.cmdCopyImageToBuffer, "vkCmdCopyImageToBuffer");
-  // MSAA resolve + intermediate single-sample image (GAP-03). A missing one flips g_vk.ok=false so
+  // MSAA resolve + intermediate single-sample image. A missing one flips g_vk.ok=false so
   // the whole capture path dies loudly instead of silently -- paired with the load below on purpose.
   ok &= LoadDeviceFn(g_vk.cmdResolveImage, "vkCmdResolveImage");
   ok &= LoadDeviceFn(g_vk.createImage, "vkCreateImage");
@@ -367,7 +367,7 @@ bool EnsureResolveImage(uint32_t w, uint32_t h, int64_t format) {
 
 void FreeVulkanResources() {
   if (!g_vk.ok || g_vk_device == VK_NULL_HANDLE) return;
-  // GAP-07(c): if a readback submitted work but its fence wait timed out, the GPU may still be reading
+  // In-flight capture fence semantics: if a readback submitted work but its fence wait timed out, the GPU may still be reading
   // the very resources we are about to destroy. Wait the fence (bounded) before freeing so we never
   // pull the pool/buffer out from under an in-flight copy.
   if (g_vk_capture_inflight && g_vk_fence != VK_NULL_HANDLE) {
@@ -399,7 +399,7 @@ void FreeVulkanResources() {
 // --------------------------------------------------------------------------------------------
 // Vulkan color-format handling. We store bytes straight to an 8-bit RGBA PNG: RGBA formats copy
 // directly, BGRA formats get a B<->R swizzle. Anything else (HDR, packed, etc.) is an explicit
-// error -- never a silently-broken image (CLAUDE.md).
+// error -- never a silently-broken image.
 // --------------------------------------------------------------------------------------------
 bool VkFormatIsRGBA8(int64_t f) {
   return f == VK_FORMAT_R8G8B8A8_UNORM || f == VK_FORMAT_R8G8B8A8_SRGB;
@@ -451,7 +451,7 @@ bool HalfFloatSelfTest() {
 // We copy that image out (VK_IMAGE_ASPECT_DEPTH_BIT), linearize NDC depth to positive view-space
 // metres, and encode a 16-bit grayscale PNG normalized over the frame's finite depth range.
 // Reversed-Z (nearZ>farZ) and infinite-far reversed-Z (farZ==+inf) are handled. Depth is a
-// nice-to-have (CLAUDE.md): when the app submits none we say so honestly, never a fabricated image.
+// nice-to-have: when the app submits none we say so honestly, never a fabricated image.
 // --------------------------------------------------------------------------------------------
 enum class DepthKind { None, U16, D24, F32 };
 
@@ -493,15 +493,15 @@ void VulkanFree() {
   g_vk_device = VK_NULL_HANDLE;
 }
 
-// Shared GPU-copy plumbing for the color and depth readbacks (move-only extraction, R02). The two
+// Shared GPU-copy plumbing for the color and depth readbacks. The two
 // readbacks differ only in the recorded barrier/copy body and in how the mapped bytes are consumed;
-// the reset+begin / submit / 5s fence-wait (with GAP-07(c) inflight semantics) / map+unmap skeleton is
+// the reset+begin / submit / 5s fence-wait (with inflight semantics) / map+unmap skeleton is
 // identical. Each caller injects its body via a lambda and builds its own (asymmetric) result JSON.
 enum class VkCaptureStatus { Ok, SubmitFailed, Timeout };
 
 // reset+begin the capture command buffer, let recordFn record barriers+copy, then submit and wait the
 // fence (5s). g_vk_capture_inflight is raised before the wait and cleared only on success -- on a
-// timeout it stays raised so FreeVulkanResources waits it out before freeing (GAP-07(c)).
+// timeout it stays raised so FreeVulkanResources waits it out before freeing.
 static VkCaptureStatus RecordAndSubmitCopy(const std::function<void(VkCommandBuffer)>& recordFn) {
   g_vk.resetCommandBuffer(g_vk_cmd, 0);
   VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -547,7 +547,7 @@ static bool MapStaging(VkDeviceSize bytes, const std::function<void(const void*)
 //    a single-sample device-local intermediate (EnsureResolveImage) first, then copy FROM that. The
 //    intermediate is exactly w x h and single-layer, so its copy uses origin {0,0,0} / baseArrayLayer
 //    0 -- the source's view.x/y/arrayIndex are used ONLY on the resolve's SRC side, never on the copy
-//    from the intermediate (mixing them up reads out of bounds -> a silently-broken image, CLAUDE.md).
+//    from the intermediate (mixing them up reads out of bounds -> a silently-broken image).
 //
 // Color decode: RGBA8 copies straight; BGRA8 gets a B<->R swizzle; R16G16B16A16_SFLOAT (HDR) is
 // half-float-decoded, sRGB-encoded and quantized to 8-bit. Anything else is an explicit error.
@@ -587,7 +587,7 @@ json VulkanReadbackToPng(uint64_t imageHandle, int64_t format, uint32_t sampleCo
   }
 
   // Record the color copy (barrier -> optional MSAA resolve -> copy -> barrier back), then submit and
-  // 5s fence-wait via the shared helper. Body is verbatim; only g_vk_cmd -> the passed `cmd`.
+  // 5s fence-wait via the shared helper.
   const VkCaptureStatus st = RecordAndSubmitCopy([&](VkCommandBuffer cmd) {
     VkImageMemoryBarrier toSrc{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     toSrc.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -769,7 +769,7 @@ json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t format, uint32_t sam
   }
 
   // Record the depth copy (barrier -> copy -> barrier back), then submit and 5s fence-wait via the
-  // shared helper. Body is verbatim; only g_vk_cmd -> the passed `cmd`.
+  // shared helper.
   const VkCaptureStatus st = RecordAndSubmitCopy([&](VkCommandBuffer cmd) {
     const VkPipelineStageFlags depthStages =
         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;

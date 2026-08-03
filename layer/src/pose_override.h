@@ -4,16 +4,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Head/VIEW-space override + controller grip/aim pose override. Extracted from layer_entry.cpp
-// (refactor phase 5) so the layer's authoritative pose path -- the injected head pose (xrLocateViews /
-// xrLocateSpace(VIEW)) and the injected controller grip/aim pose (xrLocateSpace / xrLocateSpaces on
-// action spaces) -- lives in one translation unit. This is the "coordinate system of injected input":
-// injected poses are defined in the layer's own LOCAL reference space and re-expressed into whatever
-// space the app locates in. The quaternion/vector math (GAP-04 grip->aim offset, GAP-05 velocity
-// zeroing, GAP-06 null-subactionPath hand inference, IPD-preserving head rebase), the VIEW-space
-// tracking, the LOCAL reference space, and the log-once guards are all TU-private in pose_override.cpp;
-// this header publishes only what the (thin, remaining) hooks in layer_entry.cpp call.
-// Behaviour -- data, algorithms, lock discipline -- is unchanged; this is a move only.
+// Head/VIEW-space override + controller grip/aim pose override -- the layer's authoritative pose path
+// (the injected head pose (xrLocateViews / xrLocateSpace(VIEW)) and the injected controller grip/aim
+// pose (xrLocateSpace / xrLocateSpaces on action spaces)) lives in one translation unit. This is the
+// "coordinate system of injected input": injected poses are defined in the layer's own LOCAL reference
+// space and re-expressed into whatever space the app locates in. The quaternion/vector math (grip->aim
+// offset, velocity zeroing, null-subactionPath hand inference, IPD-preserving
+// head rebase), the VIEW-space tracking, the LOCAL reference space, and the log-once guards are all
+// TU-private in pose_override.cpp; this header publishes only what the hooks in hooks_locate.cpp and
+// hooks_action.cpp call.
 #pragma once
 
 #include <openxr/openxr.h>
@@ -40,21 +39,21 @@ namespace playspectra {
 // g_view_spaces_mutex only. No function here holds both at once, so there is no cross-mutex
 // ordering to preserve -- keep it that way.
 //
-// TWO-PHASE runtime rule (GAP-04): ResolveGripToAimOffset resolves the grip/aim action spaces under
+// TWO-PHASE runtime rule: ResolveGripToAimOffset resolves the grip/aim action spaces under
 // ActionMutex(), RELEASES the lock, and only THEN calls the RAW next xrLocateSpace (never our own
 // hook -> no self-re-entry). ApplyPoseOverride likewise releases ActionMutex() before reading the
 // sticky poses. NEVER call a runtime entry point or a ControlChannel* entry point while holding
 // ActionMutex().
 //
-// GAP-05: velocity is zeroed ONLY on entries we actually overrode (ApplyHeadToLocation /
+// Velocity zeroing: velocity is zeroed ONLY on entries we actually overrode (ApplyHeadToLocation /
 // ApplyPoseOverride return true), because we inject a static pose snapshot with no motion model.
 // ---------------------------------------------------------------------------------------------
 
 // Create (lazily, from a live session) the layer's own LOCAL reference space to express injected
 // poses in -- the same space hello_xr and typical apps use as their app space. Session-scoped:
 // cleared in PoseOverrideClearSessionScoped(). Returns XR_NULL_HANDLE if the runtime can't provide
-// it. PUBLIC because cluster C's ApplyPendingInputs (still in layer_entry.cpp) injects sticky
-// controller poses in this same LOCAL space via xrSetInputDeviceLocationEXT.
+// it. PUBLIC because cluster C's ApplyPendingInputs (input_inject.cpp) injects sticky controller
+// poses in this same LOCAL space via xrSetInputDeviceLocationEXT.
 XrSpace EnsureLocalSpace(XrSession session);
 
 // VIEW-space tracking (guarded by g_view_spaces_mutex, TU-private).
@@ -71,7 +70,7 @@ HeadPose TransformHeadToSpace(XrSession session, const HeadPose& h, XrSpace targ
 
 // Controller grip/aim override: if `space` is a tracked grip/aim action space for a hand with an
 // injected sticky pose, write that pose (LOCAL -> baseSpace) into outPose/outFlags and return true.
-// Serves both xrLocateSpace and xrLocateSpaces. GAP-04 aim = grip * offset; GAP-06 null-subactionPath
+// Serves both xrLocateSpace and xrLocateSpaces. Aim = grip * offset; null-subactionPath
 // hand inference. `session` may be the current session for the singular xrLocateSpace (no session arg).
 bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTime time,
                        XrPosef& outPose, XrSpaceLocationFlags& outFlags);

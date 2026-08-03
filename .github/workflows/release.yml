@@ -2,7 +2,7 @@
 # units per platform, assemble "download and extract" packages, smoke-test them from the staged
 # tree (never from the source tree), and attach them to a GitHub Release with SHA-256 checksums.
 #
-# Package contents (decided in the distribution plan; Q1: the Monado runtime IS bundled -- a stock
+# Package contents (the Monado runtime IS bundled: a stock
 # Monado has no drv_playspectra, so a runtime we build is the only way users can get one):
 #   playspectra-<os>-amd64/
 #     playspectra(.exe)      Go control plane, version stamped from the tag
@@ -205,7 +205,7 @@ jobs:
           set -euo pipefail
           mkdir -p stage/pkg/layer stage/pkg/licenses
           cp build/layer/playspectra_layer.so stage/pkg/layer/
-          # B2: the tracked manifest is Windows-shaped (.dll); generate the .so one here until the
+          # The tracked manifest is Windows-shaped (.dll); generate the .so one here until the
           # per-platform manifest generation moves into the layer's CMake.
           cat > stage/pkg/layer/XrApiLayer_playspectra.json <<'EOF'
           {

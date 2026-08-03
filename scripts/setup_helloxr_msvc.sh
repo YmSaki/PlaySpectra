@@ -26,7 +26,7 @@ DEST="${ROOT}/third_party/hello_xr_msvc"
 # Idempotent local patch of the fetched source (re-fetch clobbers it; this script restores it).
 LOGGER="$SRC/src/tests/hello_xr/logger.cpp"
 
-# hello_xr's D3D11 plugin hardcodes swapchain sampleCount=1, so the layer's MSAA-resolve path (R08)
+# hello_xr's D3D11 plugin hardcodes swapchain sampleCount=1, so the layer's MSAA-resolve path
 # is unreachable in E2E without this: make it env-driven via HELLO_XR_SAMPLE_COUNT (unset/<=1 keeps
 # the stock behavior). Its RTV/DSV creation is also single-sample-only (TEXTURE2D dimension, depth
 # SampleDesc.Count=1 -- E_INVALIDARG on an MSAA swapchain, probed 2026-07-16), so those go
@@ -34,7 +34,7 @@ LOGGER="$SRC/src/tests/hello_xr/logger.cpp"
 # marker it introduces), same pattern as the <chrono> one above.
 GFX11="$SRC/src/tests/hello_xr/graphicsplugin_d3d11.cpp"
 
-# Same treatment for the D3D12 plugin (R09). Its RTV/DSV creation is already MSAA-aware in stock
+# Same treatment for the D3D12 plugin. Its RTV/DSV creation is already MSAA-aware in stock
 # hello_xr; the remaining single-sample hardcodes are (a) no GetSupportedSwapchainSampleCount
 # override (base class returns recommended=1), (b) the depth buffer's SampleDesc, and (c) the PSO's
 # SampleDesc, which D3D12 requires to match the render target's sample count.

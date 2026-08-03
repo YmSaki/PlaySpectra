@@ -4,7 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Shared color-readback helpers. See capture_common.h for the contract and the R01 rationale.
+// Shared color-readback helpers. See capture_common.h for the contract.
 
 #include "capture_common.h"
 

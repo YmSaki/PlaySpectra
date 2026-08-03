@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Layer dispatch table + single-instance state implementation. Moved verbatim from
-// layer_entry.cpp (refactor phase 3); behaviour is unchanged (same resolution, same lock
-// discipline, same single-instance model).
+// Layer dispatch table + single-instance state implementation: entry-point resolution, lock
+// discipline, and the single-instance model.
 #include "layer_dispatch.h"
 
 #include <mutex>
@@ -22,7 +21,7 @@ namespace {
 // Layer state. A single global instance/session is adequate for the headless single-app use case
 // (VR-Playwright's north star: one subject app under test, so at most one live XrInstance). We do
 // NOT keep a handle->instance registry -- that would be a full multi-instance dispatch mechanism we
-// don't need. What we DO fix (GAP-07): the next-layer entry points used to live in per-hook
+// don't need. What we DO fix (per-instance dispatch rebuild): the next-layer entry points used to live in per-hook
 // function-local statics that initialise exactly once per process, so a second instance (e.g. Unity
 // Editor Play-mode repeat) kept the previous runtime's stale pointers. They now live in one
 // LayerDispatch that is rebuilt on every xrCreateApiLayerInstance and cleared on xrDestroyInstance.

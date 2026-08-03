@@ -1,0 +1,18 @@
+# clangd 用のコンパイルデータベース指定。
+#
+# 背景: driver/ の既存ビルド (driver/build/) は Ninja だが CMAKE_EXPORT_COMPILE_COMMANDS が
+# OFF のまま構成されているため compile_commands.json を持たない。既存ビルドディレクトリの
+# 構成を触らずに済ませたいので、clangd 専用に別ディレクトリ (build-clangd/) へ
+# -DCMAKE_EXPORT_COMPILE_COMMANDS=ON 付きで configure のみ行い (ビルドはしない)、そこから
+# compile_commands.json を生成して参照する。
+#
+# これで openvr_driver.h (third_party/openvr_driver_sdk/) と nlohmann/json.hpp (FetchContent
+# 由来でパスが configure 時にしか確定しない) の両方が解決する。
+#
+# 再生成が必要になったら (CMakeLists.txt 変更・新規ソース追加など) リポジトリルートで:
+#   bash scripts/gen_compile_commands.sh driver
+#
+# build-clangd/ は .gitignore で無視される (git 追跡対象外)。build-clangd/ は configure 専用で、
+# 実ビルドに使う driver/build/ とは独立している。
+CompileFlags:
+  CompilationDatabase: build-clangd

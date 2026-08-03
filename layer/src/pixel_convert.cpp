@@ -4,9 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Pure pixel / numeric conversion helpers. See pixel_convert.h for the contract and the R03 rationale.
-// Bodies moved verbatim from capture_vulkan.cpp (only the linkage changed: anonymous namespace ->
-// playspectra::).
+// Pure pixel / numeric conversion helpers. See pixel_convert.h for the contract.
 
 #include "pixel_convert.h"
 
@@ -54,7 +52,7 @@ float HalfToFloat(std::uint16_t hbits) {
 // Linear (scene-referred) -> sRGB electro-optical transfer function, clamped to [0,1]. inf clamps to
 // 1.0 (>=1 branch); callers pre-map NaN to 0. This is the whole "tone mapping": no operator, no
 // exposure knob -- HDR values above 1.0 saturate to white. Adjustable operators are a post-core
-// extension (CLAUDE.md: keep the core loop minimal and honest).
+// extension (keep the core loop minimal and honest).
 float LinearToSrgb(float c) {
   if (!(c > 0.0f)) return 0.0f;   // handles <=0 and NaN (NaN>0 is false)
   if (c >= 1.0f) return 1.0f;     // handles +inf too

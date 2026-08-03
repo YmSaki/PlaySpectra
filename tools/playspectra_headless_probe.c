@@ -4,13 +4,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// PlaySpectra headless OpenXR pose-reader (M2.2/M2.3 verification).
+// PlaySpectra headless OpenXR pose-reader.
 // XR_MND_headless -> no graphics binding/compositor swapchains. Uses
 // XR_KHR_convert_timespec_time to build a valid XrTime from the monotonic clock, so
 // xrLocateSpace(VIEW in STAGE) reads the head pose without depending on frame timing.
 // With PLAYSPECTRA_ENABLE=1 + XRT_COMPOSITOR_NULL=1 and the Monado in-process runtime,
 // this reads the PlaySpectra virtual HMD pose. Sending NDJSON set_state to
-// 127.0.0.1:52702 mid-run changes the printed pose (M2.3).
+// 127.0.0.1:52702 mid-run changes the printed pose.
 //
 // Build (WSL): gcc playspectra_headless_probe.c -lopenxr_loader -o ps_probe_xr
 

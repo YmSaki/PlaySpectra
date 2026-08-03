@@ -26,7 +26,7 @@
 **規律**:
 - 文書・設計・実装に主張を書く前に、必ず「実測/一次ソース由来の**事実**」か「学習知識由来の
   **仮説**」かを分類する。仮説は必ず 仮説ラベル+検証方法 付きで書く（例: H1〜H3 方式、
-  .claude/steamvr-driver-plan.md「実機との共存」節）。
+  docs/steamvr-adapter.md「実機との共存」節）。
 - 仕様・アーキテクチャの決定は事実の上にだけ置く。仮説の上に置く場合は「検証装置としての
   暫定実装」と明示し、実測後に決定へ昇格させる。
 - README 等の外向き文書は ✅実装+自動テスト済み / 🟡実機で部分検証済み / 📋設計・開発中 の
@@ -84,25 +84,7 @@ nice-to-have（やらなくてもよい）に分類してよいのは、ユー�
 
 ## 進行中の実装について
 
-詳細な設計・タスク分解は `.claude/` 配下（セッションのplanファイル）を参照。
+正式な設計・仕様は `docs/` 配下（architecture / device-core-spec / steamvr-adapter）。
+作業中の計画・工程記録は `.claude/` 配下に置くが、これはローカル専用・非公開（.gitignore 管理）であり、
+追跡文書やコードから参照しない。
 本ファイルは「何を見失ってはいけないか」を記録する場所であり、実装の詳細はここに書かない。
-
-## リポジトリ運用の注意（.claude/ の git 追跡）
-
-`.claude/` はユーザーの **global gitignore 対象**。よって `.claude/` 配下に設計書・ルール等を新規作成しても
-既定では追跡されない。設計書を作ったら **`git add -f` で明示追跡する**（放置すると repo に入らず、追跡済みの
-README 等からのリンクが切れる）。追跡文書は非追跡パスへリンクしない。
-— 出典: 2026-07-22（PlaySpectra 設計書5点が未追跡で README リンク切れ→git add -f で是正、526de7d9）
-
-## リポジトリ運用の注意（submodule のコミットと匿名性ガード）
-
-匿名性ガードは `git commit`/`push` を検知すると **cwd の git ルート**を丸ごと走査し、`C:\Users\<name>` 等の
-ローカルパスと個人メールを見つけると拒否する。submodule（Monado fork）の中で `cd` してコミットすると
-**upstream 由来の `.mailmap`（contributor のメールアドレス）が数百件ヒットして必ずブロックされる**。
-
-これは false positive — 我々が持ち込んだ PII ではない。**親ディレクトリから `git -C runtime/monado-playspectra
-commit` で実行する**と、走査対象が親ツリーになって正しく通る（親ツリー側は当然クリーンでなければならない）。
-なお add と commit を1つの Bash 呼び出しにまとめると **add ごとブロックされて何もステージされない**ので、
-拒否されたら add からやり直す。submodule を push しないと他環境で gitlink が解決できないため、
-**push は submodule → 親の順**。完了確認は `git -C <submodule> branch -r --contains $(git ls-tree HEAD <submodule> | awk '{print $3}')`。
-— 出典: 2026-07-25（null_compositor 修正のコミットで 447件検出されブロック。自分の成果物と親ツリーは 0件と確認）

@@ -49,7 +49,7 @@ export function orientationFrom(a: {
   return { ok: true, q: { ...IDENTITY } };
 }
 
-// --- vector + look-rotation helpers (WU3: vr_point_at / vr_look_at) ---
+// --- vector + look-rotation helpers (vr_point_at / vr_look_at) ---
 export type Vec3 = { x: number; y: number; z: number };
 export const vsub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 export const vdot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;

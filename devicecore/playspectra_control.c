@@ -6,7 +6,7 @@
 
 /*!
  * @file
- * @brief  PlaySpectra NDJSON control channel (spec playspectra-device-core-spec.md §5).
+ * @brief  PlaySpectra NDJSON control channel (spec docs/device-core-spec.md §5).
  *
  * 複数接続を単一スレッドの select() 多重化で捌く(spec §5.3)。hello の role で
  * writer(同時1接続のみ排他) / observer(複数可) を割り当てる。set_state は writer のみ、
@@ -248,7 +248,7 @@ pose_to_json(const struct playspectra_pose *pose)
 
 // 共有 state のコントローラ → Controller JSON(spec §2.3)。inputs は apply_ctrl が受理する
 // semantic path と対称に出す(左=x/y+menu, 右=a/b+system)。system の runtime_reserved 分離
-// (spec §2.4)と Descriptor 駆動の完全性は M2 後続で確定(§7)。
+// (spec §2.4)は未実施、inputs は Descriptor 駆動でなく固定リスト(spec §7)。
 static cJSON *
 ctrl_to_json(struct playspectra_control *c, enum playspectra_hand hand)
 {
@@ -290,7 +290,8 @@ ctrl_to_json(struct playspectra_control *c, enum playspectra_hand hand)
  * Command handlers.
  */
 
-// 最小 descriptor(HMD のみ)。fov/解像度の実値は Adapter 殻が config で注入する。hello 応答に埋める。
+// 最小 descriptor(HMD のみ)。解像度/refresh の実値は Adapter 殻が config で注入する(fov と
+// controllers は未送出 — spec §7)。hello 応答に埋める。
 static void
 add_descriptor(struct playspectra_control *c, cJSON *r)
 {

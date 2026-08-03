@@ -14,7 +14,7 @@
 #   eye to PNG -> we assert the post-injection PNG DIFFERS from the baseline PNG, proving the capture
 #   tracks the injected state (not a fixed/blank buffer) and that operate+observe compose.
 #
-# Prerequisites (build first; see .claude/playspectra-m2-status.md):
+# Prerequisites (build first; see docs/getting-started-linux.md):
 #   - Monado fork built with the playspectra driver:  MONADO_BUILD/openxr_monado-dev.json
 #   - hello_xr (OpenXR-SDK-Source) built with Vulkan:  HELLOXR
 #   - PlaySpectra layer built for this platform:        LAYER_SO  (see layer/, cmake -B build)

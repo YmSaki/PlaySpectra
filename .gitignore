@@ -7,6 +7,8 @@ mcp/dist/
 # drops on Windows is ignored; the canonical output goes to build/.
 /playspectra.exe
 layer/build/
+# clangd-only configure tree (compile_commands.json source, see layer/.clangd). Generated.
+layer/build-clangd/
 layer/manifest/*.dll
 layer/manifest/*.so
 __pycache__/
@@ -18,6 +20,8 @@ __pycache__/
 # SteamVR driver (driver/) & built app binaries -- generated, not source.
 # Tracked source: driver/src/, driver/CMakeLists.txt, driver/playspectra/driver.vrdrivermanifest
 driver/build/
+# clangd-only configure tree (compile_commands.json source, see driver/.clangd). Generated.
+driver/build-clangd/
 bin/
 
 # Local venvs (e.g. .venv-mcp for run_mcp_verify_monado.sh; mcp must be isolated, not in a shared env)
@@ -26,11 +30,16 @@ bin/
 # Large external dependencies (fetched/extracted by setup; reproduced, not source)
 third_party/
 
-# Volatile harness state (journal.md and v1.0.0-dod.md ARE tracked)
-.claude/harness/state.json
-.claude/harness/contracts/
+# .claude is local process state by default. Published exceptions only: gate rules
+# and shared settings. Official specs live in docs/.
+# Order matters: un-ignore the dir itself, ignore its children, then re-include.
+!.claude/
+.claude/*
+!.claude/rules/
+!.claude/settings.json
 
-# Dev memos (local only, not shipped)
+# Dev memos & work reports (local only, not shipped)
 feature-inventory.csv
 refactor-plan.csv
 refactor-plan-review.md
+/reports/

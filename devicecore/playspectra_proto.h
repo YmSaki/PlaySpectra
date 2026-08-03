@@ -6,7 +6,7 @@
 /*!
  * @file
  * @brief  Pure NDJSON protocol parsing for the PlaySpectra control channel
- *         (playspectra-device-core-spec.md §2/§5). cJSON only -- NO Monado deps,
+ *         (docs/device-core-spec.md §2/§5). cJSON only -- NO Monado deps,
  *         so it is unit-testable standalone (playspectra_proto_test.c).
  */
 

@@ -79,7 +79,6 @@ The adapter supports realtime operation and a frame-synchronized protocol path. 
 
 ## Contributor references
 
-- Internal architecture record: [.claude/playspectra-architecture.md](../.claude/playspectra-architecture.md)
-- Device state and protocol: [.claude/playspectra-device-core-spec.md](../.claude/playspectra-device-core-spec.md)
-- SteamVR adapter plan: [.claude/steamvr-driver-plan.md](../.claude/steamvr-driver-plan.md)
+- Device state and protocol specification: [device-core-spec.md](device-core-spec.md)
+- SteamVR adapter design: [steamvr-adapter.md](steamvr-adapter.md)
 

@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Unit tests for the pure quaternion/vector math in math.ts. Fully environment-independent
-// (no layer, no socket, no GPU) -- these are the first tests wired into CI.
+// (no layer, no socket, no GPU).
 // Run: npm test  (node --import tsx --test).
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";

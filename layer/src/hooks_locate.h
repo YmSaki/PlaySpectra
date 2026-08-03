@@ -5,12 +5,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Locate/reference-space hook cluster -- the head/VIEW + controller-pose override hooks that drive
-// pose_override.cpp. Extracted from openxr_agent_layer.cpp (refactor R04) as a move only: the hook
-// bodies are unchanged and the dispatch table (kHooks[] in openxr_agent_layer.cpp) still references
-// these by name. No cross-cluster file-local state, so this header publishes only the hook prototypes.
-// Prototypes are in the global namespace to match the linkage the dispatch table uses (kHooks
-// references them unqualified). See openxr_agent_layer.cpp for the dispatch wiring; note xrDestroySpace
-// stays with the teardown cluster in hooks_action.cpp, not here.
+// pose_override.cpp. The dispatch table (kHooks[] in layer_entry.cpp) references these by name. No
+// cross-cluster file-local state, so this header publishes only the hook prototypes. Prototypes are
+// in the global namespace to match the linkage the dispatch table uses (kHooks references them
+// unqualified). See layer_entry.cpp for the dispatch wiring; note xrDestroySpace stays with the
+// teardown cluster in hooks_action.cpp, not here.
 #pragma once
 
 #include <openxr/openxr.h>

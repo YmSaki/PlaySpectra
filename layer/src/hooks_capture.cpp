@@ -4,8 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Frame-capture hook cluster implementation. Moved verbatim from layer_entry.cpp (refactor
-// R04); behaviour is unchanged (same passthrough + capture.cpp notifications). See hooks_capture.h.
+// Frame-capture hook cluster implementation: passthrough plus capture.cpp notifications. See
+// hooks_capture.h.
 #include "hooks_capture.h"
 
 #include "capture.h"           // CaptureOn* frame/swapchain/session notifications

@@ -2,7 +2,7 @@
   "jsonid": "default_bindings",
   "controller_type": "playspectra_controller",
   "name": "Legacy bindings for PlaySpectra virtual controller",
-  "description": "Maps the virtual controller onto SteamVR legacy input actions (VD1 minimal; refined in VD3).",
+  "description": "Maps the virtual controller onto SteamVR legacy input actions (trigger and system only).",
   "bindings": {
     "/actions/legacy": {
       "sources": [

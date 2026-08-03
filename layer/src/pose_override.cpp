@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Head/VIEW-space override + controller grip/aim pose override implementation. Moved verbatim from
-// layer_entry.cpp (refactor phase 5); behaviour is unchanged (same math, same VIEW-space
-// tracking, same LOCAL reference space, same lock discipline -- see pose_override.h for the invariants).
+// Head/VIEW-space override + controller grip/aim pose override implementation -- see pose_override.h
+// for the invariants (math, VIEW-space tracking, LOCAL reference space, lock discipline).
 #include "pose_override.h"
 
 #include <map>
@@ -36,7 +35,7 @@ void Log(const char* msg, const char* detail = nullptr) { LayerLog(msg, detail);
 XrSpace g_local_space = XR_NULL_HANDLE;
 
 // ---------------------------------------------------------------------------------------------
-// Head / viewpoint override (WU1). The head is not an input device, so conformance_automation
+// Head / viewpoint override. The head is not an input device, so conformance_automation
 // can't set it -- the layer overrides xrLocateViews (what the app renders from) and
 // xrLocateSpace(VIEW) directly. We re-base the runtime's real views onto the injected head pose,
 // preserving each eye's offset (IPD) and FOV so only the head *moves*.
@@ -71,7 +70,7 @@ XrPosef TransformLocalPoseToSpace(XrSession session, const XrPosef& poseLocal, X
   return out;
 }
 
-// GAP-07: log-once guards promoted to file scope so xrDestroyInstance can reset them -- a fresh
+// Log-once guards promoted to file scope so xrDestroyInstance can reset them -- a fresh
 // instance (Play-mode repeat) should be able to re-warn instead of staying silent forever.
 bool g_warned_head_space = false;
 bool g_warned_aim_offset = false;
@@ -79,14 +78,14 @@ bool g_warned_pose_null_subaction = false;
 bool g_warned_pose_both_hands = false;
 bool g_warned_pose_transform = false;
 
-// GAP-04: whether a tracked action space serves `handTop`. PRECONDITION: caller holds g_action_mutex.
+// Whether a tracked action space serves `handTop`. PRECONDITION: caller holds g_action_mutex.
 bool ActionSpaceServesHand(const ActionSpaceInfo& asi, const std::string& handTop) {
   if (!asi.handTop.empty()) return asi.handTop == handTop;
   for (const std::string& t : InferHandTops(asi.action)) if (t == handTop) return true;
   return false;  // null-subactionPath space with no matching /user/hand/* binding
 }
 
-// GAP-04: resolve the static grip->aim rigid offset (aim-in-grip frame) for `handTop`. The offset is
+// Resolve the static grip->aim rigid offset (aim-in-grip frame) for `handTop`. The offset is
 // O = locate(space=aimSpace, base=gripSpace): aim's pose expressed in grip's frame, so aim = grip * O.
 // Because grip and aim are the same physical controller, this offset is constant and can be cached.
 // Lock discipline (existing 2-phase rule): scan g_action_spaces under g_action_mutex to find the hand's
@@ -242,7 +241,7 @@ HeadPose TransformHeadToSpace(XrSession session, const HeadPose& h, XrSpace targ
 }
 
 // ---------------------------------------------------------------------------------------------
-// Controller grip-pose in-layer override (WU3b). The Meta sim's CA xrSetInputDeviceLocationEXT
+// Controller grip-pose in-layer override. The Meta sim's CA xrSetInputDeviceLocationEXT
 // applies controller POSITION but IGNORES ORIENTATION (verified: byte-identical frames), so -- as
 // with the head -- the layer becomes the authoritative source for the controller pose by overriding
 // xrLocateSpace on the hand's grip action space (full position + orientation). CA location stays as
@@ -250,15 +249,15 @@ HeadPose TransformHeadToSpace(XrSession session, const HeadPose& h, XrSpace targ
 // bound to a .../input/grip/pose path (xrSuggestInteractionProfileBindings), and which XrSpaces are
 // action spaces for which hand (xrCreateActionSpace). (xrPathToString now lives in g_dispatch.)
 // The action-discovery registry (action sets/actions/bindings), the grip/aim action-space tracking,
-// the grip->aim offset cache, and the shared g_action_mutex all live in action_registry.cpp
-// (refactor phase 4). Cluster E (here) reads/mutates those containers via the Registry* accessors
-// while holding ActionMutex(). See action_registry.h for the shared-mutex invariants.
+// the grip->aim offset cache, and the shared g_action_mutex all live in action_registry.cpp. Cluster E
+// (here) reads/mutates those containers via the Registry* accessors while holding ActionMutex(). See
+// action_registry.h for the shared-mutex invariants.
 
 // If `space` is a tracked grip- OR aim-pose action space for a hand with an injected sticky pose, write
 // that pose (LOCAL -> baseSpace) into `outPose`/`outFlags` and return true. Takes pose+flags (not the
 // struct) so it serves both xrLocateSpace (XrSpaceLocation) and xrLocateSpaces (XrSpaceLocationData).
 // `session` may be g_session for the singular xrLocateSpace (which has no session parameter).
-// GAP-04: aim spaces get the rigid grip*offset composition. GAP-06: a null-subactionPath space resolves
+// Aim spaces get the rigid grip*offset composition. A null-subactionPath space resolves
 // its hand lazily from the action's bindings (candidates), with the injected pose as the tiebreak.
 bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTime time,
                        XrPosef& outPose, XrSpaceLocationFlags& outFlags) {
@@ -279,7 +278,7 @@ bool ApplyPoseOverride(XrSession session, XrSpace space, XrSpace baseSpace, XrTi
       handTopKnown = true;
       candidates.push_back(info.handTop);  // subactionPath'd space: exact per-hand match (existing path)
     } else {
-      // GAP-06: null subactionPath. Infer hand(s) from the bound paths. Doing this under the lock (the
+      // Null subactionPath: infer hand(s) from the bound paths. Doing this under the lock (the
       // registry read) is what prevents racing a concurrent xrSuggestInteractionProfileBindings mutation.
       candidates = InferHandTops(action);
     }
@@ -378,7 +377,7 @@ void PoseOverrideClearSessionScoped() {
 }
 
 // xrDestroyInstance cleanup: re-arm the log-once guards so a fresh instance (Play-mode repeat) can
-// warn again instead of staying silent forever (GAP-07).
+// warn again instead of staying silent forever.
 void PoseOverrideResetWarnings() {
   g_warned_head_space = false;
   g_warned_aim_offset = false;

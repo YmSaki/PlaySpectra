@@ -9,9 +9,9 @@
 #
 # OpenComposite implements the OpenVR API and forwards calls to the active OpenXR runtime, letting an
 # OpenVR app run against our OpenXR stack (playspectra layer + Monado) with NO SteamVR install. We use the
-# per-app method only: copy this DLL next to the target app, replacing its own openvr_api.dll (M2 does
-# that for hellovr_dx11). The system-wide "runtime switcher" is deliberately NOT used -- it mutates
-# global state, against the xcopy principle (G7).
+# per-app method only: copy this DLL next to the target app, replacing its own openvr_api.dll. The
+# system-wide "runtime switcher" is deliberately NOT used -- it mutates global state, against the
+# xcopy principle.
 #
 # License note: OpenComposite is GPLv3. third_party/ is not committed and we do not redistribute it.
 #
@@ -30,7 +30,7 @@ echo "[setup_opencomposite] downloading x64 openxr-branch openvr_api.dll ..."
 curl -fSL -o "${DEST}/openvr_api.dll" "$URL"
 
 # Mechanical sanity check: PE header, COFF machine field must be 0x8664 (x64). Catches HTML error
-# pages and wrong-arch downloads before M2 ever loads the DLL into a process.
+# pages and wrong-arch downloads before the DLL is loaded into a process.
 ps_run internal check-pe-x64 "${DEST}/openvr_api.dll"
 
 echo "source: ${URL} fetched $(date -u +%Y-%m-%dT%H:%MZ) (AppVeyor build, openxr branch)" > "${DEST}/VERSION.txt"

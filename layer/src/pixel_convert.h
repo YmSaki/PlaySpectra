@@ -5,10 +5,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Pure pixel / numeric conversion helpers -- GPU-API-independent (no Vulkan / D3D / OpenXR headers).
-//
-// Extracted move-only (R03) from capture_vulkan.cpp's anonymous namespace so they become
-// unit-testable (R11) and shareable across capture backends (e.g. the D3D HDR decode, R10). Behaviour
-// is unchanged; only the linkage moved from internal (anonymous namespace) to external (playspectra::).
+// Unit-testable and shareable across capture backends (e.g. the D3D HDR decode).
 
 #pragma once
 

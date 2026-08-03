@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Input injection (CA + non-CA fallback) implementation. Moved verbatim from layer_entry.cpp
-// (refactor phase 6); behaviour is unchanged (same data, same algorithms, same lock discipline -- see
-// input_inject.h for the GAP-08 fallback description and the ActionMutex()/two-phase invariants).
+// Input injection (CA + non-CA fallback) implementation -- see input_inject.h for the non-CA
+// fallback description and the ActionMutex()/two-phase invariants.
 #include "input_inject.h"
 
 #include <map>
@@ -77,9 +76,9 @@ void ApplyPendingInputs(XrSession session) {
   }
 
   // Re-apply sticky controller poses every sync (held until pose_clear). Injected via
-  // xrSetInputDeviceLocationEXT in the layer's LOCAL space -- this is the controller-pose half of
-  // task #7 (head/VIEW override is separate). If the runtime lacks the EXT_conformance_automation
-  // location entry point or a LOCAL space, we log once per attempt and no-op gracefully.
+  // xrSetInputDeviceLocationEXT in the layer's LOCAL space (head/VIEW override is separate). If the
+  // runtime lacks the EXT_conformance_automation location entry point or a LOCAL space, we log once
+  // per attempt and no-op gracefully.
   if (!poses.empty() && Dispatch().setInputDeviceLocation) {
     XrSpace space = EnsureLocalSpace(session);
     if (space != XR_NULL_HANDLE) {
@@ -99,7 +98,7 @@ void ApplyPendingInputs(XrSession session) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// GAP-08: non-CA input fallback. See input_inject.h for the full description and lock discipline.
+// Non-CA input fallback. See input_inject.h for the full description and lock discipline.
 // ---------------------------------------------------------------------------------------------
 namespace {
 
@@ -150,7 +149,7 @@ void ApplyFallbackSync(const XrActionsSyncInfo* syncInfo) {
   std::vector<playspectra::PendingInput> batch = playspectra::LayerStateDrainInputs();
 
   // Resolve each injection's subactionPath BEFORE taking g_action_mutex: ToPath calls the runtime
-  // (xrStringToPath), and the established rule (GAP-06) is to never call the runtime while holding
+  // (xrStringToPath), and the established rule is to never call the runtime while holding
   // g_action_mutex. Active commands carry no state value, so they are dropped here. `p` points into
   // `batch`, which outlives this vector.
   struct Resolved { const playspectra::PendingInput* p; XrPath sub; };
@@ -228,8 +227,8 @@ FallbackAgg AggregateFallback(XrAction action, XrPath subactionPath) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// [G] accessors for the thin hooks in layer_entry.cpp. Each touches the shared fallback state
-// in place, exactly as the original inline hook code did. PRECONDITION: caller holds ActionMutex().
+// [G] accessors for the hooks in hooks_action.cpp. Each touches the shared fallback state in place.
+// PRECONDITION: caller holds ActionMutex().
 // ---------------------------------------------------------------------------------------------
 
 // xrGetCurrentInteractionProfile: the emulated interaction profile (XR_NULL_PATH if none suggested yet).

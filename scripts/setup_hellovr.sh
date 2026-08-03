@@ -8,7 +8,7 @@
 # Build the OpenVR sample app (hellovr_dx12, x64) and deploy it with the OpenComposite openvr_api.dll
 # to third_party/hellovr/ -- the OpenVR-side test app for the playspectra stack (no Steam/SteamVR).
 #
-# Notes discovered while establishing this (2026-07-16, M2/M3):
+# Notes:
 # - The openvr CLONE MUST BE TAG-PINNED to an interface era OpenComposite implements. OC(openxr
 #   branch) tops out at IVRSystem_022 / IVRCompositor_022 / IVRInput_010 / IVRRenderModels_006
 #   (GEN_INTERFACE list in OpenOVR/Reimpl/CVR*.cpp). openvr master requests IVRSystem_026 ->

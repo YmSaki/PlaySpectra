@@ -4,14 +4,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Action discovery registry + the shared action mutex. Extracted from layer_entry.cpp
-// (refactor phase 4) so the observational action-system registry (action sets / actions / bound
-// interaction-profile paths / action spaces / grip+aim classification / GAP-06 inference /
-// BuildActionsJson) lives in one translation unit. The registry globals and g_action_mutex are
-// TU-private in action_registry.cpp; this header publishes the types, the mutex, the record/query
-// helpers, and the raw-container accessors that the pose-override (cluster E) and non-CA input
-// fallback (cluster G) still read directly. Behaviour -- data, algorithms, lock discipline -- is
-// unchanged; this is a move only.
+// Action discovery registry + the shared action mutex. The observational action-system registry
+// (action sets / actions / bound interaction-profile paths / action spaces / grip+aim classification /
+// null-subactionPath hand inference / BuildActionsJson) lives in one translation unit. The registry globals and
+// g_action_mutex are TU-private in action_registry.cpp; this header publishes the types, the mutex,
+// the record/query helpers, and the raw-container accessors that the pose-override (cluster E) and
+// non-CA input fallback (cluster G) still read directly.
 #pragma once
 
 #include <openxr/openxr.h>
@@ -41,30 +39,30 @@ struct ActionReg {
 };
 
 // ---------------------------------------------------------------------------------------------
-// THE SHARED ACTION MUTEX AND ITS DISCIPLINE (established GAP-08; corrected 71a9a16). READ THIS.
+// THE SHARED ACTION MUTEX AND ITS DISCIPLINE. READ THIS.
 //
 // A SINGLE mutex guards THREE clusters that were kept together on purpose:
 //   [F] this registry (action sets / actions / bindings / action spaces / grip+aim sets /
 //       grip->aim offset cache);
-//   [E] the pose override (layer_entry.cpp: ResolveGripToAimOffset / ApplyPoseOverride) --
+//   [E] the pose override (pose_override.cpp: ResolveGripToAimOffset / ApplyPoseOverride) --
 //       reads the registry containers to map an action space to a hand and classify grip vs aim;
-//   [G] the non-CA input fallback (layer_entry.cpp: ApplyFallbackSync / AggregateFallback /
+//   [G] the non-CA input fallback (input_inject.cpp: ApplyFallbackSync / AggregateFallback /
 //       the GetActionState* readers) -- reverse-looks-up g_actions, so a SEPARATE lock would invert
 //       the acquisition order relative to [F].
-// Because [E] and [G] reach into [F]'s containers under this one lock, splitting it (finer grain,
-// a second mutex, or a different acquisition order) is FORBIDDEN -- it was reviewed and the shared
-// single lock is the correct design. Do not change lock granularity/order/scope.
+// Because [E] and [G] reach into [F]'s containers under this one lock, splitting it (finer grain, a
+// second mutex, or a different acquisition order) is FORBIDDEN: [E] and [G] read [F]'s containers
+// under this lock, so splitting it would invert the acquisition order between them. Do not change
+// lock granularity/order/scope.
 //
 // THREE INVARIANTS the callers must keep:
 //   1. Ordering: [E]->[F]->[G] all take THIS mutex (ActionMutex()). Never introduce a second lock
-//      for any of them (would reintroduce the GAP-08 inversion).
+//      for any of them (would reintroduce the inversion described above).
 //   2. Never call a RUNTIME entry point (ToPath -> xrStringToPath, etc.) while holding this mutex.
 //      Two-phase rule: resolve paths BEFORE taking the lock, then take the lock (see
-//      layer_entry.cpp ApplyFallbackSync, and ResolveGripToAimOffset which releases the lock
-//      before its raw xrLocateSpace). Historical exception preserved verbatim (move-only): the
-//      binding-record loop stringifies binding paths (PathToStr) inside RegistryRecordBindings while
-//      the caller holds the lock, exactly as the original xrSuggestInteractionProfileBindings hook
-//      did -- not "fixed" here.
+//      input_inject.cpp ApplyFallbackSync, and ResolveGripToAimOffset which releases the lock
+//      before its raw xrLocateSpace). The sole exception to invariant 2: the binding-record loop
+//      stringifies binding paths (PathToStr, a runtime call) inside RegistryRecordBindings while
+//      the caller holds the lock.
 //   3. Never call a ControlChannel* entry point while holding this mutex (release first).
 //
 // PRECONDITION CONVENTION: every helper below EXCEPT BuildActionsJson assumes the caller ALREADY
@@ -77,8 +75,8 @@ struct ActionReg {
 std::mutex& ActionMutex();
 
 // Raw guarded containers. PRECONDITION: caller holds ActionMutex(). Exposed so cluster E (pose
-// override) and cluster G (input fallback) keep reading/mutating them in place, unchanged, until
-// they move in phases 5/6.
+// override, pose_override.cpp) and cluster G (input fallback, input_inject.cpp) read and mutate them
+// in place under the shared lock.
 std::map<XrSpace, ActionSpaceInfo>& RegistryActionSpaces();
 std::set<XrAction>& RegistryGripPoseActions();
 std::set<XrAction>& RegistryAimPoseActions();
@@ -102,14 +100,14 @@ void RegistryRecordAttach(const XrSessionActionSetsAttachInfo* attachInfo);
 void RegistryEraseSpace(XrSpace space);          // xrDestroySpace: drop a recycled action-space handle
 // xrDestroyActionSet: erase the action set + its actions and all handle-reuse-safety mirror state
 // (grip/aim pose sets). eraseFallback is injected by the caller (so this TU needn't depend on
-// input_inject) and is invoked per erased action to drop its GAP-08 fallback entries.
+// input_inject) and is invoked per erased action to drop its non-CA input fallback entries.
 void RegistryEraseActionSet(XrActionSet actionSet,
                             const std::function<void(XrAction)>& eraseFallback);
 void RegistryClearSessionScoped();               // xrDestroySession: action spaces + grip/aim + offset
                                                  //   cache + attachment (session-scoped registry state)
 void RegistryClearInstanceScoped();              // xrDestroyInstance: action sets + actions + attachment
 
-// GAP-06 hand inference: extract the top-level hand path ("/user/hand/left") from a full binding
+// Null-subactionPath hand inference: extract the top-level hand path ("/user/hand/left") from a full binding
 // path ("/user/hand/left/input/grip/pose"). Returns "" if the path is not under /user/hand/*.
 // Pure string helper (no state / no lock) — inline for testability without linking action_registry.
 inline std::string HandTopFromBindingPath(const std::string& path) {

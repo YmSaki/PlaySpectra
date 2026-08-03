@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Action discovery registry + shared action mutex implementation. Moved verbatim from
-// layer_entry.cpp (refactor phase 4); behaviour is unchanged (same data, same algorithms,
-// same lock discipline -- see action_registry.h for the shared-mutex invariants).
+// Action discovery registry + shared action mutex implementation -- see action_registry.h for the
+// shared-mutex invariants.
 #include "action_registry.h"
 
 #include <map>
@@ -27,14 +26,14 @@ namespace playspectra {
 namespace {
 
 // ---------------------------------------------------------------------------------------------
-// Controller grip-pose in-layer override state (WU3b). To find the grip action spaces we track:
+// Controller grip-pose in-layer override state. To find the grip action spaces we track:
 // which actions are bound to a .../input/grip/pose path (xrSuggestInteractionProfileBindings), and
 // which XrSpaces are action spaces for which hand (xrCreateActionSpace).
 // ---------------------------------------------------------------------------------------------
 std::mutex g_action_mutex;
 std::map<XrSpace, ActionSpaceInfo> g_action_spaces;
 std::set<XrAction> g_grip_pose_actions;
-// GAP-04: actions bound to a .../input/aim/pose path. aim and grip are the SAME rigid controller with
+// Grip->aim offset: actions bound to a .../input/aim/pose path. aim and grip are the SAME rigid controller with
 // a fixed offset, so we derive the aim pose as aim = grip * offset rather than tracking it separately.
 std::set<XrAction> g_aim_pose_actions;
 // Cached grip->aim static offset per hand (aim-in-grip frame). Only populated once the runtime returns
@@ -45,7 +44,7 @@ std::map<std::string, XrPosef> g_grip_to_aim;
 std::set<std::string> g_grip_to_aim_valid;
 
 // ---------------------------------------------------------------------------------------------
-// Action discovery registry (WU5, `actions` command / vr_actions tool). Lets an agent enumerate the
+// Action discovery registry (`actions` command / vr_actions tool). Lets an agent enumerate the
 // app's action sets + actions by NAME ("Grab", "Teleport") and see which interaction-profile paths
 // each action is bound to, so it never has to guess OpenXR paths. Purely observational: we record
 // what the app registers (xrCreateActionSet/xrCreateAction/xrSuggestInteractionProfileBindings/
@@ -81,7 +80,7 @@ std::map<XrActionSet, ActionSetReg>& RegistryActionSets() { return g_action_sets
 std::map<XrAction, ActionReg>& RegistryActions() { return g_actions; }
 std::set<XrActionSet>& RegistryAttachedActionSets() { return g_attached_action_sets; }
 
-// GAP-06 helper: infer which hand(s) a pose action targets from its recorded binding paths. Used only
+// Infer which hand(s) a pose action targets from its recorded binding paths. Used only
 // for action spaces created with a null subactionPath (handTop == ""), where the hand must be resolved
 // lazily at locate time (bindings are only guaranteed present by then). Returns 0, 1, or 2 distinct
 // "/user/hand/*" tops. PRECONDITION: caller already holds g_action_mutex. Pure registry read: no
@@ -119,7 +118,7 @@ void RegistryRecordBindings(const XrInteractionProfileSuggestedBinding* suggeste
     const std::string bindingPath = PathToStr(b.binding);
     if (bindingPath.find("/input/grip/pose") != std::string::npos)
       g_grip_pose_actions.insert(b.action);
-    // GAP-04: /input/aim/pose is defined by every OpenXR interaction profile (universal, core).
+    // /input/aim/pose is defined by every OpenXR interaction profile (universal, core).
     if (bindingPath.find("/input/aim/pose") != std::string::npos)
       g_aim_pose_actions.insert(b.action);
     auto it = g_actions.find(b.action);  // only actions the app created via the hooked path
@@ -137,7 +136,7 @@ void RegistryEraseSpace(XrSpace space) { g_action_spaces.erase(space); }
 void RegistryClearSessionScoped() {
   g_action_spaces.clear();  // action spaces belong to this session
   g_grip_pose_actions.clear();
-  g_aim_pose_actions.clear();  // GAP-04: mirror grip cleanup
+  g_aim_pose_actions.clear();  // mirror grip cleanup
   g_grip_to_aim.clear();
   g_grip_to_aim_valid.clear();
   g_attached_action_sets.clear();  // attachment is per-session (re-attached on a new session)
@@ -158,8 +157,8 @@ void RegistryEraseActionSet(XrActionSet actionSet,
   for (auto it = g_actions.begin(); it != g_actions.end();) {
     if (it->second.actionSet == actionSet) {
       g_grip_pose_actions.erase(it->first);
-      g_aim_pose_actions.erase(it->first);  // GAP-04: mirror grip erase (handle-reuse safety)
-      // GAP-08: drop any fallback state keyed by this action (handle may be recycled).
+      g_aim_pose_actions.erase(it->first);  // mirror grip erase (handle-reuse safety)
+      // Drop any non-CA input fallback state keyed by this action (handle may be recycled).
       eraseFallback(it->first);
       it = g_actions.erase(it);
     } else {

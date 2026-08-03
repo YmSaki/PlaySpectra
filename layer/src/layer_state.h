@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Shared layer state: mutex-protected stores consumed by hooks and the control channel.
-// Extracted from control_channel.h (R19 move-only) so the state API is independent of the
-// transport mechanism.
+// Shared layer state: mutex-protected stores consumed by hooks and the control channel. The state
+// API is independent of the transport mechanism.
 #pragma once
 
 #include <cstdint>

@@ -4,7 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Shared layer state implementation. Extracted from control_channel.cpp (R19 move-only).
+// Shared layer state implementation.
 #include "layer_state.h"
 #include "xr_math.h"
 

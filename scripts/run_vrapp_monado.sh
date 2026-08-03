@@ -13,7 +13,7 @@
 # else, so "the injection reached the app" can only be read back through our own capture layer.
 # VRAppDummyGame self-reports what it received over its [VRTEST] stdout contract, and it contains real
 # interactables (button / grabbable cube / lever), so this harness can assert that the ENGINE's own game
-# logic ran. It is the first real-engine (non-sample) app in the regression set.
+# logic ran. It is a real-engine (non-sample) app in the regression set.
 #
 # Machine value: playspectra verify vrapp's rc -- 0 iff every assertion passed. SKIPs (absent app
 # or absent capture layer) are printed and counted, and never make the rc non-zero.

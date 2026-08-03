@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-# GAP-10 integration test: drive the playspectra layer against a real OpenXR app (hello_xr) under the
+# Integration test: drive the playspectra layer against a real OpenXR app (hello_xr) under the
 # Meta XR Simulator, and assert the engine-independent surfaces (profile/binding interception, view
 # override, sync-semantics round-trip, non-degenerate capture) via integration_hello_xr.mjs.
 #
@@ -102,8 +102,7 @@ fi
 # xrDestroyInstance (ClearLayerDispatch + control-channel stop). We assert the chain COMPLETED by
 # waiting for the instance-destroy markers in the layer log -- a crash in VulkanFree/a session clear
 # would abort before them. We deliberately do NOT wait on process exit: the Meta sim's own process
-# teardown lingers well past our cleanup and is not what this gate covers. This is the runtime gate
-# for every "Destroy* -> Clear function" conversion in the refactor (phases 4-6).
+# teardown lingers well past our cleanup and is not what this gate covers.
 graceful="$graceful_default"
 if [ "$ok" = "1" ] && [ "$rc" = "0" ] && [ "$msaa_skip" = "0" ]; then
   LOG_G="$(echo "${CAP_DIR}/playspectra_layer.log" | tr '\\' '/')"   # forward slashes for MSYS grep

@@ -7,14 +7,11 @@
 // PlaySpectra frame capture: track swapchains + graphics binding, and at xrEndFrame copy the dominant
 // eye's projection subimage to a PNG. See capture.cpp.
 //
-// CORE COMPLETENESS (CLAUDE.md): color capture must cover ALL OpenXR graphics bindings a runtime
-// can hand the app -- D3D11, D3D12, and Vulkan (XrGraphicsBinding{D3D11,D3D12,Vulkan}KHR). These
-// are OpenXR-level, not engine-specific; none may be dropped. Vulkan lands first (the real target
-// app is Godot/Vulkan and the Meta compositor is Vulkan-native), D3D11/D3D12 follow -- all
-// first-class. Depth is a nice-to-have (task #8).
-//
-// Increment A (this pass): OpenXR-side tracking + xrEndFrame projection parsing + capture-request
-// protocol, verifiable without any pixel copy. Increment B: the per-backend GPU readback + PNG.
+// CORE COMPLETENESS: color capture must cover ALL OpenXR graphics bindings a runtime can hand the
+// app -- D3D11, D3D12, and Vulkan (XrGraphicsBinding{D3D11,D3D12,Vulkan}KHR). These are OpenXR-level,
+// not engine-specific; none may be dropped. Vulkan lands first (the real target app is Godot/Vulkan
+// and the Meta compositor is Vulkan-native), D3D11/D3D12 follow -- all first-class. Depth is a
+// nice-to-have.
 
 #pragma once
 
@@ -45,7 +42,7 @@ void CaptureOnEndFrame(const XrFrameEndInfo* frameEndInfo);
 // ("left"|"right"|"dominant") and blocks until the next xrEndFrame fulfils it or timeoutMs elapses.
 // When withDepth is true and the app submitted an XrCompositionLayerDepthInfoKHR for that view, the
 // result also carries a "depth" object ({available:true, depthPath, depthMeta} or
-// {available:false, note}); depth is a nice-to-have and never fabricated (CLAUDE.md).
+// {available:false, note}); depth is a nice-to-have and never fabricated.
 // Returns a JSON string describing the result (path on success, or diagnostic state / error).
 std::string CaptureRequestScreenshot(const std::string& eye, int timeoutMs, bool withDepth = false);
 

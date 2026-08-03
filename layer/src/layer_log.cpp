@@ -4,11 +4,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Shared layer logger implementation. Moved verbatim from layer_entry.cpp (refactor phase 1),
-// then extended with a wall-clock timestamp prefix: correlating this log against the app's own log
-// and the integration harness's sleeps is how flakes and glide timing get diagnosed, and without
-// timestamps that correlation needed ad-hoc instrumentation. Same env vars, same mutex; consumers
-// grep by message substring, which the prefix does not disturb.
+// Shared layer logger implementation, extended with a wall-clock timestamp prefix: correlating this
+// log against the app's own log and the integration harness's sleeps is how flakes and glide timing
+// get diagnosed, and without timestamps that correlation needed ad-hoc instrumentation. It reuses the
+// same env vars and mutex; consumers grep by message substring, which the prefix does not disturb.
 #include "layer_log.h"
 
 #include <chrono>

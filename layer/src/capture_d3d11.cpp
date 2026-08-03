@@ -12,10 +12,10 @@
 // then hands us the raw ID3D11Texture2D* (as uint64_t) plus the DXGI format and rect. We acquire the
 // image's keyed mutex (runtime-shared textures gate reads on it), copy the requested rect into a
 // STAGING texture (multisampled sources get a ResolveSubresource into a reusable single-sample
-// intermediate first -- the D3D11 sibling of the Vulkan GAP-03 resolve), map it, de-pad rows,
+// intermediate first -- the D3D11 sibling of the Vulkan MSAA resolve), map it, de-pad rows,
 // swizzle BGRA->RGBA if needed, and encode an 8-bit RGBA PNG via lodepng -- mirroring
 // VulkanReadbackToPng's format handling / json result shape.
-// Unsupported formats return an explicit error json, never a silently-broken image (CLAUDE.md).
+// Unsupported formats return an explicit error json, never a silently-broken image.
 
 #define XR_USE_GRAPHICS_API_D3D11
 
@@ -47,10 +47,9 @@ ID3D11Device* g_d3d11_device = nullptr;
 // RGBA8 formats copy directly; BGRA8 formats get a B<->R swizzle; R16G16B16A16_FLOAT (HDR) is
 // decoded half-float -> sRGB via the shared DecodeHdrRowsToSrgb. 8-bit TYPELESS is read as its
 // family UNORM member (byte layout is identical across the family -- same rule as capture_d3d12).
-// Anything else (16-bit typeless, packed) is an explicit error -- never a silently-broken image
-// (CLAUDE.md).
+// Anything else (16-bit typeless, packed) is an explicit error -- never a silently-broken image.
 // Reusable single-sample intermediate for the MSAA resolve (the D3D11 sibling of capture_vulkan's
-// EnsureResolveImage / GAP-03). ResolveSubresource always resolves a WHOLE subresource -- no rect
+// EnsureResolveImage). ResolveSubresource always resolves a WHOLE subresource -- no rect
 // form exists -- so this is sized to the full swapchain texture and the requested rect is copied
 // out of it afterwards ("resolve, then rect-copy"). Cached across frames, recreated on
 // width/height/format change, released in D3D11Free.
@@ -168,9 +167,8 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   tex->GetDesc(&desc);
 
   // One-time capture-path log. The shared-texture flags decide the keyed-mutex handling below, and
-  // having them in the layer log keeps runtime-share regressions (the M0 flat-capture class)
-  // diagnosable without a rebuild. Capture runs serially on the app's xrEndFrame thread, so a plain
-  // static is race-free here.
+  // having them in the layer log keeps runtime-share regressions diagnosable without a rebuild.
+  // Capture runs serially on the app's xrEndFrame thread, so a plain static is race-free here.
   static bool s_flags_logged = false;
   if (!s_flags_logged) {
     s_flags_logged = true;
@@ -182,7 +180,7 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   }
 
   // Defensive bounds check: an out-of-range D3D11_BOX is invalid and would copy garbage / be a no-op.
-  // Better an honest error than a silently-broken image (CLAUDE.md).
+  // Better an honest error than a silently-broken image.
   if (x < 0 || y < 0 || static_cast<UINT>(x + w) > desc.Width ||
       static_cast<UINT>(y + h) > desc.Height) {
     return {{"ok", false},
@@ -235,7 +233,7 @@ nlohmann::json D3D11ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
   // is process-local so the mutex can be released as soon as the copy is issued (Map orders after
   // the copy on the immediate context regardless).
   // NOTE: AcquireSync returns WAIT_TIMEOUT (0x102) on timeout, which SUCCEEDED() treats as success
-  // -- compare against S_OK exactly, and fail loudly (never a silently-broken image, CLAUDE.md).
+  // -- compare against S_OK exactly, and fail loudly (never a silently-broken image).
   IDXGIKeyedMutex* keyedMutex = nullptr;
   if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) {
     HRESULT khr = tex->QueryInterface(IID_IDXGIKeyedMutex, reinterpret_cast<void**>(&keyedMutex));

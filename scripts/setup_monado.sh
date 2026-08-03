@@ -6,7 +6,6 @@
 # SPDX-License-Identifier: MPL-2.0
 
 # Fetch the Monado Windows CI build into third_party/monado/ (xcopy-deployable, no install).
-# Reproduces the runtime validated by the 2026-07-16 PoC (.claude/monado-poc-plan.md).
 #
 # Usage: scripts/setup_monado.sh [gitlab-ref]   (default: main -- latest successful CI artifact)
 set -eu

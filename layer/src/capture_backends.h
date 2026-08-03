@@ -19,7 +19,7 @@
 // ints. Each backend returns a JSON result object mirroring VulkanReadbackToPng:
 //   success  -> {ok:true, path, eye, viewIndex, api, width, height, arrayIndex, format}
 //   failure  -> {ok:false, error, ...} (e.g. unsupported format / MSAA / no device) -- never a
-//               silently-broken image (CLAUDE.md).
+//               silently-broken image.
 
 #pragma once
 
@@ -63,11 +63,11 @@ nlohmann::json D3D12ReadbackToPng(uint64_t imageHandle, int64_t dxgiFormat, uint
 // Set at xrCreateSession, cleared at xrDestroySession. imageHandle is a VkImage as uint64_t.
 void VulkanSetBinding(void* vkInstance, void* vkPhysicalDevice, void* vkDevice,
                       uint32_t queueFamilyIndex, uint32_t queueIndex);
-void VulkanFree();  // session destroy; waits an in-flight capture fence (GAP-07(c)) before freeing.
+void VulkanFree();  // session destroy; waits an in-flight capture fence before freeing.
 nlohmann::json VulkanReadbackToPng(uint64_t imageHandle, int64_t vkFormat, uint32_t sampleCount,
                                    int32_t x, int32_t y, int32_t w, int32_t h, uint32_t arrayIndex,
                                    const std::string& eye, int viewIndex);
-// Depth is Vulkan-only (nice-to-have, CLAUDE.md). The EndFrameSnapshot::View depth fields
+// Depth is Vulkan-only (nice-to-have). The EndFrameSnapshot::View depth fields
 // (minDepth/maxDepth/nearZ/farZ) are expanded into the flat args by the caller.
 nlohmann::json VulkanReadbackDepthToPng(uint64_t imageHandle, int64_t vkFormat, uint32_t sampleCount,
                                         int32_t x, int32_t y, int32_t w, int32_t h,

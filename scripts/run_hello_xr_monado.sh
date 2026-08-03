@@ -24,7 +24,7 @@
 #   - hello_xr: MSVC D3D build for D3D11/D3D12, layer-bundled MinGW build for Vulkan (auto-picked).
 # Usage: scripts/run_hello_xr_monado.sh [gfx=D3D11] [secs=60]
 #   gfx: D3D11 | D3D12 | Vulkan | all  ('all' runs every graphics API in turn and gates on the combined
-#        result -- the full-coverage regression the north star requires: all three graphics bindings)
+#        result -- the full-coverage regression: all three graphics bindings)
 #   secs: hard-kill watchdog for the app. MUST exceed the ~15-26s test (assertions + coupling), or the
 #         watchdog races the test and kills the app mid-assertion (this flaked 'all' at secs=26 under
 #         back-to-back load). Normal teardown kills the app the instant the test returns, so a generous

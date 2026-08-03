@@ -6,13 +6,13 @@
 
 // Shared color-readback helpers for every capture backend (Vulkan / D3D11 / D3D12).
 //
-// Extracted move-only (refactor R01) from the three backends, where the same three tail steps were
-// duplicated: (1) repack a mapped GPU readback into a tight 8-bit RGBA buffer honoring the source
-// RowPitch, swizzling BGRA->RGBA when needed; (2) lodepng-encode that buffer to a PNG; (3) assemble
-// the shared success-result JSON. Behaviour is unchanged: each backend still owns its own error-JSON
-// shape (deliberately asymmetric today; unification is a separate behaviour-changing task) and any
-// API-specific success fields (e.g. Vulkan's sampleCount/msaaResolved/tonemapped), which it appends
-// to the base object returned by BuildCaptureSuccessJson.
+// Shared by the three capture backends, which duplicated the same three tail steps: (1) repack a
+// mapped GPU readback into a tight 8-bit RGBA buffer honoring the source RowPitch, swizzling
+// BGRA->RGBA when needed; (2) lodepng-encode that buffer to a PNG; (3) assemble the shared
+// success-result JSON. Each backend still owns its own error-JSON shape (deliberately asymmetric
+// today; unification is a separate behaviour-changing task) and any API-specific success fields
+// (e.g. Vulkan's sampleCount/msaaResolved/tonemapped), which it appends to the base object returned
+// by BuildCaptureSuccessJson.
 
 #pragma once
 
@@ -34,7 +34,7 @@ std::vector<unsigned char> RepackRows(const unsigned char* src, std::size_t rowP
 // Decode a mapped R16G16B16A16_FLOAT readback (8 bytes/texel, rows `rowPitch` bytes apart) into a
 // tightly-packed w*h*4 8-bit RGBA buffer: RGB are sRGB-encoded from linear half-floats
 // (QuantizeSrgb), alpha is linearly quantized (QuantizeLinearUnit) -- the same fixed conversion as
-// the Vulkan HDR path (capture_vulkan.cpp), shared here for the D3D11/D3D12 backends (R10), which
+// the Vulkan HDR path (capture_vulkan.cpp), shared here for the D3D11/D3D12 backends, which
 // unlike Vulkan's tight staging buffer have row padding to honor.
 std::vector<unsigned char> DecodeHdrRowsToSrgb(const unsigned char* src, std::size_t rowPitch,
                                                std::uint32_t w, std::uint32_t h);

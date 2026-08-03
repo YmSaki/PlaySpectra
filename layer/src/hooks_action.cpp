@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Action/input + teardown hook cluster implementation. Moved verbatim from layer_entry.cpp
-// (refactor R04); behaviour is unchanged (same action-registry observation, same GAP-08 non-CA
-// fallback, same teardown fan-out + lock discipline). See hooks_action.h.
+// Action/input + teardown hook cluster implementation: action-registry observation, non-CA
+// fallback, and teardown fan-out with the shared lock discipline. See hooks_action.h.
 #include "hooks_action.h"
 
 #include <mutex>
@@ -17,7 +16,7 @@
 #include "capture.h"           // CaptureOnDestroySession
 #include "control_channel.h"   // ControlChannelStop
 #include "layer_state.h"       // LayerState* (session/instance flags, haptic record)
-#include "input_inject.h"      // CA + GAP-08 non-CA fallback entry points
+#include "input_inject.h"      // CA + non-CA fallback entry points
 #include "layer_dispatch.h"    // Dispatch() / instance-session state / CaEnabled() / PathToStr()
 #include "layer_log.h"         // LayerLog
 #include "pose_animator.h"     // AnimatorReset (glide state is dead-runtime-scoped, like XrTime)
@@ -72,7 +71,7 @@ XrResult XRAPI_CALL Hook_xrDestroySession(XrSession session) {
       {
         std::lock_guard<std::mutex> lock(ActionMutex());
         RegistryClearSessionScoped();    // [F] action spaces + grip/aim + offset cache + attachment
-        FallbackClearSessionScoped();    // [G] GAP-08: sync state + pending IP event (per-session)
+        FallbackClearSessionScoped();    // [G] non-CA fallback: sync state + pending IP event (per-session)
       }
       SetCurrentSession(XR_NULL_HANDLE);
       playspectra::LayerStateSetSession(false);
@@ -97,7 +96,7 @@ XrResult XRAPI_CALL Hook_xrSyncActions(XrSession session, const XrActionsSyncInf
   }
 }
 
-// GAP-08: non-CA fallback readers. Each forwards to the runtime first; only when CA is OFF and we hold a
+// Non-CA fallback readers. Each forwards to the runtime first; only when CA is OFF and we hold a
 // latched injection for this action do we overwrite the answer (so uninjected actions pass through).
 XrResult XRAPI_CALL Hook_xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo* getInfo,
                                                  XrActionStateBoolean* state) {
@@ -156,7 +155,7 @@ XrResult XRAPI_CALL Hook_xrGetActionStateVector2f(XrSession session, const XrAct
   }
 }
 
-// GAP-08: report the emulated interaction profile when a non-CA/headless runtime says no controller is
+// Report the emulated interaction profile when a non-CA/headless runtime says no controller is
 // connected, so the app enables and queries the actions we're feeding.
 XrResult XRAPI_CALL Hook_xrGetCurrentInteractionProfile(XrSession session, XrPath topLevelUserPath,
                                                         XrInteractionProfileState* profileState) {
@@ -178,7 +177,7 @@ XrResult XRAPI_CALL Hook_xrGetCurrentInteractionProfile(XrSession session, XrPat
   }
 }
 
-// GAP-08: deliver one synthetic InteractionProfileChanged before falling through to the runtime's own
+// Deliver one synthetic InteractionProfileChanged before falling through to the runtime's own
 // events, so a non-CA app learns the virtual controller connected. Only ever fires in fallback mode.
 XrResult XRAPI_CALL Hook_xrPollEvent(XrInstance instance, XrEventDataBuffer* eventData) {
   try {
@@ -233,7 +232,7 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
     {
       std::lock_guard<std::mutex> lock(ActionMutex());
       RegistryClearInstanceScoped();  // [F] action sets + actions + attachment (instance-scoped)
-      FallbackClearInstanceScoped();  // [G] GAP-08: fallback state keyed by (now-invalid) actions
+      FallbackClearInstanceScoped();  // [G] non-CA fallback state keyed by (now-invalid) actions
     }
     playspectra::ControlChannelStop();
     playspectra::LayerStateSetInstance(false);
@@ -243,7 +242,7 @@ XrResult XRAPI_CALL Hook_xrDestroyInstance(XrInstance instance) {
     playspectra::AnimatorReset();
     XrResult r = next ? next(instance) : XR_ERROR_FUNCTION_UNSUPPORTED;
     if (instance == CurrentInstance()) {
-      // GAP-07: drop all next-layer pointers (they belong to the runtime we just tore down) and reset
+      // Per-instance dispatch rebuild: drop all next-layer pointers (they belong to the runtime we just tore down) and reset
       // instance-scoped flags, so a fresh xrCreateApiLayerInstance re-resolves against the new chain
       // instead of holding this runtime's stale entry points / CA availability.
       SetCurrentInstance(XR_NULL_HANDLE);
@@ -303,7 +302,7 @@ XrResult XRAPI_CALL Hook_xrSuggestInteractionProfileBindings(
     if (suggestedBindings && suggestedBindings->suggestedBindings) {
       const std::string profile = PathToStr(suggestedBindings->interactionProfile);
       std::lock_guard<std::mutex> lock(ActionMutex());
-      // GAP-08: remember the first suggested profile as the one we emulate on a non-CA runtime.
+      // Remember the first suggested profile as the one we emulate on a non-CA runtime.
       FallbackNoteSuggestedProfile(suggestedBindings->interactionProfile);
       RegistryRecordBindings(suggestedBindings, profile);
     }
@@ -363,7 +362,7 @@ XrResult XRAPI_CALL Hook_xrDestroyActionSet(XrActionSet actionSet) {
     PFN_xrDestroyActionSet next = Dispatch().destroyActionSet;
     {
       std::lock_guard<std::mutex> lock(ActionMutex());
-      // Registry-internal erase (action set + actions + grip/aim mirror + GAP-08 fallback) lives in
+      // Registry-internal erase (action set + actions + grip/aim mirror + non-CA fallback) lives in
       // action_registry now; FallbackEraseForAction is injected so that TU needn't know input_inject.
       RegistryEraseActionSet(actionSet, FallbackEraseForAction);
     }
@@ -383,7 +382,7 @@ XrResult XRAPI_CALL Hook_xrAttachSessionActionSets(
     if (XR_SUCCEEDED(r) && attachInfo && attachInfo->actionSets) {
       std::lock_guard<std::mutex> lock(ActionMutex());
       RegistryRecordAttach(attachInfo);
-      // GAP-08: the app has finalized its action sets. On a non-CA runtime, arm the one synthetic
+      // The app has finalized its action sets. On a non-CA runtime, arm the one synthetic
       // InteractionProfileChanged so the next xrPollEvent tells the app the virtual controller connected.
       if (!CaEnabled()) FallbackArmIpEvent();
     }

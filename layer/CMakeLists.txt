@@ -25,8 +25,8 @@ include(FetchContent)
 set(BUILD_TESTING OFF CACHE BOOL "Build the fetched dependencies' testing trees")
 
 # OpenXR-SDK: headers only (the layer talks to the loader via xrNegotiateLoaderApiLayerInterface,
-# it does not link against openxr_loader). Also provides hello_xr + openxr_loader used by task #3
-# for bring-up, via the same fetched source tree.
+# it does not link against openxr_loader). Also provides hello_xr + openxr_loader used for bring-up,
+# via the same fetched source tree.
 FetchContent_Declare(
   openxr_sdk
   GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK-Source.git
@@ -122,7 +122,7 @@ set_target_properties(playspectra_layer PROPERTIES
 
 # The manifest (manifest/XrApiLayer_playspectra.json) points the OpenXR loader at
 # ./playspectra_layer.dll NEXT TO the manifest -- keep that copy in sync with every build, otherwise
-# integration runs silently load a stale layer (this bit us: a green build, an old DLL under test).
+# integration runs silently load a stale layer (a green build can otherwise test a stale DLL).
 add_custom_command(TARGET playspectra_layer POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           $<TARGET_FILE:playspectra_layer>

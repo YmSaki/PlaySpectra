@@ -16,8 +16,8 @@
 // capture system.
 // Multisampled sources take a ResolveSubresource into a reusable single-sample intermediate first
 // (RENDER_TARGET -> RESOLVE_SOURCE on the source, intermediate kept in RESOLVE_DEST between
-// captures), then the rect copy reads from that intermediate -- the D3D12 sibling of the Vulkan
-// GAP-03 / D3D11 R08 resolve.
+// captures), then the rect copy reads from that intermediate -- the D3D12 sibling of the Vulkan /
+// D3D11 MSAA resolve.
 //
 // Recording MUST happen on a DIRECT command allocator/list: a COPY-type list cannot execute the
 // RENDER_TARGET->COPY_SOURCE resource-state transition, and the app queue we submit on is DIRECT

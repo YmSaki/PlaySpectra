@@ -55,8 +55,7 @@ fi
 
 # Graceful-teardown gate: WM_CLOSE (taskkill without /F) lets hellovr run its own shutdown ->
 # VR_Shutdown -> OpenComposite xrDestroyInstance -> layer cleanup markers (same grep as the
-# hello_xr suite). If the markers never appear, report FAIL (was SKIP when unproven; now
-# demonstrated to PASS reliably, so failure is a regression).
+# hello_xr suite). If the markers never appear, report FAIL (a failure here is a regression).
 graceful="skipped (asserts did not pass)"
 if [ "$ok" = "1" ] && [ "$rc" = "0" ]; then
   LOG_G="$(echo "${CAP_DIR}/playspectra_layer.log" | tr '\\' '/')"

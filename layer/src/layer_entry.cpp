@@ -42,8 +42,8 @@ void Log(const char* msg, const char* detail = nullptr) { playspectra::LayerLog(
 // TU-private in layer_dispatch.cpp; these using-declarations pull the accessors the remaining
 // dispatch/lifecycle code (PlaySpectraGetInstanceProcAddr / PlaySpectraCreateApiLayerInstance /
 // PublishRuntimeName) uses into the anonymous namespace so it keeps calling them unqualified. The
-// per-cluster accessors (action_registry / pose_override / input_inject) moved out with their hooks
-// to hooks_*.cpp, so only these dispatch accessors remain here.
+// per-cluster accessors (action_registry / pose_override / input_inject) live in hooks_*.cpp; only
+// these dispatch accessors remain here.
 using playspectra::CurrentInstance;
 using playspectra::Dispatch;
 using playspectra::NextGetInstanceProcAddr;
@@ -55,7 +55,7 @@ using playspectra::SetNextGetInstanceProcAddr;
 // ---------------------------------------------------------------------------------------------
 // Hooked functions.
 // ---------------------------------------------------------------------------------------------
-// All intercepted xr* hooks now live in three cluster TUs (refactor R04), grouped by the state
+// All intercepted xr* hooks now live in three cluster TUs, grouped by the state
 // they touch; the dispatch table (kHooks[] below) references them by name via the hooks_*.h
 // prototypes:
 //   hooks_capture.cpp -- frame capture (session/swapchain/frame): xrCreateSession,
@@ -63,7 +63,7 @@ using playspectra::SetNextGetInstanceProcAddr;
 //     xrReleaseSwapchainImage, xrEndFrame.
 //   hooks_locate.cpp  -- head/VIEW + controller-pose override: xrLocateViews,
 //     xrCreateReferenceSpace, xrLocateSpace, xrLocateSpaces.
-//   hooks_action.cpp  -- action-system observation + GAP-08 non-CA fallback + teardown fan-out:
+//   hooks_action.cpp  -- action-system observation + non-CA fallback + teardown fan-out:
 //     xrSyncActions, xrGetActionState{Boolean,Float,Vector2f}, xrGetCurrentInteractionProfile,
 //     xrPollEvent, xrApplyHapticFeedback, xrCreateActionSpace, xrSuggestInteractionProfileBindings,
 //     xrCreateActionSet, xrCreateAction, xrDestroyActionSet, xrAttachSessionActionSets,
@@ -109,7 +109,7 @@ XrResult XRAPI_CALL PlaySpectraGetInstanceProcAddr(XrInstance instance, const ch
         {"xrDestroyActionSet", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrDestroyActionSet)},
         {"xrAttachSessionActionSets",
          reinterpret_cast<PFN_xrVoidFunction>(Hook_xrAttachSessionActionSets)},
-        // GAP-08: non-CA input fallback (harmless passthrough when CA is enabled).
+        // Non-CA input fallback (harmless passthrough when CA is enabled).
         {"xrGetActionStateBoolean",
          reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetActionStateBoolean)},
         {"xrGetActionStateFloat", reinterpret_cast<PFN_xrVoidFunction>(Hook_xrGetActionStateFloat)},
@@ -230,7 +230,7 @@ XrResult XRAPI_CALL PlaySpectraCreateApiLayerInstance(const XrInstanceCreateInfo
     if (XR_SUCCEEDED(result) && instance) {
       SetCurrentInstance(*instance);
       SetCaEnabled(ca_supported);
-      // GAP-07: resolve the whole next-layer table now, against THIS instance's chain. Rebuilt on
+      // Per-instance dispatch rebuild: resolve the whole next-layer table now, against THIS instance's chain. Rebuilt on
       // every create so a second instance never inherits the previous runtime's stale pointers.
       RebuildLayerDispatch();
       playspectra::LayerStateSetInstance(true);

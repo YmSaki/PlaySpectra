@@ -15,10 +15,9 @@
 # the Go control-plane and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
 # independent environment, so it cannot catch every "works on my machine" issue (locale/dep/platform).
 #
-# SKIP discipline (review-checklist.md lens 6 / rules/setup-scripts.md #4): a missing Go/gcc/
-# submodule SKIPs only that suite -- it never fails the run (rc is decided by fail alone) -- but it
-# is tallied and named in the final summary so "green" can never look identical to "green, but N
-# suites never ran". Do not silently fold a SKIP into a plain "ALL GREEN".
+# SKIP discipline: a missing Go/gcc/submodule SKIPs only that suite -- it never fails the run (rc is
+# decided by fail alone) -- but it is tallied and named in the final summary so "green" can never
+# look identical to "green, but N suites never ran".
 #
 # Fast + hermetic: no GPU / HMD / running service / network needed. mcp ~1s; layer ~20s (build reused
 # when already present). Assumes the standard single-config layer/build (as built locally). Run from

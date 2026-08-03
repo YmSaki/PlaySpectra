@@ -4,9 +4,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Locate/reference-space hook cluster implementation. Moved verbatim from layer_entry.cpp
-// (refactor R04); behaviour is unchanged (same head/VIEW + controller-pose override, same GAP-05
-// velocity zeroing, same view publication). See hooks_locate.h.
+// Locate/reference-space hook cluster implementation: head/VIEW + controller-pose override,
+// velocity zeroing, and view publication. See hooks_locate.h.
 #include "hooks_locate.h"
 
 #include <string>
@@ -32,7 +31,7 @@ using playspectra::ZeroVelocity;
 namespace {
 // Evaluate the injected head target through the pose_animator (durationMs glide) at `now`, still in
 // LOCAL space -- callers then transform to their locate space as before. Duration 0 returns the
-// target unchanged, so the pre-durationMs behaviour is untouched.
+// target unchanged.
 playspectra::HeadPose EvalHead(const playspectra::HeadPose& target, XrTime now) {
   const XrPosef p = playspectra::AnimatorEvalHead(target, now).pose;
   playspectra::HeadPose out = target;
@@ -151,7 +150,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime 
         overrode =
             ApplyPoseOverride(CurrentSession(), space, baseSpace, time, location->pose, location->locationFlags);
       }
-      // GAP-05: only zero velocity on entries we actually overrode (static injected pose -> no motion).
+      // Velocity zeroing: only zero velocity on entries we actually overrode (static injected pose -> no motion).
       if (overrode) {
         void* v = FindInNextChain(location->next, XR_TYPE_SPACE_VELOCITY);
         if (v) {
@@ -180,7 +179,7 @@ XrResult XRAPI_CALL Hook_xrLocateSpaces(XrSession session, const XrSpacesLocateI
       if (headActive) h = EvalHead(h, locateInfo->time);
       const playspectra::HeadPose hInBase =
           headActive ? TransformHeadToSpace(session, h, locateInfo->baseSpace, locateInfo->time) : h;
-      // GAP-05: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry
+      // Velocity zeroing: optional parallel XrSpaceVelocities in the output chain (fetched once). Per-entry
       // velocities[i] is zeroed only for entries we actually override, with null + range guards.
       XrSpaceVelocities* vels = reinterpret_cast<XrSpaceVelocities*>(
           FindInNextChain(locations->next, XR_TYPE_SPACE_VELOCITIES));

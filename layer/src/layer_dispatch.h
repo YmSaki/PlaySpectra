@@ -4,11 +4,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-// Layer dispatch table + single-instance state. Extracted from layer_entry.cpp (refactor
-// phase 3) so the hooks read the next-layer entry points and the current instance/session/CA flag
-// through a small API instead of touching file-scope globals directly. The globals themselves live
-// TU-private in layer_dispatch.cpp; behaviour (resolution, lock discipline, single-instance model)
-// is unchanged.
+// Layer dispatch table + single-instance state. Hooks read the next-layer entry points and the
+// current instance/session/CA flag through a small API instead of touching file-scope globals
+// directly. The globals themselves live TU-private in layer_dispatch.cpp.
 #pragma once
 
 #include <openxr/openxr.h>
@@ -45,7 +43,7 @@ struct LayerDispatch {
   PFN_xrDestroyActionSet destroyActionSet = nullptr;
   PFN_xrAttachSessionActionSets attachSessionActionSets = nullptr;
   PFN_xrLocateSpaces locateSpaces = nullptr;  // OpenXR 1.1 / XR_KHR_locate_spaces (may be null)
-  // GAP-08: intercepted only for the non-CA input fallback (see the fallback section below).
+  // Intercepted only for the non-CA input fallback (see the fallback section below).
   PFN_xrGetActionStateBoolean getActionStateBoolean = nullptr;
   PFN_xrGetActionStateFloat getActionStateFloat = nullptr;
   PFN_xrGetActionStateVector2f getActionStateVector2f = nullptr;

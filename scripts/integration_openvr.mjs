@@ -7,15 +7,15 @@
 // Integration assertions for the OpenVR path: hellovr_dx12 (OpenVR app) -> OpenComposite
 // (openvr_api.dll drop-in, translates to OpenXR) -> playspectra layer -> Monado.
 //
-// Asserts the engine-independent surfaces measured in M3 (.claude/openvr-milestone-plan.md M3):
+// Asserts the engine-independent surfaces:
 //   (a) session/frame loop through the layer: api=D3D12 (OpenComposite's client choice for this
-//       DX12-submitting app), framesObserved > 0 -- NOT process liveness (journal L55)
+//       DX12-submitting app), framesObserved > 0 -- NOT process liveness
 //   (b) OpenComposite's action translation is visible: "opencomposite-actions" set, legacy-* names
 //   (c) head injection moves the located views (base pose + injection compose in STAGE space)
 //   (d) capture path: screenshot decodes, dims match the swapchain, pixels vary
 //   (e) input-injection reachability into the app is UNPROVEN for OpenComposite's manifest routing:
 //       tried honestly, reported as SKIP (with reason) when the app shows no reaction. A SKIP is
-//       printed and counted -- never a silent pass (M4 contract).
+//       printed and counted -- never a silent pass.
 //
 // Usage: node integration_openvr.mjs [port]   (default 52700). Exit 0 iff no assertion FAILs.
 import net from "node:net";
@@ -164,7 +164,7 @@ async function main() {
   check("two per-eye swapchains with sane dims", scs.length >= 2 && scs[0].width > 0 && scs[0].height > 0 && scs[1].width > 0 && scs[1].height > 0,
         JSON.stringify(scs.map((s) => `${s.width}x${s.height} fmt=${s.format}`)) + ` eye0=${scs[0]?.width}x${scs[0]?.height} eye1=${scs[1]?.width}x${scs[1]?.height}`);
 
-  // (b) OpenComposite's legacy-input translation is what the layer must see (M3 recording).
+  // (b) OpenComposite's legacy-input translation is what the layer must see.
   const act = await rpc({ cmd: "actions" });
   const sets = act.actionSets || [];
   const ocSet = sets.find((s) => s.name === "opencomposite-actions");
@@ -195,7 +195,7 @@ async function main() {
 
   // (e) input-injection reachability trial (non-CA [G] path synthesises OpenXR action state; whether
   // OpenComposite's OpenVR-side manifest routing consumes it is what we probe). SKIP, not FAIL,
-  // when the app shows no haptic reaction -- recorded as an M4 result either way.
+  // when the app shows no haptic reaction.
   await rpc({ cmd: "active", hand: "right", active: true });
   const h0 = (await rpc({ cmd: "status" })).hapticCount || 0;
   const deadline = Date.now() + 3000;
@@ -210,7 +210,7 @@ async function main() {
   } else {
     skipCheck("injected trigger reaches the app (haptic reaction)",
               `no haptic after 3s injection (haptics ${h0} -> ${h1}); OpenComposite's manifest-action ` +
-              `routing to the app is not exercised by legacy-action synthesis -- recorded for M5/real-game phase`);
+              `routing to the app is not exercised by legacy-action synthesis`);
   }
 
   // (d) capture through the OpenComposite-created D3D12 swapchain.

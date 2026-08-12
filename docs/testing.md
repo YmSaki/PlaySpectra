@@ -12,17 +12,16 @@ The script currently covers:
 
 | Suite | What it covers | Recorded suite size |
 | --- | --- | --- |
-| mcp/ | TypeScript node:test math suite | 42 |
 | Go control plane | Core, protocol, CLI, Scenario, MCP, recording, probes, setup helpers | 377 tests/subtests |
 | layer/ | CTest host helpers | 92 on Windows, 83 on non-Windows |
 | Monado submodule | Standalone PlaySpectra protocol parser/content-signature tests | 43 |
-| Total | Dependency-complete local gate | 554 on Windows, 545 on non-Windows |
+| Total | Dependency-complete local gate | 512 on Windows, 503 on non-Windows |
 
 These are suite counts, not a promise that every environment has all dependencies installed. The script reports a missing Go toolchain, GCC, submodule, or other prerequisite as a named SKIP. A failure makes the exit code non-zero; SKIP does not. The final line distinguishes ALL GREEN from GREEN WITH SKIPS.
 
 The local gate does not require a physical HMD, live Monado service, or running application. The layer and submodule builds may fetch dependencies when their build trees are not already populated.
 
-Run the gate from one host environment at a time. Do not reuse a Windows layer/build or mcp/node_modules tree from WSL (or the reverse): CMake caches absolute paths and esbuild installs a platform-specific binary.
+Run the gate from one host environment at a time. Do not reuse a Windows layer build tree from WSL or the reverse because CMake caches absolute paths.
 
 ## Individual commands
 
@@ -52,13 +51,14 @@ The MCP check needs a live Monado/app stack for screenshot coverage. The integra
 
 ## CI
 
-.github/workflows/ci.yml runs three jobs on push and pull request:
+.github/workflows/ci.yml runs these jobs on push and pull request:
 
-- mcp-tests on ubuntu-latest: npm ci, TypeScript build, and the node:test suite.
 - go-tests on ubuntu-latest and windows-latest: unit/integration tests, vet, and a cgo-free executable build.
 - layer-tests on windows-latest: configure layer tests, build playspectra_test, and run CTest while excluding the fetched OpenXR loader_test.
+- layer-build on ubuntu-latest and windows-latest: build the shippable OpenXR layer binary.
+- monado-build on ubuntu-latest and windows-latest: build and stage-install the runtime and device core.
 
-Live Monado, graphics, and real-application E2E are intentionally not hosted in this workflow because they require a running runtime, app, and (for the Windows path) a real GPU. The Windows E2E harnesses are scripts/run_hello_xr_monado.sh, scripts/run_scenario_e2e_monado.sh, and scripts/run_mcp_verify_monado.sh.
+Live E2E is not part of this workflow. The Windows E2E harnesses are scripts/run_hello_xr_monado.sh, scripts/run_scenario_e2e_monado.sh, and scripts/run_mcp_verify_monado.sh.
 
 ## Verification discipline
 

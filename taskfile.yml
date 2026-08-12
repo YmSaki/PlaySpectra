@@ -11,11 +11,6 @@ tasks:
     cmds:
       - git submodule update --init --recursive
 
-  setup:legacy-mcp:
-    desc: Install dependencies for the non-canonical TypeScript MCP implementation
-    cmds:
-      - npm ci --prefix mcp
-
   configure:
     desc: Configure the OpenXR layer (unit tests on; there is no top-level CMakeLists)
     cmds:
@@ -26,11 +21,6 @@ tasks:
     deps: [configure]
     cmds:
       - cmake --build layer/build --parallel
-
-  build:mcp:
-    desc: Build legacy TypeScript MCP server
-    cmds:
-      - npm run build --prefix mcp
 
   build:go:
     desc: Build the current dependency-free Go control-plane binary

@@ -49,5 +49,3 @@ PLAYSPECTRA_BIN="$PWD/build/playspectra.exe" scripts/run_mcp_verify_monado.sh D3
 
 The verifier starts the MCP server over stdio, lists the tools, exercises operation and state observation, requests a screenshot, and runs an inline scenario. It needs a running stack; it is not a unit test.
 
-The TypeScript server in mcp/ remains in the repository as a legacy transition path. It is not the recommended implementation and is scheduled for retirement.
-

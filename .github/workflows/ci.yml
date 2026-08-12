@@ -2,7 +2,6 @@ name: CI
 
 # Gates the environment-independent control-plane and native-layer unit tests:
 #   - Go     : control-plane compatibility suite + cgo-free build -- ubuntu/windows
-#   - mcp/   : node:test suite for the pure quaternion/vector math (no layer, no socket) -- ubuntu
 #   - layer/ : gtest suite for the pure helper functions (capture_common / pixel_convert /
 #              pose_animator / dxgi_formats / action_helpers / pose_override + header-only
 #              xr_math) -- windows, matching where these 92 tests are validated -- plus a build of
@@ -10,8 +9,7 @@ name: CI
 #              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
 #   - monado : build + stage-install of the Monado runtime + devicecore on both release
 #              toolchains (MSVC windows / GCC ubuntu). No service run. See the job comment.
-# Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
-# service and cannot run on a hosted runner.
+# Live E2E is not part of this workflow.
 
 on:
   push:
@@ -29,23 +27,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mcp-tests:
-    name: mcp unit tests (node:test)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mcp
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: mcp/package-lock.json
-      - run: npm ci
-      - run: npm run build # tsc must compile; tsconfig excludes *.test.ts so dist stays test-free
-      - run: npm test # node --import tsx --test "src/**/*.test.ts"
-
   go-tests:
     name: Go control plane (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

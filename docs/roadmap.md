@@ -24,7 +24,6 @@ This page separates current interfaces from work that is planned or not yet veri
 
 ## Transition items
 
-- mcp/ TypeScript server: kept as a legacy implementation and scheduled for retirement. The Go server is the recommended MCP interface.
 - VRDevApp: historical verification target; current engine evidence uses VRAppDummyGame instead.
 - OpenVR through OpenComposite: partially verified as an integration path, but this does not mean that the planned SteamVR Adapter is complete.
 

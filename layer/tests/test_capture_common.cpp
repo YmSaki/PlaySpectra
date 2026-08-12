@@ -69,7 +69,7 @@ TEST(CaptureCommonTest, RepackRows_SwizzlesBGRA) {
 このテストは `BuildCaptureSuccessJson` が、API固有のパラメータを正しくJSON構造に
 マッピングして返すかを検査します。
 理由: 多くの情報をもつJSONの生成処理で、型の間違い(stringがintになる等)や
-キー名のタイポがあると、TypeScript側のMCPサーバーでパースエラーや情報欠落が起きるため。
+キー名のタイポがあると、制御チャネルのクライアントでパースエラーや情報欠落が起きるため。
 */
 TEST(CaptureCommonTest, BuildCaptureSuccessJson_FormatsCorrectly) {
     auto j = BuildCaptureSuccessJson("C:\\temp\\test.png", "right", 1, "D3D11", 1920, 1080, 0, 87);

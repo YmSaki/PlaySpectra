@@ -36,7 +36,6 @@ A status is always scoped. For example, “D3D12 verified” means the D3D12 cap
 | Unreal Engine application | **Not yet verified** | No Unreal application E2E result is claimed. |
 | VRDevApp historical target | **Partially verified** | Earlier Meta XR Simulator verification covered session, D3D12 capture, and movement/rotation, but bin/VRDevApp.exe is not part of a fresh clone and the current engine target is VRAppDummyGame. |
 | Frame-synchronized determinism | **Not yet verified** | The protocol path is tested, but full application determinism across delta time, GPU scheduling, physics, predicted display time, and dropped frames is not established. |
-| Legacy TypeScript MCP | **Planned** | The TypeScript source remains for compatibility testing but is not part of the canonical build; retirement is still planned. The Go MCP server is current. |
 
 ## Dated execution records retained from the previous README
 
@@ -61,17 +60,16 @@ A status is always scoped. For example, “D3D12 verified” means the D3D12 cap
 
 The local aggregate script records these dependency-complete suite sizes:
 
-- mcp/: 42 node:test cases.
 - layer/: 92 Windows or 83 non-Windows CTest cases; the DXGI-specific cases are Windows-only.
 - Go control plane: 377 tests/subtests across Core, protocol, CLI, Scenario, MCP, recording, probes, and setup helpers.
 - Monado submodule protocol suite: 43 standalone C cases.
-- Total: 554 on Windows or 545 on non-Windows.
+- Total: 512 on Windows or 503 on non-Windows.
 
 The verification set deliberately includes negative controls: a failed state assertion returns non-zero, capture-assert distinguishes stable from changed images, and the Godot harness reports absent application/capture prerequisites as explicit SKIPs. These details are retained here so README status labels remain auditable without making the README a test journal.
 
 ## CI boundary
 
-The current workflow is .github/workflows/ci.yml. It runs the cgo-free Go suite on Windows and Linux, the environment-independent legacy MCP node tests on Ubuntu, and layer host tests on Windows for pushes and pull requests. It does not run Monado/real-app/graphics E2E because those jobs need a live runtime, an application, and (for the Windows path) a real GPU.
+The current workflow is .github/workflows/ci.yml. It runs the cgo-free Go suite on Windows and Linux and layer host tests on Windows for pushes and pull requests. Live E2E is not part of this workflow.
 
 The repository is public and the default branch is master. Current GitHub Actions status is represented by the README badge and the workflow page; dated run IDs are intentionally not part of the README.
 

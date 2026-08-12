@@ -17,8 +17,9 @@ SteamVR Adapterの初期完成範囲は次のとおり。
 
 - `TrackedDeviceClass_HMD`の仮想HMDを1台公開する。
 - `TrackedDeviceClass_Controller`の左右コントローラーを1組公開する。
-- HMD Pose、Controller Grip/Aim Pose、Button、Trigger、Thumbstick、Tracking/Connection状態を
-  共通`VirtualDeviceState`からSteamVRのDriver APIへ写像する。
+- HMD Pose、Controller Grip Pose、Button、Trigger、Thumbstick、Tracking/Connection状態を
+  共通`VirtualDeviceState`からSteamVRのDriver APIへ写像する。Controller AimはMVPではGripに対する
+  固定/calibrated offsetとして公開し、Coreが許す動的なGrip/Aim相対変化は非対応と明示する。
 - 物理HMDなしでSteamVRが仮想HMDを認識し、XRアプリケーションを開始できることを実測する。
 - PlaySpectra所有のController Input ProfileとBindingをDriver Packageへ同梱し、別ベンダーの
   Driver Resourceなしで左右Controllerを利用できるようにする。
@@ -48,7 +49,11 @@ Generic Trackerや可変台数Protocolを実装する必要はない。
 
 したがって`left` / `right`をDeviceそのもののidentityとして固定しない。MVPでは2台のControllerへ
 `left_hand` / `right_hand`を割り当てるが、将来の追加ControllerやTrackerは別の安定identityを持つ。
-body roleの語彙とSteamVR Propertyへの具体的な写像は、Generic Tracker実装時に一次資料と実機で確定する。
+
+SteamVRへのrole写像はDevice class別に扱う。Controllerのhand roleは
+`Prop_ControllerRoleHint_Int32`へ写像する。Generic Trackerのbody roleは単一のTracked Device Propertyではなく、
+通常はユーザーがSteamVRのManage Trackersで割り当てる設定である。将来Driverから同期する場合は、
+`IVRSettings`でtracker settingsを書き換える独立Contractとして設計し、MVPでは自動設定しない。
 
 現行Protocol Version 1の`hmd` / `left` / `right`固定SchemaはMVPでそのまま使う。将来のCore Protocolは、
 安定`device_id`をkeyとするDevice Collectionとclass/role metadataへ一般化できなければならない。
@@ -128,7 +133,9 @@ Device数制約とはしない。将来の可変台数化でもAdapter -> Core�
 
 - `playspectra_state_get_head`のPoseを`DriverPose_t`へ変換する。
 - 左右Controller状態を`DriverPose_t`と`IVRDriverInput`のBool/Scalar Componentへ変換する。
-- Device identity、device class、body roleを混同せず、SteamVRのSerial/Class/Role Propertyへ写像する。
+- Device identityをSteamVR Serialへ、device classをTracked Device Classへ写像する。
+  Controller hand roleだけを`Prop_ControllerRoleHint_Int32`へ写像し、Generic Tracker roleは
+  Manage Trackers/`IVRSettings`の別Contractとして扱う。
 - SteamVRのHapticsをCoreのHaptics Eventへ戻す。
 - STAGE座標、Quaternion順序、Tracking/Connection状態をSteamVR表現へ変換する。
 - HMDのRender Target Size、Eye Viewport、Projection、Distortion、Refresh Rateなどを
@@ -159,12 +166,19 @@ SteamVR Shellは少なくとも次のContractを担当する。
   `GetProjectionRaw`、`ComputeDistortion`を仮想Display設定から返す。
 - Display Frequency、IPD、Universeなど必要なHMD Propertyを設定する。
 - CoreのHead PoseをSteamVR Compositorへ継続して通知する。
-- `driver.vrdrivermanifest`にHMD discovery情報を持たせ、SteamVRがHMD未接続状態でも
-  PackageをHMD Driver候補として発見できるようにする。現行の空`hmd_presence`は完成条件を満たさない。
 
-Driver Manifest、HMDの`Activate`、`IVRDisplayComponent`は一つのContractとして検証する。
-`hmd_presence`の具体値（たとえばSimpleHMD系Driverで使われるwildcard）は、対象SteamVR Versionでの
-headless discovery実測をもって確定し、単にManifestへ文字列を追加しただけでは完了としない。
+HMD bring-upは次の3つを混同せず検証する。
+
+1. **Driver registration/loading**: `vrpathreg adddriver`がExternal Driver pathを登録し、SteamVRがPackageと
+   `driver_playspectra.dll`をロードする。
+2. **HMD-present preflight**: `driver.vrdrivermanifest`の`hmd_presence`はUSB VID/PID条件を使った
+   `VR_IsHmdPresent()`の高速判定を定義する。物理USB HMDを持たない本Driverでは`*.*`を候補とし、
+   Driverがinstalledな間にpreflightがtrueになることを対象SteamVR Versionで確認する。
+3. **Runtime/compositor startup**: Driverが`TrackedDeviceClass_HMD`を追加し、`Activate`と
+   `IVRDisplayComponent`を成立させた結果、物理HMDなしでvrserver/compositorと対象アプリが起動する。
+
+現行Manifestの空`hmd_presence`は2を満たさない。ただし`hmd_presence`はExternal Driverの登録機構でも、
+Runtime/compositor startup成功の証明でもない。Manifest変更だけで1または3を完了としない。
 
 解像度、Refresh Rate、IPD、左右Viewport、Projection/FOV、Distortionは、CoreのRuntime非依存Descriptor
 または明示的なAdapter設定から導出する。現行Descriptorで不足するFOV等を追加する場合もOpenVR型は使わず、
@@ -179,14 +193,46 @@ HMD実装例が存在することは確認済み。ただし、PlaySpectra Drive
 
 ## 仮想コントローラー
 
-左右ControllerはCoreの`grip` / `aim` / `inputs`をSteamVRへ写像する。現行Skeletonの
-`VirtualController`とInput Component生成は参考にできるが、状態・通信の所有権はCoreへ移す。
+### Grip/Aim PoseのMVP写像
+
+Coreは`grip`と`aim`を独立した6DoF Poseとして保持し、「手首を固定して照準だけ動かす」状態も表現する。
+一方、SteamVR Driverが1台のControllerに対して動的に更新するTracked Device root poseは
+`TrackedDevicePoseUpdated(..., DriverPose_t, ...)`の1本であり、Input Profileの追加pose sourceは
+Render Model componentのlocal transformとして定義される。
+
+このためSteamVR MVPでは次のdegradationを明示する。
+
+- Coreの`grip`をControllerのTracked Device root poseとして動的に更新する。
+- OpenVRの`/pose/raw`をGrip相当とし、Aim相当の`/pose/tip`はRender Modelに定義した
+  Gripからの固定/calibrated offsetとして公開する。
+- Coreの`aim`はCore状態として保持・返却するが、フレームごとの`grip^-1 * aim`変化をSteamVRへは反映しない。
+- SteamVR Adapterはhello descriptorで`capabilities.dynamic_grip_aim_relative_pose = false`を公開する。
+  古いAdapterのようにfieldがない場合もClientは`false`として扱い、対応しているように黙って扱わない。
+
+動的に独立したGrip/Aimを要求するScenarioはSteamVR MVPの対応範囲外である。将来これを保存するには、
+SteamVR側で成立する別のDevice/pose modelを一次資料と実測で確立してからcapabilityを変更する。
+
+現行Skeletonの`VirtualController`とInput Component生成は参考にできるが、状態・通信の所有権はCoreへ移す。
+
+### Input Profileとnative OpenXR互換性
 
 特定ベンダーProfileへの偽装は完成条件ではない。初期実装では`Prop_InputProfilePath_String`を
 Driver Package内の`{playspectra}/input/playspectra_profile.json`へ向け、PlaySpectra所有のInput Profileと
 Bindingだけで自己完結させる。現行Skeletonが指定する`oculus_touch`と
 `{oculus}/input/touch_profile.json`は実Oculus Driver Resourceへ依存するため置き換える。
 既存ゲームの自動Bindingを目的としたベンダー偽装は実測後に別途判断する。
+
+Driver Resourceの所有権と、native OpenXRへ見せるinteraction profileは別Contractである。SteamVRの
+OpenXR bindingでは、アプリケーションが受理する標準`interaction_profile`をBinding rootに指定する必要がある。
+MVPはCoreのTouch型入力集合（左右A/B/X/Y、Trigger、Squeeze、Thumbstick）に合わせ、
+`/interaction_profiles/oculus/touch_controller`を互換targetとする。ただしController TypeやResource pathは
+PlaySpectra所有のままとし、Oculus Driverのfileには依存しない。
+
+現行のPlaySpectra Profile/Binding packageには`interaction_profile`指定がないため、そのままでは
+native OpenXR acceptanceを満たさない。実装時はPlaySpectra所有Bindingのrootへ上記targetを追加し、
+対象OpenXRアプリがそのprofileを受理していること、Grip/Aimのstatic-offset制約内でAction Poseと
+Bool/Scalar入力が到達することを実測する。
+別interaction profileや未対応アプリへの互換性はAutomatic Rebinding/remappingを含む後続課題とする。
 
 ## Hapticsの逆方向経路
 
@@ -215,11 +261,13 @@ Action Discovery、Diagnosticsを引き続き担当する。DriverがCaptureを�
 ## 実装順序
 
 1. 本文書の目的、範囲、Application API別の完了条件を固定する。
-2. HMD Class、Properties、`IVRDisplayComponent`、Manifest discoveryを一体で実装する。
+2. External Driver登録、`hmd_presence` preflight、HMD Class/Properties/`IVRDisplayComponent`による
+   Runtime startupを分離して実装・検証する。
 3. Controllerを加える前に、物理HMDなしのSteamVR + 仮想HMDだけでRuntime/Application起動を実測する。
 4. `devicecore/`を組み込み、Core Head Poseを仮想HMDへ接続する。
-5. PlaySpectra所有Controller Input ProfileとBindingをPackageへ組み込む。
-6. 左右Controller Pose/Button/Axisを接続する。
+5. PlaySpectra所有Controller Input ProfileとBindingへnative OpenXRの
+   `/interaction_profiles/oculus/touch_controller`互換targetを組み込む。
+6. Grip root pose、固定Aim offset、左右Controller Button/Axisを接続し、動的Grip/Aim差分を非対応capabilityにする。
 7. SteamVR Event PollingとCore Haptics Observerへの逆方向経路を接続する。
 8. SteamVR + native OpenXRでoperate -> render -> observe E2Eを実測する。
 9. SteamVR + native OpenVRで操作到達を実測し、描画観測を独立した状態として記録する。
@@ -232,20 +280,24 @@ Generic Trackerと可変台数Protocolはこの順序へ含めず、MVP後の独
 SteamVR Adapterを「Verified」へ変更するには、少なくとも次の一次証拠を保存する。
 
 1. Clean Buildで`driver_playspectra.dll`とDriver Packageを生成できる。
-2. `vrpathreg`で登録したDriverがSteamVRにロードされる。
-3. HMD discoveryを含むManifestから、物理HMDなしで仮想HMDが発見・起動される。
-4. HMD-only checkpointの後、仮想HMDと左右Controllerが列挙される。
-5. Go Coreから送ったHead Poseがアプリケーションの視点へ到達する。
-6. 左右ControllerのPoseと少なくともBool・Scalar入力がアプリケーションへ到達する。
-7. Applicationから送ったHapticsがDriverのEvent Pollingを通り、Core Observerへ到達する。
-8. `get_state` / `reset` / Writer排他を含む共通ProtocolがSteamVR Adapterでも通る。
-9. SteamVR + native OpenXRアプリで入力に応じた描画変化をCapture/assertし、
+2. `vrpathreg`でExternal Driver pathを登録し、Driver Package/DLLがSteamVRにロードされる。
+3. Manifestの`hmd_presence`により、Driver installed時の`VR_IsHmdPresent()` preflightがtrueになる。
+4. `hmd_presence`とは別に、物理HMDなしで仮想HMDがActivateされ、vrserver/compositorと対象アプリが起動する。
+5. HMD-only checkpointの後、仮想HMDと左右Controllerが列挙される。
+6. Go Coreから送ったHead Poseがアプリケーションの視点へ到達する。
+7. Controller Gripがroot pose、Aimが固定/calibrated offsetとして到達し、動的Grip/Aim相対変化が
+   非対応capabilityとして報告される。
+8. PlaySpectra所有Profile/Bindingだけを使い、`/interaction_profiles/oculus/touch_controller`を受理する
+   native OpenXRアプリへ左右ControllerのBool・Scalar入力が到達する。
+9. Applicationから送ったHapticsがDriverのEvent Pollingを通り、Core Observerへ到達する。
+10. `get_state` / `reset` / Writer排他を含む共通ProtocolがSteamVR Adapterでも通る。
+11. SteamVR + native OpenXRアプリで入力に応じた描画変化をCapture/assertし、
    operate -> render -> observeを一周させる。
-10. SteamVR + native OpenVRアプリで入力到達を確認し、描画観測は可否と経路を別欄で記録する。
-11. 再現コマンド、対象SteamVR Version、対象アプリ、Application API、結果を
+12. SteamVR + native OpenVRアプリで入力到達を確認し、描画観測は可否と経路を別欄で記録する。
+13. 再現コマンド、対象SteamVR Version、対象アプリ、Application API、結果を
     [verification.md](verification.md)へ記録する。
 
-`SteamVR Adapter: Verified`は1〜9を必須とする。10のnative OpenVR操作到達はSteamVR互換性の
+`SteamVR Adapter: Verified`は1〜11を必須とする。12のnative OpenVR操作到達はSteamVR互換性の
 独立した受け入れ項目であり、native OpenVR描画観測が未設計である間は完全な
 operate -> render -> observe対応を主張しない。
 
@@ -255,9 +307,13 @@ Generic Trackerの列挙、body role割当、3台以上のControllerも初期`Ve
 ## 現在の既知リスク
 
 - **仮想DisplayでのSteamVR起動**: 必要Interfaceはソース上確認済みだが、PlaySpectra構成では未実測。
-- **HMD Discovery**: 現行Manifestの`hmd_presence`は空であり、物理HMDなしのDriver discoveryを満たさない。
+- **HMD Bring-up**: 現行Manifestの`hmd_presence`は空でpreflightを満たさず、Driver登録と
+  Runtime/compositor startupもそれぞれ別に未実測。
 - **OpenVR Header Version**: 現行Skeletonはv1.8.19を前提とする。現行SteamVRとの互換性は実測が必要。
-- **Controller Binding**: 同梱Profileでのアプリ側Binding手順と自動化範囲は未確定。Oculus Resource依存は除去する。
+- **Controller Pose**: SteamVR MVPはGrip root + 固定Aim offsetへdegradeし、Coreの動的Grip/Aim差分を
+  SteamVR出力へ反映しない。
+- **Controller Binding**: 現行同梱ProfileにはOpenXR `interaction_profile`がない。MVP targetを
+  Oculus Touch interaction profileとして実測し、Oculus Driver Resource依存は除去する。
 - **native OpenVR Observation**: 現行OpenXR Layerでは純粋なOpenVR描画を観測できず、別経路の設計が必要。
 - **Identity/Role Mapping**: 可変台数化では安定identityと再割当可能なbody roleを分離し、
   SteamVR固有PropertyをCore Protocolへ漏らさない設計が必要。

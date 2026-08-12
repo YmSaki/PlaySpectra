@@ -15,7 +15,7 @@ This page separates current interfaces from work that is planned or not yet veri
 
 ## Planned or not yet verified
 
-- SteamVR Adapter: first prove physical-HMD-free HMD discovery/startup, then embed the shared device core (`devicecore/`), add PlaySpectra-owned controller bindings and bidirectional haptics, and verify the native OpenXR full loop. Keep identity/class/body-role separate so a later protocol revision can add 0..N controllers and generic trackers; track native OpenVR operation and rendered-frame observation separately.
+- SteamVR Adapter: separately prove external-driver registration, HMD-present preflight, and physical-HMD-free runtime startup; then embed the shared device core (`devicecore/`), add PlaySpectra-owned controller bindings and bidirectional haptics, and verify the native OpenXR full loop. Keep identity/class/body-role separate so a later protocol revision can add 0..N controllers and generic trackers; track native OpenVR operation and rendered-frame observation separately.
 - Unity application E2E: not yet verified.
 - Unreal application E2E: not yet verified.
 - Physical-HMD display compositor: not yet verified; current Windows E2E uses XRT_COMPOSITOR_NULL=1.

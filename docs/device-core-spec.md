@@ -160,6 +160,9 @@ Device Collectionへ一般化できることを設計制約とする。各record
                           "/input/thumbstick/x","/input/thumbstick/y","/input/thumbstick/click",
                           "/input/thumbstick/touch","/input/thumbrest/touch",
                           "/button/a/click","/button/a/touch","/button/b/click","/button/b/touch"] }
+  },
+  "capabilities": {
+    "dynamic_grip_aim_relative_pose": false
   }
 }
 ```
@@ -167,7 +170,10 @@ Device Collectionへ一般化できることを設計制約とする。各record
 上の JSON はワイヤ形式の完全形を示す例。**現行実装の hello 応答 descriptor が返すのは
 `protocol_version` と `hmd` の3値(recommended_eye_width / recommended_eye_height / refresh_hz)のみ**で、
 実値は各 Adapter が `playspectra_control_config` 経由で注入する(Monado Adapter の現行値: 1080x1200/眼・90 Hz)。
-`fov` と `controllers` ブロックの送出は未実装(§7)。
+`fov`、`controllers`、`capabilities`ブロックの送出は未実装(§7)。
+`dynamic_grip_aim_relative_pose`は、1台のControllerについて`grip^-1 * aim`のフレームごとの変化を
+Runtimeへ出力できる場合だけ`true`とする。fieldまたは`capabilities`自体がない場合、Clientは安全側の
+`false`として扱う。SteamVR MVPは`false`、独立Action Poseを保持するAdapterは実測後に`true`を宣言できる。
 
 ---
 
@@ -251,7 +257,7 @@ Device Collectionへ一般化できることを設計制約とする。各record
 | linear/angular_velocity | `xrt_space_relation` の linear/angular velocity | `vecVelocity` / `vecAngularVelocity` |
 | /input/*/value・x・y | action `.../input/*/value|x|y` | `IVRDriverInput` scalar component |
 | /button/*/click・touch | action `.../click|touch` | `IVRDriverInput` bool component |
-| grip/aim pose | `/user/hand/*/input/grip|aim/pose` | controller pose(aim はレイ用オフセット) |
+| grip/aim pose | `/user/hand/*/input/grip|aim/pose` | MVPはgripをdevice root、aimを固定/calibrated `/pose/tip` offsetへdegrade。動的なgrip↔aim相対変化は非対応capability |
 | device.connected | session/interaction profile の有無 | `deviceIsConnected` / `TrackedDeviceAdded` |
 
 ---
@@ -263,7 +269,7 @@ Device Collectionへ一般化できることを設計制約とする。各record
   validation_error は現行実装では発生しない(実在する missing は `missing:state` と
   `missing:clock.logical_frame` のみ)。
 - **`runtime_reserved` 分離(§2.4)**: 未実装。現行実装は `/input/system/click` を通常の inputs として受理する。
-- **Descriptor の `controllers` / `fov` 送出(§3)**: 未実装。現行の hello 応答 descriptor は
+- **Descriptor の `controllers` / `fov` / `capabilities`送出(§3)**: 未実装。現行の hello 応答 descriptor は
   `protocol_version` と `hmd` 3値のみ。
 - velocity 供給元: Server 供給 or Adapter が pose 差分から推定 — 実測して選ぶ(protocol は null 許容で両対応)。
 - haptics 逆方向イベントの詳細スキーマ(振幅/周波数/持続の単位・複数チャンネル)。

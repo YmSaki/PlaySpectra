@@ -40,15 +40,19 @@ The OpenXR layer is a separate instrumentation path. Its control channel is 127.
 
 OpenXR standardizes the application-to-runtime boundary. The runtime-to-device-driver boundary is runtime-specific. A single driver DLL cannot therefore be expected to plug into Monado, SteamVR, and every other runtime through one universal ABI.
 
-PlaySpectra uses a common Virtual Device Core plus a Runtime Adapter for each runtime. The core carries the runtime-neutral device state; an adapter translates that state into the native device path of its runtime. The Monado adapter is the current working backend. The SteamVR adapter remains planned.
+PlaySpectra uses a common Virtual Device Core plus a Runtime Adapter for each runtime. The core carries runtime-neutral device state; an adapter translates that state into the native device path of its runtime. The Monado adapter is the current working backend. The planned SteamVR MVP will expose one virtual HMD and a left/right controller pair.
 
-The core is implemented once, as runtime-neutral C in [`devicecore/`](../devicecore/): the NDJSON protocol, the shared `VirtualDeviceState`, and the TCP control channel. Each adapter compiles it into its runtime's process — the Monado fork pulls it into `drv_playspectra` — because runtimes query device state through synchronous in-process callbacks and accept no out-of-process devices. The adapter shell that remains runtime-side only converts the core's state into its runtime's native types (`xrt_space_relation` today, `DriverPose_t` for SteamVR later); the control channel a client connects to is owned by the core, not by the shell.
+The current protocol v1 has fixed `hmd`, `left`, and `right` fields. That is an MVP wire constraint, not the permanent adapter model. The architecture permits one HMD, zero or more controllers, and zero or more generic trackers. A future protocol revision must identify devices with stable IDs and represent device class separately from an optional, reassignable body role; `left` and `right` are roles, not durable identities. Variable-device support must use explicit version/capability negotiation rather than silently changing protocol v1.
+
+The core is implemented once, as runtime-neutral C in [`devicecore/`](../devicecore/): the NDJSON protocol, the shared `VirtualDeviceState`, and the TCP control channel. Each adapter compiles it into its runtime's process — the Monado fork pulls it into `drv_playspectra` — because runtimes query device state through synchronous in-process callbacks and accept no out-of-process devices. The adapter shell converts the core's state into runtime-native types (`xrt_space_relation` for Monado, `DriverPose_t`, `IVRDriverInput`, and `IVRDisplayComponent` for SteamVR); the control channel is owned by the core, not by the shell. SteamVR pose/input flows from the core to the application, while haptics flows back from SteamVR events to the core's observer queue. The SteamVR adapter depends on the core; the core must not acquire OpenVR or SteamVR types.
+
+For SteamVR, native OpenXR applications can use the existing OpenXR instrumentation layer for rendered-frame observation. Native OpenVR applications use a different compositor path, so operation delivery and rendered-frame observation must be verified and reported separately.
 
 ## Responsibility boundaries
 
 - Operation interfaces are peers: CLI, JSON scenarios, and MCP all call the same Server.
 - The Server interprets high-level commands and owns interpolation.
-- The Virtual Device Core represents HMD and controller state without runtime-specific types.
+- The Virtual Device Core currently represents one HMD and two controllers without runtime-specific types; its evolution path also covers variable controllers and generic trackers.
 - A Runtime Adapter exposes that state through a runtime's normal device path.
 - The OpenXR layer observes the app and supports test instrumentation; it is not a replacement for the runtime backend.
 

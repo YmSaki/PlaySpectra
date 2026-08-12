@@ -72,6 +72,24 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 - `connected:false` の device は他フィールド不要(その時点で非接続)。connected な device は完全必須。
 - `hmd`/`left`/`right` の3キーは常に present(未接続は `{"connected":false}`)。
 
+#### 将来の可変Device Collection（📋非実装）
+
+Protocol Version 1はSteamVR MVPと現行Monado実装に合わせ、1 HMD / 2 Controllers / 0 Trackersを
+`hmd` / `left` / `right`へ固定している。これは現行Wire Contractであり、Runtime Adapter全体の恒久的な
+Device数制約ではない。
+
+将来のProtocol revisionでは、1 HMD / 0..N Controllers / 0..N Generic Trackersを表せる
+Device Collectionへ一般化できることを設計制約とする。各recordは少なくとも次を別fieldとして持つ。
+
+- `device_id`: 再接続やrole変更をまたぐ安定identity。
+- `device_class`: `hmd` / `controller` / `generic_tracker`。
+- `body_role`: `head` / `left_hand` / `right_hand` / `waist` / `chest` / `left_foot` /
+  `right_foot` / `unassigned`等の再割当可能なrole。
+
+`device_id`へ`left`や`waist`を埋め込んでbody roleとidentityを同一視してはならない。
+可変Device Collectionの具体Schema、role語彙、互換規則は未決定であり、Version/Capability negotiationを伴う
+別仕様で定める。Version 1の3キーの意味を変更して可変台数化しない。
+
 ### 2.3 Controller
 
 ```jsonc

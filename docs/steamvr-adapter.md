@@ -1,107 +1,273 @@
-# PlaySpectra SteamVR Adapter (driver_playspectra) — 📋設計・開発中
+# PlaySpectra SteamVR Adapter (`driver_playspectra`) — 📋設計・開発中
 
-SteamVR ランタイムへ仮想コントローラー(将来は仮想 HMD)を正規のドライバー経路で供給する
-Runtime Adapter。**現状は設計と、旧レイヤープロトコル(:52700 と同形式)のままのスケルトン実装**であり、
-共有 Device Core([`devicecore/`](../devicecore/))への接続と Windows 検証は未完
-(検証状況は [verification.md](verification.md) の SteamVR Adapter 行が正)。
+SteamVRへPlaySpectraの仮想HMDと左右コントローラーを正規のSteamVR Driver経路で供給する
+Runtime Adapter。目標は、物理HMDを前提にせず、SteamVRがPlaySpectraの3デバイスを使って
+XRアプリケーションを実行できる状態にすることである。
 
-本文書は検証境界を明示する: ✅実測済みの事実 / 🟡部分検証 / 📋設計 / 🔬仮説(検証法付き)。
+現状の`driver/`は、左右の仮想コントローラーと独自Control Channelだけを持つ以前の
+Controller-only Skeletonである。仮想HMD、共有Device Coreへの接続、Windows上のRuntime・Application
+検証は未完であり、このSkeleton単独をSteamVR Adapter完成とは扱わない。検証状況は
+[verification.md](verification.md)のSteamVR Adapter行を正とする。
 
-## なぜドライバー経路が必要か (✅ 実測事実)
+本文書は検証境界を明示する: ✅実測済みの事実 / 🟡部分検証 / 📋設計 / 🔬仮説（検証法付き）。
 
-The Lab (OpenVR ゲーム) + OpenComposite + SteamVR/OpenXR ランタイムでの実測(2026-07-17):
+## 目的と完成境界
+
+SteamVR Adapterの初期完成範囲は次のとおり。
+
+- `TrackedDeviceClass_HMD`の仮想HMDを1台公開する。
+- `TrackedDeviceClass_Controller`の左右コントローラーを1組公開する。
+- HMD Pose、Controller Grip/Aim Pose、Button、Trigger、Thumbstick、Tracking/Connection状態を
+  共通`VirtualDeviceState`からSteamVRのDriver APIへ写像する。
+- 物理HMDなしでSteamVRが仮想HMDを認識し、XRアプリケーションを開始できることを実測する。
+- PlaySpectra所有のController Input ProfileとBindingをDriver Packageへ同梱し、別ベンダーの
+  Driver Resourceなしで左右Controllerを利用できるようにする。
+- Go Core、CLI、MCP、JSON Scenarioの操作意味論とScenario Schemaは既存の共通Protocolを使い、
+  Runtime固有の操作モデルを追加しない。接続先の選択方法は別途Runtime設定として明示する。
+- SteamVR + native OpenXRアプリケーションでoperate -> render -> observeを再現可能なWindows E2Eとして検証する。
+- native OpenVRアプリケーションは入力到達と描画観測を分離して判定し、OpenComposite経由の結果を
+  native OpenVRの証拠として扱わない。
+
+### Device class・identity・body role
+
+SteamVR MVPの実体は **1 HMD / 2 Controllers / 0 Trackers** とする。このPRおよび初期実装で
+Generic Trackerや可変台数Protocolを実装する必要はない。
+
+一方、Runtime AdapterのArchitectureは次のDevice構成を表現できる方向へ保つ。
+
+- 1 HMD（SteamVRでは`TrackedDeviceClass_HMD`）。
+- 0..N Controllers（`TrackedDeviceClass_Controller`）。
+- 0..N Generic Trackers（`TrackedDeviceClass_GenericTracker`）。
+
+各Deviceでは次の3概念を分離する。
+
+- **device identity**: 再接続やbody role変更をまたいでDeviceを識別する安定ID。SteamVRのSerialへ写像する。
+- **device class**: HMD / Controller / Generic Tracker。Runtime AdapterがSteamVRのTracked Device Classへ写像する。
+- **body role**: `head`、`left_hand`、`right_hand`、`waist`、`chest`、`left_foot`、`right_foot`、
+  `unassigned`等の任意割当。identityの一部にせず、同じDeviceへ後から再割当できる。
+
+したがって`left` / `right`をDeviceそのもののidentityとして固定しない。MVPでは2台のControllerへ
+`left_hand` / `right_hand`を割り当てるが、将来の追加ControllerやTrackerは別の安定identityを持つ。
+body roleの語彙とSteamVR Propertyへの具体的な写像は、Generic Tracker実装時に一次資料と実機で確定する。
+
+現行Protocol Version 1の`hmd` / `left` / `right`固定SchemaはMVPでそのまま使う。将来のCore Protocolは、
+安定`device_id`をkeyとするDevice Collectionとclass/role metadataへ一般化できなければならない。
+そのProtocol revisionはVersion/Capability negotiationを伴い、Version 1の意味を黙って変更しない。
+
+次は初期完成の範囲外とし、別の検証・拡張として扱う。
+
+- 物理HMDと仮想HMDの同時利用または切り替え。
+- 実コントローラーと仮想コントローラーの優先度調停、Pose Mirror、Input Mux。
+- 特定ベンダーのControllerとして偽装する方式の出荷判断。
+- 物理Display向けDirect ModeとPhysical-HMD Display Compositor。
+- Unity・Unreal Engine固有の統合設定やPlugin。
+- Application-level deterministic frame timing。
+
+## なぜDriver経路が必要か（✅実測事実）
+
+The Lab（OpenVRゲーム）+ OpenComposite + SteamVR/OpenXR Runtimeでの実測（2026-07-17）:
 
 | 機能 | 結果 | 経路 |
 |---|---|---|
-| screenshot | ✅ D3D11 1717x2052 撮れた | レイヤー xrEndFrame フック (拡張不要) |
-| head 注入 | ✅ 視点が動いた (画角の違和感あり) | レイヤー xrLocateViews フック (拡張不要) |
-| ボタン/コントローラー注入 | ❌ 不可 | XR_EXT_conformance_automation — **SteamVR が非対応** |
+| screenshot | ✅ D3D11 1717x2052 | Layerの`xrEndFrame` Hook |
+| head注入 | ✅ 視点が動いた（画角の違和感あり） | Layerの`xrLocateViews` Hook |
+| Button/Controller注入 | ❌ 不可 | `XR_EXT_conformance_automation`をSteamVRが提供しない |
 
-`conformanceAutomation:false` は SteamVR ランタイムの制限であり、レイヤー側では回避不能。
-Meta XR Sim / Monado では CA 経路が動く(統合テストで実証済み)。したがって SteamVR で入力を
-注入するには、ランタイムの下側 = OpenVR ドライバー API でデバイスそのものを供給する。
+この結果は、Layer経由の入力注入だけではSteamVR Runtime上の完全な操作経路を構成できないことを示す。
+SteamVRの下側に正規デバイスを供給するDriver Adapterが必要になる。
 
 ## アーキテクチャ
 
+```text
+PlaySpectra Go Core / CLI / MCP / JSON Scenario
+                         |
+                         | VirtualDeviceState / NDJSON
+                         v
+driver_playspectra.dll（vrserver.exe内）
+  |
+  +-- Virtual Device Core（既存devicecore/を組み込み）
+  |     +-- Protocol parse / validation
+  |     +-- Shared VirtualDeviceState
+  |     +-- TCP Control Channel
+  |
+  +-- SteamVR Adapter Shell
+        +-- Virtual HMD        -> TrackedDeviceClass_HMD
+        +-- Left Controller    -> TrackedDeviceClass_Controller
+        +-- Right Controller   -> TrackedDeviceClass_Controller
+        +-- Generic Trackers   -> TrackedDeviceClass_GenericTracker（将来0..N）
+        +-- Core state         -> DriverPose_t / IVRDriverInput
+        +-- HMD display config -> IVRDisplayComponent
+        +-- SteamVR events     -> Core haptics queue
+                         |
+                         v
+                      SteamVR
+                         |
+             pose/input  |  haptics
+                         v     ^
+                OpenVR / OpenXR application
 ```
-PlaySpectra Server / Virtual Device Core
-  ├─ Monado Adapter   :52702 (稼働中 — VirtualDeviceState/NDJSON)
-  └─ SteamVR Adapter  :52701 → driver_playspectra.dll (vrserver.exe 内)
-                                 ├─ 仮想コントローラー L/R (TrackedDeviceClass_Controller)
-                                 ├─ DriverPose_t 更新 (RunFrame)
-                                 └─ IVRDriverInput (bool/scalar コンポーネント)
-```
 
-- **driver_playspectra.dll** (`driver/src/`): OpenVR ドライバー API (`openvr_driver.h`) を実装する
-  server tracked device provider。`HmdDriverFactory` → `IServerTrackedDeviceProvider`、Init で
-  仮想コントローラー2本 (`ITrackedDeviceServerDriver`) を `TrackedDeviceAdded`。
-- **ワイヤプロトコル (📋)**: Monado Adapter(:52702)と同一の VirtualDeviceState / NDJSON
-  ([device-core-spec.md](device-core-spec.md) — `hello`/`set_state`/`get_state`/`status`/`reset` +
-  `request_id` + writer 排他)へ揃え、共有 Device Core(`devicecore/`)を vrserver プロセスへ静的リンクする。
-  Adapter 側がプロトコルを揃えるため **Server/MCP は無改修で両対応**になる。
-  **現行 `driver/src/driver_playspectra.cpp` は旧レイヤープロトコル(:52700 と同形式)のままの
-  スケルトンであり要改修。**
-- **SteamVR 登録**: `vrpathreg adddriver <repo>/driver/playspectra` + steamvr.vrsettings
-  `activateMultipleDrivers: true`。実機ドライバーとの同時ロードは 🟡 実測済み(「コントローラー偽装」節の
-  vrserver ログ観測)。その場合にコントローラーが4本列挙される、は 📋 想定(未実測)。
-- **openvr_driver.h**: ValveSoftware/openvr **v1.8.19 タグ固定**(プロジェクト全体の openvr ピンと統一)。
-  📋 ドライバー API は後方互換とされるため現行 SteamVR でも動く見込み(未実測。
-  検証法: vrpathreg 登録後、vrserver.txt にデバイス追加行が出ることを確認)。
-- **既存レイヤーとの関係**: capture はレイヤーのまま(✅ SteamVR 上で screenshot 実測済み — 上の表)。
-  recording もレイヤー側だが SteamVR 上では未実測(他ランタイムで実証済み)。入力だけドライバー経路が加わる。
+### Virtual Device Coreの責務
 
-## 実機との共存 / 優先度調停 — 方向性のみ決定、方式は仮説段階
+[`devicecore/`](../devicecore/)はRuntime非依存のまま維持する。SteamVR対応のために
+`DriverPose_t`、`IVRDisplayComponent`、`IVRDriverInput`などのOpenVR型をCoreへ追加してはならない。
 
-要求: 実機コントローラー入力をバイパスしつつ、注入があればそちらを優先(またはその逆)。
+SteamVR Driverは、Monado Adapterと同様に次のCoreソースを自身のRuntime Processへ組み込む。
 
-**✅ 検証済みの事実**:
-- `IVRServerDriverHost::GetRawTrackedDevicePoses()` は v1.8.19 ヘッダに実在
-  (third_party/openvr_driver_sdk/openvr_driver.h)。**挙動・呼び出し可否は未検証**。
+- `playspectra_proto.{c,h}`: 共通NDJSON Protocol。
+- `playspectra_state.{c,h}`: HMD・左右Controllerの共有状態。
+- `playspectra_control.{c,h}`: `hello` / `set_state` / `get_state` / `status` / `reset`。
+- `ps_os.{c,h}`: Thread・Mutex・SocketのPlatform Shim。
 
-**🔬 仮説(この環境で未検証。設計に採用する前に実測すること)**:
-- **H1 (役割の活動追従)**: SteamVR は同役割コントローラーが複数あるとき「最近入力があった
-  デバイス」へ手の役割を割り当てる … 学習知識由来。バージョン依存・条件の詳細不明。
-  **検証法**: 実機 Touch + 仮想ペア同時接続で、(a) 注入時 (b) 実機操作時に
-  役割がどちらに付くかを SteamVR デバイスパネル / GetControllerRoleForTrackedDeviceIndex で実測。
-- **H2 (pose ミラーの実現性)**: GetRawTrackedDevicePoses で他デバイスのポーズを RunFrame から
-  読める … API 存在のみ確認済み。**検証法**: pose 注入実装時にログ出力で実機ポーズが取れるか確認。
-- **H3 (oculus_touch 偽装でバインディング自動解決)**: ControllerType=oculus_touch を名乗れば
-  既存ゲームの Touch バインディングが仮想ペアに当たる … 学習知識由来。
-  **検証法**: The Lab で仮想ペアに役割を付けた状態でスタートボタン到達を実測。
+CoreへSteamVR対応を追加するのではなく、**SteamVR Adapterが既存Coreを利用する**依存方向とする。
+Runtime固有の不足が実装中に判明した場合も、Coreへ追加できるのはRuntime非依存の状態・能力だけである。
+現行CoreがHMDと左右Controllerの固定フィールドを持つことはMVPの制約であり、Adapter全体の恒久的な
+Device数制約とはしない。将来の可変台数化でもAdapter -> Coreの依存方向を維持する。
 
-**進め方**: pose 注入の実装段階で H1〜H3 の実測をスコープに含める。実測結果を本節に追記してから、
-方式1(活動ベース切替に乗る) / 方式2(ミラー+チャンネル単位 mux)のどちらを出荷形にするか決める。
-**実測前にどちらの方式もコミットしない。**
+### SteamVR Adapter Shellの責務
 
-## コントローラー偽装の方向決定 — 効果は仮説 H3、実測待ち
+- `playspectra_state_get_head`のPoseを`DriverPose_t`へ変換する。
+- 左右Controller状態を`DriverPose_t`と`IVRDriverInput`のBool/Scalar Componentへ変換する。
+- Device identity、device class、body roleを混同せず、SteamVRのSerial/Class/Role Propertyへ写像する。
+- SteamVRのHapticsをCoreのHaptics Eventへ戻す。
+- STAGE座標、Quaternion順序、Tracking/Connection状態をSteamVR表現へ変換する。
+- HMDのRender Target Size、Eye Viewport、Projection、Distortion、Refresh Rateなどを
+  `IVRDisplayComponent`とDevice Propertyとして公開する。
+- Driver LifecycleとCore Control Channelの開始・停止順序を所有する。
+- SteamVR API呼び出しの例外をDriver境界で封じ、`vrserver.exe`へ伝播させない。
 
-偽装先は `oculus_touch`(独自タイプ playspectra_controller ではなく)。選定理由のうち**事実**は
-(1) 対象実機が Rift CV1 + Touch で、steamvr.vrsettings に oculus_touch_250820_* キーが実在する
-こと(実測)。(2) knuckles はスケルタル入力エミュレーションが必要で自動化に不要、(3) Vive wands は
-ジョイスティックなし、は学習知識由来の比較。
-「偽装すれば既存ゲームの Touch バインディングが仮想ペアに当たる」は**仮説 H3**(上節参照)。
-現行スケルトンは H3 の検証装置として ControllerType=oculus_touch +
-InputProfilePath={oculus}/input/touch_profile.json + Touch 実配置コンポーネント(左 x/y・右 a/b
-非対称、thumbrest touch 含む)を実装済み — {oculus} パス解決可否・バインディング解決可否とも
-The Lab で実測してから確定する。
-🟡 判明済みの境界: `{oculus}` 偽装パスは**実 oculus ドライバが同居している時だけ解決**する
-(vrserver ログで確認)。完全 headless では別の解決手段が要る。
+### Control Channel
 
-## 仮想 HMD (スコープ: 実 SteamVR 共存ケースのみ)
+SteamVR Adapterは[device-core-spec.md](device-core-spec.md)のProtocol Version 1を使用する。
+計画上の既定Portは`52701`とし、Monado Adapterの`52702`とは分ける。Go側の操作APIとScenario Schemaは
+変更しないが、現行のMonado向け既定値や`PLAYSPECTRA_MONADO_PORT`だけではSteamVRを選択できない。
+実装時に接続Endpointを明示指定できるRuntime設定（CLI option、共通環境変数、またはSession設定）を追加し、
+CLI・MCP・Scenarioが同じ選択結果を使うことを必須とする。Runtime固有の操作コマンドは追加しない。
 
-完全 headless は Monado Adapter が担うため、本 Adapter の仮想 HMD は**実 SteamVR 共存ケース**
-(実機観戦 ⇔ 仮想HMD切替)を対象とする。
-**🔬 動機は仮説**: 観測事実は「The Lab (SteamVR) で head override 時に画角の違和感があった」まで。
-「原因はコンポジターが物理 HMD ポーズでリプロジェクションを続けること」「ドライバーで HMD を
-仮想化すれば根本解消」は**未実測の仮説**であり、事実として扱わない(Meta XR Sim では歪まない)。
-検証法: 実 SteamVR で (a) 物理HMDポーズ固定 (b) 仮想HMDポーズ注入 の両条件で歪みの有無を撮って比較。
-実現時の切替は vrsettings フラグ (driver_playspectra.virtualHmd) + SteamVR 再起動を想定
-(SteamVR は HMD を1つしか採用しない)。
+現行`driver/src/driver_playspectra.cpp`にある旧Layer Protocol互換のTCP/JSON実装は置き換える。
+Driver固有の並行Protocolを維持しない。
 
-## リスク / 未知
+## 仮想HMD
 
-- 実機コントローラーとの優先順位: H1 のとおり仮説段階。仮想側に入力を流せば勝てる想定だが実測が要る。
-- MinGW での openvr_driver.h ビルド: クラス ABI は COM ライクな純仮想なので MinGW で問題ない見込み。
-  レイヤー DLL 側の MinGW 実績はあるが、driver DLL としての実績はまだない。
-- ドライバーのプロセスは vrserver.exe — クラッシュすると SteamVR ごと落ちる。例外は全部飲む
-  (レイヤーの HandleRequest "never throws" と同じ流儀)。
+仮想HMDは将来拡張ではなくSteamVR Adapterの必須デバイスである。
+
+SteamVR Shellは少なくとも次のContractを担当する。
+
+- `ITrackedDeviceServerDriver`としてHMDを登録・更新する。
+- `GetComponent`から`IVRDisplayComponent`を公開する。
+- `GetWindowBounds`、`GetRecommendedRenderTargetSize`、`GetEyeOutputViewport`、
+  `GetProjectionRaw`、`ComputeDistortion`を仮想Display設定から返す。
+- Display Frequency、IPD、Universeなど必要なHMD Propertyを設定する。
+- CoreのHead PoseをSteamVR Compositorへ継続して通知する。
+- `driver.vrdrivermanifest`にHMD discovery情報を持たせ、SteamVRがHMD未接続状態でも
+  PackageをHMD Driver候補として発見できるようにする。現行の空`hmd_presence`は完成条件を満たさない。
+
+Driver Manifest、HMDの`Activate`、`IVRDisplayComponent`は一つのContractとして検証する。
+`hmd_presence`の具体値（たとえばSimpleHMD系Driverで使われるwildcard）は、対象SteamVR Versionでの
+headless discovery実測をもって確定し、単にManifestへ文字列を追加しただけでは完了としない。
+
+解像度、Refresh Rate、IPD、左右Viewport、Projection/FOV、Distortionは、CoreのRuntime非依存Descriptor
+または明示的なAdapter設定から導出する。現行Descriptorで不足するFOV等を追加する場合もOpenVR型は使わず、
+MonadoとSteamVRの両Adapterが解釈できるRuntime非依存の値として定義する。
+
+`openvr_driver.h`に`IVRDisplayComponent`が存在すること、およびリポジトリ内のMonado SteamVR Driverに
+HMD実装例が存在することは確認済み。ただし、PlaySpectra Driverで物理HMDなしにSteamVR Sessionを開始できるかは
+未実測であり、実装完了のWindows E2Eで検証する。
+
+物理DisplayのDirect Modeは初期範囲に含めない。仮想HMDがSteamVR Compositorへ必要なDisplay Contractを提供する
+最小経路を先に成立させる。
+
+## 仮想コントローラー
+
+左右ControllerはCoreの`grip` / `aim` / `inputs`をSteamVRへ写像する。現行Skeletonの
+`VirtualController`とInput Component生成は参考にできるが、状態・通信の所有権はCoreへ移す。
+
+特定ベンダーProfileへの偽装は完成条件ではない。初期実装では`Prop_InputProfilePath_String`を
+Driver Package内の`{playspectra}/input/playspectra_profile.json`へ向け、PlaySpectra所有のInput Profileと
+Bindingだけで自己完結させる。現行Skeletonが指定する`oculus_touch`と
+`{oculus}/input/touch_profile.json`は実Oculus Driver Resourceへ依存するため置き換える。
+既存ゲームの自動Bindingを目的としたベンダー偽装は実測後に別途判断する。
+
+## Hapticsの逆方向経路
+
+Pose、Button、Axisは`Core -> Driver -> SteamVR -> Application`へ流れる。一方Hapticsは
+`Application -> SteamVR -> Driver -> Core -> Observer`へ流れる別方向のContractである。
+
+DriverはHaptic Componentを作るだけではなく、`RunFrame`で`PollNextEvent`を処理し、
+`VREvent_Input_HapticVibration`を対象の左右Device/Componentへ関連付け、振幅・周波数・継続時間を
+Runtime非依存のCore Haptics Eventへ変換する。Coreの既存Observer配信まで到達するE2Eを完成条件に含める。
+
+## 既存Instrumentation Layerとの関係
+
+Runtime AdapterはHMD・Controller入力をSteamVRの正規Device Pathへ供給する。
+OpenXR Instrumentation Layerは、対象アプリケーションがOpenXR Loader経路を通る場合のScreenshot、Recording、
+Action Discovery、Diagnosticsを引き続き担当する。DriverがCaptureを実装することは本設計の範囲外。
+
+描画観測はApplication APIごとに分ける。
+
+- **SteamVR + native OpenXR**: 既存OpenXR Instrumentation Layerでoperate -> render -> observeを構成する。
+  これを初期Adapterの完全E2E対象とする。
+- **SteamVR + native OpenVR**: Driver経由の操作到達は検証対象だが、純粋なOpenVR Compositor経路には
+  現行OpenXR Layerを挿入できない。描画観測方式は別設計事項であり、未設計の間は「操作のみ」または
+  「観測未対応」と明記する。
+- **OpenVR + OpenComposite**: OpenXRへ変換される別経路であり、native OpenVRの証拠として扱わない。
+
+## 実装順序
+
+1. 本文書の目的、範囲、Application API別の完了条件を固定する。
+2. HMD Class、Properties、`IVRDisplayComponent`、Manifest discoveryを一体で実装する。
+3. Controllerを加える前に、物理HMDなしのSteamVR + 仮想HMDだけでRuntime/Application起動を実測する。
+4. `devicecore/`を組み込み、Core Head Poseを仮想HMDへ接続する。
+5. PlaySpectra所有Controller Input ProfileとBindingをPackageへ組み込む。
+6. 左右Controller Pose/Button/Axisを接続する。
+7. SteamVR Event PollingとCore Haptics Observerへの逆方向経路を接続する。
+8. SteamVR + native OpenXRでoperate -> render -> observe E2Eを実測する。
+9. SteamVR + native OpenVRで操作到達を実測し、描画観測を独立した状態として記録する。
+
+Controllerを先に増築せず、HMD-only headless startupを最初のRuntime checkpointとする。
+Generic Trackerと可変台数Protocolはこの順序へ含めず、MVP後の独立した実装・検証項目とする。
+
+## 検証と完了条件
+
+SteamVR Adapterを「Verified」へ変更するには、少なくとも次の一次証拠を保存する。
+
+1. Clean Buildで`driver_playspectra.dll`とDriver Packageを生成できる。
+2. `vrpathreg`で登録したDriverがSteamVRにロードされる。
+3. HMD discoveryを含むManifestから、物理HMDなしで仮想HMDが発見・起動される。
+4. HMD-only checkpointの後、仮想HMDと左右Controllerが列挙される。
+5. Go Coreから送ったHead Poseがアプリケーションの視点へ到達する。
+6. 左右ControllerのPoseと少なくともBool・Scalar入力がアプリケーションへ到達する。
+7. Applicationから送ったHapticsがDriverのEvent Pollingを通り、Core Observerへ到達する。
+8. `get_state` / `reset` / Writer排他を含む共通ProtocolがSteamVR Adapterでも通る。
+9. SteamVR + native OpenXRアプリで入力に応じた描画変化をCapture/assertし、
+   operate -> render -> observeを一周させる。
+10. SteamVR + native OpenVRアプリで入力到達を確認し、描画観測は可否と経路を別欄で記録する。
+11. 再現コマンド、対象SteamVR Version、対象アプリ、Application API、結果を
+    [verification.md](verification.md)へ記録する。
+
+`SteamVR Adapter: Verified`は1〜9を必須とする。10のnative OpenVR操作到達はSteamVR互換性の
+独立した受け入れ項目であり、native OpenVR描画観測が未設計である間は完全な
+operate -> render -> observe対応を主張しない。
+
+物理HMDとの共存、全ゲームへの自動Binding、録画、完全なFrame Determinismはこの判定に含めない。
+Generic Trackerの列挙、body role割当、3台以上のControllerも初期`Verified`判定には含めない。
+
+## 現在の既知リスク
+
+- **仮想DisplayでのSteamVR起動**: 必要Interfaceはソース上確認済みだが、PlaySpectra構成では未実測。
+- **HMD Discovery**: 現行Manifestの`hmd_presence`は空であり、物理HMDなしのDriver discoveryを満たさない。
+- **OpenVR Header Version**: 現行Skeletonはv1.8.19を前提とする。現行SteamVRとの互換性は実測が必要。
+- **Controller Binding**: 同梱Profileでのアプリ側Binding手順と自動化範囲は未確定。Oculus Resource依存は除去する。
+- **native OpenVR Observation**: 現行OpenXR Layerでは純粋なOpenVR描画を観測できず、別経路の設計が必要。
+- **Identity/Role Mapping**: 可変台数化では安定identityと再割当可能なbody roleを分離し、
+  SteamVR固有PropertyをCore Protocolへ漏らさない設計が必要。
+- **Driver Process Safety**: Driverは`vrserver.exe`内で動くため、例外・Thread終了・Socket停止の不備は
+  SteamVR Session全体へ影響する。
+- **Display Parameters**: 初期値の解像度、FOV、IPD、Refresh Rateは決定ではなく、検証可能な設定値として
+  明示してから実装する必要がある。
+
+## 後続候補: 物理デバイスとの共存
+
+実機Controllerの役割割当、`GetRawTrackedDevicePoses`によるPose Mirror、Input Mux、特定Controllerへの偽装は
+後続テーマである。過去のH1〜H3仮説は、共存機能に着手する場合に改めて実測し、CoreのSteamVR Adapter完成条件へ
+混ぜない。

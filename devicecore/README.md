@@ -1,6 +1,6 @@
 # devicecore — PlaySpectra Virtual Device Core
 
-The runtime-neutral implementation of PlaySpectra's virtual HMD and Touch controllers:
+The current runtime-neutral implementation of PlaySpectra's virtual HMD and two controllers:
 
 | File | Role |
 | --- | --- |
@@ -20,6 +20,15 @@ out-of-process devices. The Monado fork pulls them in via `PLAYSPECTRA_DEVICECOR
 (`runtime/monado-playspectra/src/xrt/drivers/CMakeLists.txt`); the SteamVR driver will link the
 same sources. The wire protocol on `127.0.0.1:52702` (Monado) is the only contract a client —
 the Go `playspectra` control plane — depends on.
+
+The dependency direction is adapter -> core. SteamVR support belongs in the SteamVR adapter shell;
+OpenVR types such as `DriverPose_t`, `IVRDriverInput`, and `IVRDisplayComponent` must not enter this
+directory. Only runtime-neutral state or capability gaps may extend the core.
+
+Protocol v1's fixed `hmd`/`left`/`right` fields are an MVP wire constraint. The evolution path allows
+one HMD, zero or more controllers, and zero or more generic trackers. A future revision must keep a
+stable device identity separate from device class and reassignable body role, and negotiate that
+schema explicitly instead of changing protocol v1 in place.
 
 Protocol specification: [docs/device-core-spec.md](../docs/device-core-spec.md).
 Architecture context: [docs/architecture.md](../docs/architecture.md).

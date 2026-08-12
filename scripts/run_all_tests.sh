@@ -6,20 +6,19 @@
 # SPDX-License-Identifier: MPL-2.0
 
 # Run every environment-independent unit test with one command and exit non-zero if any fail:
-#   - mcp/     node:test   (pure quaternion/vector math)                            -> 42 cases
 #   - layer/   gtest/ctest (capture/pixel/pose helpers + xr_math/dxgi/pose_override) -> 92 Win / 83 non-Win (DXGI is WIN32-only)
 #   - Go       go test     (Core, protocol, Scenario, MCP, record/replay, setup helpers, probes)
 #   - devicecore playspectra_proto (gcc standalone: frame verdict + content_sig)      -> 43 cases
 #
-# WHY: GitHub Actions runs the environment-independent MCP and layer suites, while this script adds
-# the Go control-plane and Monado-protocol suites as a local one-command gate. It does NOT give a clean,
+# WHY: GitHub Actions runs the environment-independent Go and layer suites, while this script adds
+# the Monado-protocol suite as part of a local one-command gate. It does NOT give a clean,
 # independent environment, so it cannot catch every "works on my machine" issue (locale/dep/platform).
 #
 # SKIP discipline: a missing Go/gcc/submodule SKIPs only that suite -- it never fails the run (rc is
 # decided by fail alone) -- but it is tallied and named in the final summary so "green" can never
 # look identical to "green, but N suites never ran".
 #
-# Fast + hermetic: no GPU / HMD / running service / network needed. mcp ~1s; layer ~20s (build reused
+# Fast + hermetic: no GPU / HMD / running service / network needed. layer ~20s (build reused
 # when already present). Assumes the standard single-config layer/build (as built locally). Run from
 # anywhere:  bash scripts/run_all_tests.sh
 set -uo pipefail
@@ -29,18 +28,6 @@ skipped=0
 skipped_names=""
 note_skip() { skipped=$((skipped + 1)); skipped_names="$skipped_names $1"; echo "  ($1 -- skipped: $2)"; }
 
-echo "== mcp: node:test =="
-if [ -d mcp ]; then
-  (
-    cd mcp
-    [ -d node_modules ] || npm ci
-    npm test
-  ) || { echo ">> mcp tests FAILED"; fail=1; }
-else
-  note_skip "mcp" "mcp/ not found"
-fi
-
-echo ""
 echo "== layer: gtest / ctest =="
 BUILD="layer/build"
 if [ ! -f "$BUILD/CMakeCache.txt" ]; then

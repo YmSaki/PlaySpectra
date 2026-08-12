@@ -273,7 +273,6 @@ flowchart TD
 - SteamVR Adapter：共有device core（`devicecore/`）へ接続するAdapter殻を実装し、Windowsで検証する
 - Unity、Unreal、AR/MR固有アプリ：アプリE2Eの検証結果を追加する
 - 実機HMDの表示compositor、アプリ全体のdeterministic timing：不足している検証結果を追加する
-- legacy TypeScript MCP：現行MCPへ移行後に廃止する
 
 ## ライセンス
 

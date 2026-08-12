@@ -303,7 +303,7 @@ The representative local gate is:
 bash scripts/run_all_tests.sh
 ~~~
 
-It runs the Go control-plane, legacy MCP, layer, and Monado-protocol unit suites. A missing toolchain is reported as a named SKIP; ALL GREEN and GREEN WITH SKIPS are intentionally distinct. Live Monado/app E2E is separate because it needs a runtime and application process. GitHub Actions runs the cgo-free Go suite on Windows and Linux, the legacy MCP suite on Ubuntu, and the layer suite on Windows; the workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
+It runs the Go control-plane, layer, and Monado-protocol unit suites. A missing toolchain is reported as a named SKIP; ALL GREEN and GREEN WITH SKIPS are intentionally distinct. Live Monado/app E2E is separate because it needs a runtime and application process. GitHub Actions runs the cgo-free Go suite on Windows and Linux and the layer suite on Windows; the workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 See [Testing](docs/testing.md) for individual commands, suite counts, CI boundaries, and skip conditions.
 
@@ -316,7 +316,6 @@ Roadmap items are separate from current capabilities:
 - SteamVR Adapter: connect an adapter shell to the shared device core (`devicecore/`) and verify it on Windows.
 - Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
 - Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
-- Legacy TypeScript MCP in `mcp/`: retire the non-canonical implementation after downstream users have moved to the Go MCP command.
 
 The [roadmap](docs/roadmap.md) keeps these boundaries separate from current features.
 

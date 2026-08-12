@@ -70,7 +70,7 @@ The verification set deliberately includes negative controls: a failed state ass
 
 ## CI boundary
 
-The current workflow is .github/workflows/ci.yml. It runs the cgo-free Go suite on Windows and Linux and layer host tests on Windows for pushes and pull requests. It does not run Monado/real-app/graphics E2E because those jobs need a live runtime, an application, and (for the Windows path) a real GPU.
+The current workflow is .github/workflows/ci.yml. It runs the cgo-free Go suite on Windows and Linux and layer host tests on Windows for pushes and pull requests. Live E2E is not part of this workflow.
 
 The repository is public and the default branch is master. Current GitHub Actions status is represented by the README badge and the workflow page; dated run IDs are intentionally not part of the README.
 

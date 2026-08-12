@@ -9,8 +9,7 @@ name: CI
 #              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
 #   - monado : build + stage-install of the Monado runtime + devicecore on both release
 #              toolchains (MSVC windows / GCC ubuntu). No service run. See the job comment.
-# Live E2E (Monado / real app / capture) is intentionally NOT here: it needs a GPU + a running
-# service and cannot run on a hosted runner.
+# Live E2E is not part of this workflow.
 
 on:
   push:

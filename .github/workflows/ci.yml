@@ -13,6 +13,7 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
   workflow_call: # release.yml runs these same gates before producing any publishable artifact
     inputs:

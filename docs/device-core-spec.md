@@ -72,6 +72,24 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 - `connected:false` の device は他フィールド不要(その時点で非接続)。connected な device は完全必須。
 - `hmd`/`left`/`right` の3キーは常に present(未接続は `{"connected":false}`)。
 
+#### 将来の可変Device Collection（📋非実装）
+
+Protocol Version 1はSteamVR MVPと現行Monado実装に合わせ、1 HMD / 2 Controllers / 0 Trackersを
+`hmd` / `left` / `right`へ固定している。これは現行Wire Contractであり、Runtime Adapter全体の恒久的な
+Device数制約ではない。
+
+将来のProtocol revisionでは、1 HMD / 0..N Controllers / 0..N Generic Trackersを表せる
+Device Collectionへ一般化できることを設計制約とする。各recordは少なくとも次を別fieldとして持つ。
+
+- `device_id`: 再接続やrole変更をまたぐ安定identity。
+- `device_class`: `hmd` / `controller` / `generic_tracker`。
+- `body_role`: `head` / `left_hand` / `right_hand` / `waist` / `chest` / `left_foot` /
+  `right_foot` / `unassigned`等の再割当可能なrole。
+
+`device_id`へ`left`や`waist`を埋め込んでbody roleとidentityを同一視してはならない。
+可変Device Collectionの具体Schema、role語彙、互換規則は未決定であり、Version/Capability negotiationを伴う
+別仕様で定める。Version 1の3キーの意味を変更して可変台数化しない。
+
 ### 2.3 Controller
 
 ```jsonc
@@ -142,6 +160,9 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
                           "/input/thumbstick/x","/input/thumbstick/y","/input/thumbstick/click",
                           "/input/thumbstick/touch","/input/thumbrest/touch",
                           "/button/a/click","/button/a/touch","/button/b/click","/button/b/touch"] }
+  },
+  "capabilities": {
+    "dynamic_grip_aim_relative_pose": false
   }
 }
 ```
@@ -149,7 +170,10 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 上の JSON はワイヤ形式の完全形を示す例。**現行実装の hello 応答 descriptor が返すのは
 `protocol_version` と `hmd` の3値(recommended_eye_width / recommended_eye_height / refresh_hz)のみ**で、
 実値は各 Adapter が `playspectra_control_config` 経由で注入する(Monado Adapter の現行値: 1080x1200/眼・90 Hz)。
-`fov` と `controllers` ブロックの送出は未実装(§7)。
+`fov`、`controllers`、`capabilities`ブロックの送出は未実装(§7)。
+`dynamic_grip_aim_relative_pose`は、1台のControllerについて`grip^-1 * aim`のフレームごとの変化を
+Runtimeへ出力できる場合だけ`true`とする。fieldまたは`capabilities`自体がない場合、Clientは安全側の
+`false`として扱う。SteamVR MVPは`false`、独立Action Poseを保持するAdapterは実測後に`true`を宣言できる。
 
 ---
 
@@ -233,7 +257,7 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
 | linear/angular_velocity | `xrt_space_relation` の linear/angular velocity | `vecVelocity` / `vecAngularVelocity` |
 | /input/*/value・x・y | action `.../input/*/value|x|y` | `IVRDriverInput` scalar component |
 | /button/*/click・touch | action `.../click|touch` | `IVRDriverInput` bool component |
-| grip/aim pose | `/user/hand/*/input/grip|aim/pose` | controller pose(aim はレイ用オフセット) |
+| grip/aim pose | `/user/hand/*/input/grip|aim/pose` | MVPはgripをdevice root、aimを固定/calibrated `/pose/tip` offsetへdegrade。動的なgrip↔aim相対変化は非対応capability |
 | device.connected | session/interaction profile の有無 | `deviceIsConnected` / `TrackedDeviceAdded` |
 
 ---
@@ -245,7 +269,7 @@ OpenXR の `XR_SPACE_LOCATION_*_VALID_BIT` / `*_TRACKED_BIT` に対応(§6)。
   validation_error は現行実装では発生しない(実在する missing は `missing:state` と
   `missing:clock.logical_frame` のみ)。
 - **`runtime_reserved` 分離(§2.4)**: 未実装。現行実装は `/input/system/click` を通常の inputs として受理する。
-- **Descriptor の `controllers` / `fov` 送出(§3)**: 未実装。現行の hello 応答 descriptor は
+- **Descriptor の `controllers` / `fov` / `capabilities`送出(§3)**: 未実装。現行の hello 応答 descriptor は
   `protocol_version` と `hmd` 3値のみ。
 - velocity 供給元: Server 供給 or Adapter が pose 差分から推定 — 実測して選ぶ(protocol は null 許容で両対応)。
 - haptics 逆方向イベントの詳細スキーマ(振幅/周波数/持続の単位・複数チャンネル)。

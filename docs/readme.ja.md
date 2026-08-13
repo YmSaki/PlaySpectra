@@ -96,7 +96,7 @@ playspectra cmd get-state
 | --- | --- | --- |
 | Monado Adapter | ✅ | 仮想HMD、左右コントローラー、control channel |
 | OpenVR via OpenComposite | ⚠️ | OpenVRからOpenXRへの変換経路に限定 |
-| SteamVR Adapter | 🚧 | 現行Coreへ接続するAdapterは未実装 |
+| SteamVR Adapter | 🚧 | 現行Coreを使う仮想HMD・左右コントローラーAdapterは未実装 |
 
 ### アプリケーション
 
@@ -270,7 +270,7 @@ flowchart TD
 
 今後の予定は、現在の機能とは分けて管理します。
 
-- SteamVR Adapter：共有device core（`devicecore/`）へ接続するAdapter殻を実装し、Windowsで検証する
+- SteamVR Adapter：SteamVR Driverへ共有device core（`devicecore/`）を組み込み、仮想HMD・左右コントローラーを公開して、物理HMDなしのWindows経路を検証する
 - Unity、Unreal、AR/MR固有アプリ：アプリE2Eの検証結果を追加する
 - 実機HMDの表示compositor、アプリ全体のdeterministic timing：不足している検証結果を追加する
 

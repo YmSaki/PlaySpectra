@@ -96,7 +96,7 @@ Legend: ✅ verified, ⚠️ partially verified, 🔍 not yet verified, 🚧 pla
 | --- | --- | --- |
 | Monado Adapter | ✅ | Virtual HMD, controllers, control channel, and native OpenXR path. |
 | OpenVR via OpenComposite | ⚠️ | OpenVR-to-OpenXR conversion path only. |
-| SteamVR Adapter | 🚧 | Adapter for the current core is not implemented. |
+| SteamVR Adapter | 🚧 | Virtual HMD and controller adapter for the current core is not implemented. |
 
 ### Application targets
 
@@ -313,7 +313,7 @@ The [support tables above](#current-support) are the authoritative status summar
 
 Roadmap items are separate from current capabilities:
 
-- SteamVR Adapter: connect an adapter shell to the shared device core (`devicecore/`) and verify it on Windows.
+- SteamVR Adapter: embed the shared device core in a SteamVR driver, expose a virtual HMD and left/right controllers, and verify the physical-HMD-free Windows path.
 - Unity, Unreal, and AR/MR-specific applications: add application E2E evidence.
 - Physical-HMD display compositor and deterministic application timing: collect the missing evidence.
 

@@ -80,7 +80,7 @@ tasks:
       - 'echo "    libgl1-mesa-dev libglvnd-dev libgstreamer-plugins-base1.0-dev libgstreamer1.0-dev \\"'
       - 'echo "    libhidapi-dev libopencv-dev libsdl2-dev libsystemd-dev libudev-dev libusb-1.0-0-dev \\"'
       - 'echo "    libuvc-dev libv4l-dev libvulkan-dev libwayland-dev libx11-dev libx11-xcb-dev \\"'
-      - 'echo "    libxcb-randr0-dev libxrandr-dev libxxf86vm-dev ninja-build pkg-config python3 \\"'
+      - 'echo "    libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev ninja-build pkg-config python3 \\"'
       - 'echo "    wayland-protocols"'
       - 'echo ""'
       - 'echo "First blockers (this env is missing these): ninja-build glslang-tools libvulkan-dev libeigen3-dev"'
@@ -111,7 +111,7 @@ tasks:
         sudo apt-get install -y --no-install-recommends
         build-essential cmake ninja-build pkg-config glslang-tools python3
         libvulkan-dev libeigen3-dev libcjson-dev
-        libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev
+        libx11-dev libx11-xcb-dev libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev
         libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols
         libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev
         libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers

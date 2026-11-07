@@ -72,6 +72,14 @@ else
 fi
 
 echo ""
+echo "== scripts: e2e process isolation =="
+if [ "$(uname -s)" = "Linux" ] && command -v mkfifo >/dev/null 2>&1; then
+  bash scripts/test_e2e_process_isolation.sh || { echo ">> e2e process isolation FAILED"; fail=1; }
+else
+  note_skip "e2e-isolation" "Linux-only (e2e_playwright_loop.sh is the Linux/WSL2 harness)"
+fi
+
+echo ""
 if [ "$fail" -ne 0 ]; then
   echo "SOME TESTS FAILED"
 elif [ "$skipped" -ne 0 ]; then

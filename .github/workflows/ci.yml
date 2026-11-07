@@ -51,6 +51,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -o build/ ./cmd/playspectra
+      - name: E2E harness process isolation (no runtime needed)
+        if: runner.os == 'Linux'
+        run: bash scripts/test_e2e_process_isolation.sh
       - name: Reject owned Python source or script runtime dependencies
         if: runner.os == 'Linux'
         shell: bash

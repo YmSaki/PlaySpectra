@@ -68,7 +68,7 @@ To run the complete headless loop against the package, build hello_xr from this 
 ~~~bash
 P="$PWD/playspectra-linux-amd64"
 XR_RUNTIME_JSON="$P/runtime/share/openxr/1/openxr_monado.json" MONADO_SERVICE="$P/runtime/bin/monado-service" \
-  LAYER_SO="$P/layer/playspectra_layer.so" PLAYSPECTRA_BIN="$P/playspectra" \
+  LAYER_SO="$P/layer/playspectra_layer.so" LAYER_MANIFEST_DIR="$P/layer" PLAYSPECTRA_BIN="$P/playspectra" \
   HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" bash scripts/e2e_playwright_loop.sh
 ~~~
 
@@ -102,7 +102,7 @@ The script:
 5. Captures a baseline, runs tools/scenarios/big_view_change.json through the Server, and captures a post-injection frame.
 6. Exits non-zero unless the captured contents contain at least two distinct frames and the post-injection frame differs from the baseline.
 
-Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, LAYER_SO, or PLAYSPECTRA_BIN when using different paths. Set XR_RUNTIME_JSON and MONADO_SERVICE to run against a service-based runtime such as the release package. The script is Linux/WSL2-oriented; the Windows counterpart is scripts/run_hello_xr_monado.sh.
+Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, LAYER_SO, or PLAYSPECTRA_BIN when using different paths. Set XR_RUNTIME_JSON and MONADO_SERVICE to run against a service-based runtime such as the release package, and LAYER_MANIFEST_DIR to load an existing layer manifest instead of a generated one. The script only signals processes it started itself; it exits with PORT_BUSY if :52702 is already in use and with SERVICE_DIED if its own monado-service fails to come up. The script is Linux/WSL2-oriented; the Windows counterpart is scripts/run_hello_xr_monado.sh.
 
 ## Use the interfaces directly
 

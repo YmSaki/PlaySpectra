@@ -253,7 +253,8 @@ jobs:
           P="$PWD/stage/pkg"
           XR_RUNTIME_JSON="$P/runtime/share/openxr/1/openxr_monado.json" \
           MONADO_SERVICE="$P/runtime/bin/monado-service" \
-          LAYER_SO="$P/layer/playspectra_layer.so" PLAYSPECTRA_BIN="$P/playspectra" \
+          LAYER_SO="$P/layer/playspectra_layer.so" LAYER_MANIFEST_DIR="$P/layer" \
+          PLAYSPECTRA_BIN="$P/playspectra" \
           WORK="$RUNNER_TEMP/ps_e2e" \
           HELLOXR="$PWD/build/layer/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" \
             bash scripts/e2e_playwright_loop.sh

@@ -1,6 +1,6 @@
 # Getting started on Linux / WSL2
 
-This guide covers the Linux execution path for both native Ubuntu 22.04 and WSL2. It targets a headless Monado run with software Vulkan by default, while a hardware Vulkan ICD can be selected separately. Linux is a distinct platform path from native Windows, which is covered in [Getting started on Windows](getting-started-windows.md). A physical HMD is not required.
+This guide covers the Linux execution path for both native Ubuntu 22.04/24.04 and WSL2. It targets a headless Monado run with software Vulkan by default, while a hardware Vulkan ICD can be selected separately. Linux is a distinct platform path from native Windows, which is covered in [Getting started on Windows](getting-started-windows.md). A physical HMD is not required.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake ninja-build pkg-config glslang-tools \
   libvulkan-dev libeigen3-dev libcjson-dev \
-  libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
+  libx11-dev libx11-xcb-dev libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
   libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
   libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
   libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
@@ -29,6 +29,50 @@ git submodule update --init --recursive
 cmake -S runtime/monado-playspectra -B build/monado -G Ninja
 cmake --build build/monado --parallel
 ~~~
+
+## Start from a release package
+
+Each tagged release attaches `playspectra-<version>-linux-amd64.tar.gz` and its `.sha256`. The package contains:
+
+- `playspectra`: the Go control plane (CLI, Server, scenario runner, MCP server).
+- `runtime/`: the Monado runtime with the PlaySpectra driver. Its OpenXR manifest is `runtime/share/openxr/1/openxr_monado.json`.
+- `layer/`: `playspectra_layer.so` and its loader manifest `XrApiLayer_playspectra.json`.
+
+The runtime links system libraries rather than bundling them; install the apt list in [Prerequisites](#prerequisites). No OpenXR application is bundled.
+
+Unlike a source build, the packaged Monado is service-based: an OpenXR application connects to a running `monado-service` and fails with `XR_ERROR_RUNTIME_UNAVAILABLE` if none is running. `monado-service` has two start-up requirements that are easy to miss in a headless shell or container:
+
+- `XDG_RUNTIME_DIR` must be set. Without it the service tries a literal `~/.cache/monado.pid` and exits with a misleading `monado-service is already running!`.
+- Its stdin must not be `/dev/null` (the service fails with `epoll_ctl(stdin) failed`). Piping `sleep` into it works.
+
+Start the runtime, then any OpenXR application with the layer enabled:
+
+~~~bash
+cd playspectra-linux-amd64
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$USER}"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+export XRT_COMPOSITOR_NULL=1 PLAYSPECTRA_ENABLE=1   # headless; drop XRT_COMPOSITOR_NULL with a display
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)}"
+sleep infinity | ./runtime/bin/monado-service &
+
+# In the application's environment:
+export XR_RUNTIME_JSON="$PWD/runtime/share/openxr/1/openxr_monado.json"
+export XR_API_LAYER_PATH="$PWD/layer" XR_ENABLE_API_LAYERS=XR_APILAYER_playspectra
+your_openxr_app &
+
+./playspectra internal wait-tcp --address 127.0.0.1:52702 --timeout 18s
+./playspectra run <scenario.json>
+~~~
+
+To run the complete headless loop against the package, build hello_xr from this checkout ([below](#build-the-layer-and-hello_xr)) and point the E2E script at the package; the script then starts `monado-service` itself:
+
+~~~bash
+P="$PWD/playspectra-linux-amd64"
+XR_RUNTIME_JSON="$P/runtime/share/openxr/1/openxr_monado.json" MONADO_SERVICE="$P/runtime/bin/monado-service" \
+  LAYER_SO="$P/layer/playspectra_layer.so" PLAYSPECTRA_BIN="$P/playspectra" \
+  HELLOXR="$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" bash scripts/e2e_playwright_loop.sh
+~~~
+
+The release workflow runs this same command against the staged package before publishing it.
 
 ## Build the layer and hello_xr
 
@@ -51,14 +95,14 @@ MONADO_BUILD="$PWD/build/monado" HELLOXR="$PWD/layer/build/_deps/openxr_sdk-buil
 
 The script:
 
-1. Selects the lavapipe ICD at /usr/share/vulkan/icd.d/lvp_icd.x86_64.json by default.
+1. Selects the lavapipe ICD by default: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json, or lvp_icd.json (the Ubuntu 24.04 name) when the former does not exist.
 2. Sets the Monado runtime manifest, PlaySpectra layer manifest, and capture directory.
 3. Starts hello_xr with Vulkan2.
 4. Waits for the operation channel on :52702.
 5. Captures a baseline, runs tools/scenarios/big_view_change.json through the Server, and captures a post-injection frame.
 6. Exits non-zero unless the captured contents contain at least two distinct frames and the post-injection frame differs from the baseline.
 
-Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, or LAYER_SO when using different paths. The script is Linux/WSL2-oriented; the Windows counterpart is scripts/run_hello_xr_monado.sh.
+Override VK_ICD_FILENAMES, WORK, MONADO_BUILD, HELLOXR, LAYER_SO, or PLAYSPECTRA_BIN when using different paths. Set XR_RUNTIME_JSON and MONADO_SERVICE to run against a service-based runtime such as the release package. The script is Linux/WSL2-oriented; the Windows counterpart is scripts/run_hello_xr_monado.sh.
 
 ## Use the interfaces directly
 

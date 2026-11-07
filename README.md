@@ -58,7 +58,7 @@ ps_run run tools/scenarios/assert_demo.json
 set -e
 export PLAYSPECTRA_ENABLE=1 XRT_COMPOSITOR_NULL=1
 export XR_RUNTIME_JSON="$PWD/build/monado/openxr_monado-dev.json"
-export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}"
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)}"
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT
@@ -146,7 +146,7 @@ Choose the environment in which the XR runtime and application will actually run
 | Windows WSL2 | Linux Monado + Linux OpenXR app inside WSL2 | Vulkan, usually lavapipe | [Linux/WSL2 setup](docs/getting-started-linux.md) |
 | Ubuntu Linux | Linux Monado + Linux OpenXR app | Vulkan, software or hardware ICD | [Linux/WSL2 setup](docs/getting-started-linux.md) |
 
-All paths require the Monado submodule. Do not reuse build directories, CMake caches, or node_modules between Windows native and WSL2/Ubuntu; they contain platform-specific paths or binaries.
+To start from a prebuilt release package instead of a source build on Linux, see [Start from a release package](docs/getting-started-linux.md#start-from-a-release-package). The Windows zip has no written start-up steps yet. Source builds require the Monado submodule. Do not reuse build directories, CMake caches, or node_modules between Windows native and WSL2/Ubuntu; they contain platform-specific paths or binaries.
 
 <details>
 <summary>Windows native — Monado service + Windows OpenXR app</summary>

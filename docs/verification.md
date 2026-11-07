@@ -46,6 +46,7 @@ A status is always scoped. For example, “D3D12 verified” means the D3D12 cap
 | 2026-07-24 | TypeScript MCP status decision | Legacy implementation classified for retirement. |
 | 2026-07-25 | Windows Monado with Godot 4.7 VRAppDummyGame | Real-engine E2E recorded as 24/24, including application self-reported poses, inputs, capture, and interactions. |
 | 2026-07-31 | Go control plane with Windows Monado, layer, and VRAppDummyGame | Reported as 25/25, including pose, input, rendered capture, 89.7 FPS pacing, and game interactions. **Unverified**: no execution log backing this run is stored in the repository, so the 25/25 and the 89.7 FPS pacing are transcribed claims rather than evidence. Re-run scripts/run_vrapp_monado.sh to establish them. |
+| 2026-11-07 | Linux release package v0.1.0-rc3 (runtime, layer, playspectra from the tar.gz) with hello_xr Vulkan2, Ubuntu 24.04 container, no GPU, lavapipe | scripts/e2e_playwright_loop.sh with XR_RUNTIME_JSON/MONADO_SERVICE pointed at the package: 103 frames, 9 distinct contents, post-injection frame differs from baseline, rc=0. The script now starts monado-service itself; release.yml and ci.yml run the same check (first CI result pending). |
 
 ## Recorded environments and boundaries
 

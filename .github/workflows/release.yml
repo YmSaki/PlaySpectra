@@ -172,7 +172,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config glslang-tools \
             libvulkan-dev libeigen3-dev libcjson-dev \
-            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
+            libx11-dev libx11-xcb-dev libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
             libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
             libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
             libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
@@ -198,7 +198,7 @@ jobs:
       - name: Build layer
         run: |
           cmake -S layer -B build/layer -G Ninja
-          cmake --build build/layer --parallel --target playspectra_layer
+          cmake --build build/layer --parallel --target playspectra_layer hello_xr
 
       - name: Assemble package
         run: |
@@ -228,6 +228,8 @@ jobs:
             echo "The bundled Monado runtime is built from the fork pinned as a submodule at"
             echo "runtime/monado-playspectra in that tree. It links system libraries; the"
             echo "package list is documented in docs/getting-started-linux.md."
+            echo "Start-up steps for this package: docs/getting-started-linux.md, section"
+            echo "\"Start from a release package\" (monado-service must run first, with XDG_RUNTIME_DIR set)."
           } > stage/pkg/SOURCE.txt
 
       - name: Smoke test from the staged package
@@ -241,6 +243,20 @@ jobs:
           "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
           find runtime -name 'openxr_monado.json' | grep -q . # manifest installed
           test -f layer/playspectra_layer.so
+
+      - name: E2E from the staged package (hello_xr + inject + capture, lavapipe)
+        # The probe above never launches an app, which is how the service start-up requirements
+        # (XDG_RUNTIME_DIR, stdin) reached rc3 undetected (issue #23). hello_xr is the test app only;
+        # it is not packaged. Everything else -- runtime, layer, playspectra -- is the staged package.
+        run: |
+          set -euo pipefail
+          P="$PWD/stage/pkg"
+          XR_RUNTIME_JSON="$P/runtime/share/openxr/1/openxr_monado.json" \
+          MONADO_SERVICE="$P/runtime/bin/monado-service" \
+          LAYER_SO="$P/layer/playspectra_layer.so" PLAYSPECTRA_BIN="$P/playspectra" \
+          WORK="$RUNNER_TEMP/ps_e2e" \
+          HELLOXR="$PWD/build/layer/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" \
+            bash scripts/e2e_playwright_loop.sh
 
       - name: Tar + checksum
         run: |

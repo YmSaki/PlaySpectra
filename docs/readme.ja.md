@@ -59,7 +59,7 @@ ps_run run tools/scenarios/assert_demo.json
 set -e
 export PLAYSPECTRA_ENABLE=1 XRT_COMPOSITOR_NULL=1
 export XR_RUNTIME_JSON="$PWD/build/monado/openxr_monado-dev.json"
-export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}"
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)}"
 sleep 120 | "$PWD/layer/build/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" -g Vulkan2 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true' EXIT

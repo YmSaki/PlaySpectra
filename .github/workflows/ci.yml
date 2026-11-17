@@ -8,8 +8,9 @@ name: CI
 #              the playspectra_layer binary itself on windows and ubuntu (every dependency,
 #              including Vulkan-Headers, is FetchContent-pinned, so a clean checkout must build).
 #   - monado : build + stage-install of the Monado runtime + devicecore on both release
-#              toolchains (MSVC windows / GCC ubuntu). No service run. See the job comment.
-# Live E2E is not part of this workflow.
+#              toolchains (MSVC windows / GCC ubuntu). Linux also runs the headless E2E against the
+#              staged install (lavapipe). See the job comment.
+# Real-GPU and Windows live E2E are not part of this workflow.
 
 on:
   push:
@@ -50,6 +51,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -o build/ ./cmd/playspectra
+      - name: E2E harness process isolation (no runtime needed)
+        if: runner.os == 'Linux'
+        run: bash scripts/test_e2e_process_isolation.sh
       - name: Reject owned Python source or script runtime dependencies
         if: runner.os == 'Linux'
         shell: bash
@@ -117,7 +121,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config glslang-tools \
             libvulkan-dev libeigen3-dev libcjson-dev \
-            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
+            libx11-dev libx11-xcb-dev libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev \
             libgl1-mesa-dev libegl1-mesa-dev libglvnd-dev libwayland-dev wayland-protocols \
             libudev-dev libusb-1.0-0-dev libsdl2-dev libbsd-dev \
             libopenxr-dev libopenxr-loader1 mesa-vulkan-drivers
@@ -173,6 +177,32 @@ jobs:
           CLI="$(find stage/smoke -name monado-cli -type f | head -1)"
           test -n "$CLI"
           "$CLI" probe 2>&1 | grep "PlaySpectra HMD" # 2>&1: Monado logs the enumeration to stderr
+      # PR-time rehearsal of the release package E2E (release.yml "E2E from the staged package"):
+      # the staged runtime is service-based, so the script starts monado-service itself. Before this,
+      # no gate ever launched an OpenXR app against an installed runtime (issue #23).
+      - uses: actions/setup-go@v5
+        if: runner.os == 'Linux'
+        with:
+          go-version: "1.22.x"
+          cache: true
+      - name: Build layer + hello_xr
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S layer -B build/layer -G Ninja
+          cmake --build build/layer --parallel --target playspectra_layer hello_xr
+      - name: Staged E2E (hello_xr + inject + capture, lavapipe)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          go build -o build/playspectra ./cmd/playspectra
+          XR_RUNTIME_JSON="$(find "$PWD/stage/smoke" -name openxr_monado.json | head -1)"
+          test -n "$XR_RUNTIME_JSON"
+          XR_RUNTIME_JSON="$XR_RUNTIME_JSON" \
+          MONADO_SERVICE="$PWD/stage/smoke/bin/monado-service" \
+          LAYER_SO="$PWD/build/layer/playspectra_layer.so" \
+          PLAYSPECTRA_BIN="$PWD/build/playspectra" WORK="$RUNNER_TEMP/ps_e2e" \
+          HELLOXR="$PWD/build/layer/_deps/openxr_sdk-build/src/tests/hello_xr/hello_xr" \
+            bash scripts/e2e_playwright_loop.sh
 
   layer-build:
     name: layer binary build (${{ matrix.os }})
@@ -195,7 +225,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev libgl1-mesa-dev
+            libx11-dev libx11-xcb-dev libxcb-glx0-dev libxcb-randr0-dev libxrandr-dev libxxf86vm-dev libgl1-mesa-dev
       - name: Configure
         run: cmake -S layer -B layer/build
       - name: Build playspectra_layer
